@@ -147,7 +147,7 @@ function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
   return `<button class="card" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
     ${poster(m)}
-    <span class="meta"><span class="l1">${status(m.id)?.status === 'queue' ? `<span class="in-q">${icon('bookmark')}In your queue</span>` : esc(servicesText(m))}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
+    <span class="meta"><span class="l1">${esc(servicesText(m))}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
   </button>`;
 }
 
