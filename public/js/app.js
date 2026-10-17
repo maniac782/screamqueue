@@ -661,6 +661,49 @@ function prog(have, need, h) {
   return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"${h != null ? ` style="--h:${h}"` : ''}><i style="width:${pct}%"></i></div>`;
 }
 
+const monthName = (k) => (k ? new Date(k + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'Before Scream Queue');
+const shortDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+// A seen movie as a poster card; works even when the movie has left the nightly list.
+function watchedCard(x) {
+  const m = x.m || { id: x.id, t: x.t, y: x.y, sg: x.sg, rt: x.rt, tier: x.tier || 'known', poster: x.st.poster, flags: [], pv: [], fr: [] };
+  return `<button class="card watched" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(x.t)}, seen">
+    ${poster(m, { noBadges: true })}<span class="seen-stamp">${icon('check')}</span>
+    <span class="meta"><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}</span></span>
+  </button>`;
+}
+function renderBodyList() {
+  const el = $('#bc-results'); if (!el) return;
+  const q = (S.bcq || '').trim().toLowerCase();
+  const sg = S.bcSg || '';
+  const sort = S.bcSort || 'recent';
+  let seen = seenList().filter((x) => (!q || x.t.toLowerCase().includes(q)) && (!sg || x.sg.includes(sg)));
+  const by = {
+    recent: (a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0),
+    rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || a.t.localeCompare(b.t),
+    title: (a, b) => a.t.localeCompare(b.t),
+    year: (a, b) => (b.y || 0) - (a.y || 0),
+  }[sort];
+  seen.sort(by);
+  let html = '';
+  if (q) {
+    const notSeen = S.movies.filter((m) => m.t.toLowerCase().includes(q) && !everSeen(m) && (!sg || m.sg.includes(sg))).sort((a, b) => b.reach - a.reach).slice(0, 8);
+    html += `<div class="answer ${seen.length ? 'yes' : 'no'}">${seen.length
+      ? `${icon('check')}<span><b>Yes, you've seen ${seen.length === 1 ? esc(seen[0].t) : `${seen.length} movies matching "${esc(S.bcq.trim())}"`}.</b>${seen.length === 1 ? ` ${seen[0].on ? `Watched ${esc(shortDate(seen[0].on))}.` : 'Logged before Scream Queue.'}${seen[0].st.rating ? ` You gave it ${fmtRating(seen[0].st.rating)} skulls.` : ''}` : ''}</span>`
+      : `${icon('eye')}<span><b>Not in your Body Count.</b> ${notSeen.length ? 'It\'s listed below if you want to add it.' : 'No horror movie on the site matches that title.'}</span>`}</div>`;
+    if (seen.length) html += `<div class="grid">${seen.map(watchedCard).join('')}</div>`;
+    if (notSeen.length) html += `<h3 class="muted">${seen.length ? 'Other matches you haven\'t seen' : 'Matches you haven\'t seen'}</h3><div class="list">${notSeen.map((m) => `<div class="list-item with-art">${thumb(m)}<div style="min-width:0"><button class="linkish" data-act="open" data-id="${m.id}">${esc(m.t)}</button> <span class="faint">${m.y ?? ''}</span><div class="muted" style="font-size:.85rem">${esc(S.tierLabel.get(m.tier))}</div></div><button class="btn small seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false">${icon('eye')}Mark as seen</button></div>`).join('')}</div>`;
+  } else if (!seen.length) {
+    html = `<div class="empty">${icon('skull')}<span>${sg ? 'Nothing seen in that subgenre yet.' : 'Nothing logged yet. Open any movie and press "Mark as seen", or check off the ones you\'ve already watched.'}</span><a class="btn small" href="#/checklist">Open the checklist</a></div>`;
+  } else if (sort === 'recent') {
+    const groups = new Map();
+    for (const x of seen) { const k = x.on ? x.on.slice(0, 7) : ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+    html = [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:14px"><h3>${esc(monthName(k))} <span class="faint">${list.length}</span></h3><div class="grid">${list.map(watchedCard).join('')}</div></div>`).join('');
+  } else {
+    html = `<div class="grid">${seen.map(watchedCard).join('')}</div>`;
+  }
+  el.innerHTML = html;
+}
+
 views.bodycount = () => {
   shelfN = 0;
   if (!S.user) return signInPrompt('Sign in to keep a Body Count of every horror movie you have survived.');
@@ -668,33 +711,38 @@ views.bodycount = () => {
   const mins = seen.reduce((s, x) => s + (x.rt || 0), 0);
   const rated = seen.filter((x) => x.st.rating);
   const avg = rated.length ? (rated.reduce((s, x) => s + x.st.rating, 0) / rated.length).toFixed(1) : '–';
-  const nextMs = MILESTONES.find(([n]) => seen.length < n);
-  const badges = computeBadges(seen);
   const counts = {};
   for (const x of seen) for (const k of x.sg) counts[k] = (counts[k] || 0) + 1;
+  const tab = S.bcTab || 'watched';
+  if (tab === 'watched') S.after = renderBodyList;
+  const sgs = S.data.subgenres.filter((x) => counts[x.key]);
+  return `<div class="bc-head">
+    <div class="bc-count"><b>${seen.length}</b><span>horror movie${seen.length === 1 ? '' : 's'} survived</span></div>
+    <div class="stack" style="gap:6px;min-width:0"><h1>Body Count</h1>
+      <p class="muted">${Math.round(mins / 60)} hours of horror. Average rating ${avg}. ${Object.keys(counts).length} of ${S.data.subgenres.length} subgenres explored.</p></div>
+  </div>
+  <div class="bc-bar">
+    <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
+  </div>
+  ${tab === 'watched' ? `<div class="row bc-tools">
+      <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges and milestones</button></div>
+      <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Recently watched'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
+      <a class="btn" href="#/checklist" style="margin-left:auto">${icon("check")}Check off movies</a>
+    </div>
+    <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges and milestones</button></div></div>${badgesSection(seen, counts)}`}`;
+};
+
+function badgesSection(seen, counts) {
+  const nextMs = MILESTONES.find(([n]) => seen.length < n);
+  const badges = computeBadges(seen);
   const ess = essentialsList();
   const essNext = ess.filter((m) => !everSeen(m)).slice(0, 12);
-  const groups = new Map();
-  for (const x of seen.sort((a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0))) {
-    const key = x.on ? x.on.slice(0, 7) : '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(x);
-  }
-  const monthName = (k) => (k ? new Date(k + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'Before Scream Queue');
-  return `<div class="page-head"><h1>Body Count</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the ones you've already watched.</p></div>
-  <section class="tiles">
-    <div class="tile"><b>${seen.length}</b><span>Movies survived</span></div>
-    <div class="tile"><b>${Math.round(mins / 60)}</b><span>Hours of horror</span></div>
-    <div class="tile"><b>${avg}</b><span>Your average rating</span></div>
-    <div class="tile"><b>${Object.keys(counts).length}<small> of ${S.data.subgenres.length}</small></b><span>Subgenres explored</span></div>
-  </section>
-
-  <section class="panel stack" style="gap:18px">
+  return `<section class="panel stack" style="gap:18px">
     <div class="shelf-head"><h2>Milestones</h2>${nextMs ? `<span class="muted">${nextMs[0] - seen.length} more to ${esc(nextMs[1])}</span>` : '<span class="muted">Every milestone earned</span>'}</div>
     ${nextMs ? prog(seen.length, nextMs[0]) : ''}
     <div class="medals">${MILESTONES.map(([n, name, desc]) => `<div class="medal ${seen.length >= n ? 'won' : ''}" title="${esc(desc)}"><span class="n">${n}</span><b>${esc(name)}</b></div>`).join('')}</div>
   </section>
-
   <section class="stack" style="gap:16px">
     <h2>Badges</h2>
     <div class="badges">${badges.map((b) => {
@@ -707,7 +755,6 @@ views.bodycount = () => {
         ${prog(b.have, b.need)}</div>`;
     }).join('')}</div>
   </section>
-
   <section class="panel stack" style="gap:16px">
     <div class="shelf-head"><div><h2>Subgenre mastery</h2><p class="muted" style="font-size:.9rem">${LEVELS.map(([n, l]) => `${l} at ${n}`).join(', ')}. Tap one to browse it.</p></div></div>
     <div class="mastery">${S.data.subgenres.map((s) => {
@@ -718,19 +765,8 @@ views.bodycount = () => {
         ${prog(n, next ? next[0] : Math.max(n, 1), hue(s.key))}</button>`;
     }).join('')}</div>
   </section>
-
-  ${shelf(`Horror Essentials: ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}`, `The ${ESSENTIALS} most widely seen horror movies on the site. Here's what's next for you.`, essNext, 'You have seen every one of them.', `<a class="btn small" href="#/checklist">${icon('check')}Check off what you've seen</a>`)}
-
-  <section class="stack" style="gap:18px">
-    <h2>Watch log</h2>
-    ${seen.length ? [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:10px"><h3 class="muted">${esc(monthName(k))} <span class="faint">(${list.length})</span></h3>
-      <div class="list">${list.map((x) => `<div class="list-item with-art">${thumb(x.m || { id: x.id, sg: x.sg, poster: x.st.poster })}
-        <div style="min-width:0">${x.m ? `<button class="linkish" data-act="open" data-id="${x.id}">${esc(x.t)}</button>` : `<b>${esc(x.t)}</b>`} <span class="faint">${x.y ?? ''}</span>
-        <div class="muted" style="font-size:.85rem">${x.on ? esc(new Date(x.on + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })) + '. ' : ''}${x.sg.slice(0, 3).map((k) => esc(S.sgLabel.get(k) || k)).join(', ')}</div></div>
-        ${skullRow(x.st.rating)}</div>`).join('')}</div></div>`).join('')
-    : `<div class="empty">${icon('trophy')}<span>Nothing logged yet. Open any movie and press "Seen it", or use the checklist to add the ones you've already watched.</span><a class="btn small" href="#/checklist">Open the checklist</a></div>`}
-  </section>`;
-};
+  ${shelf(`Horror Essentials: ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}`, `The ${ESSENTIALS} most widely seen horror movies on the site. Here's what's next for you.`, essNext, 'You have seen every one of them.', `<a class="btn small" href="#/checklist">${icon('check')}Check off what you've seen</a>`)}`;
+}
 
 views.checklist = () => {
   if (!S.user) return signInPrompt('Sign in to check off the movies you have seen.');
@@ -905,6 +941,7 @@ const actions = {
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
   sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.f.hideSeen = false; location.hash = '#/browse'; },
+  bctab(el) { S.bcTab = el.dataset.k; route(true, true); },
   ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
   async ck(el) {
     if (!needUser()) return;
@@ -1011,7 +1048,12 @@ function authError(e) {
   }[code] || e?.message || 'Something went wrong. Try again.';
 }
 
-async function refreshAll() { refreshDetail(); if (!location.hash.startsWith('#/night/')) await route(true, true); }
+async function refreshAll() {
+  refreshDetail();
+  if (location.hash.startsWith('#/night/')) return;
+  if (location.hash.startsWith('#/bodycount') && $('#bc-results')) { renderBodyList(); renderChrome(); return; }
+  await route(true, true);
+}
 
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
@@ -1025,6 +1067,9 @@ $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e
 
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'bc-q') { S.bcq = el.value; if ((S.bcTab || 'watched') !== 'watched') { S.bcTab = 'watched'; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#bc-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); } else renderBodyList(); return; }
+  if (el.id === 'bc-sort') { S.bcSort = el.value; renderBodyList(); return; }
+  if (el.id === 'bc-sg') { S.bcSg = el.value; renderBodyList(); return; }
   if (el.id === 'svc-q') { S.svcq = el.value; renderServices(); return; }
   if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
   if (el.dataset.bind && location.hash.startsWith('#/browse')) { S.f[el.dataset.bind] = el.value; S.f.limit = 60; renderResults(); }
