@@ -29,6 +29,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K' : String(n));
 const status = (id) => S.mine.get(String(id));
 const isSeen = (m) => status(m.id)?.status === 'seen';
+const everSeen = (m) => { const st = status(m.id); return st?.status === 'seen' || !!st?.wasSeen; };
 const onMine = (m) => S.profile.services.some((p) => m.pv.includes(p) || m.fr.includes(p));
 const HUES = ['#b3243f', '#2b8a7e', '#6d55c2', '#b7791f', '#3b6fb6', '#8a3b8f', '#4f7f3a', '#a0522d'];
 const hueFor = (m) => HUES[(S.data?.subgenres.findIndex((s) => s.key === m.sg[0]) + 8) % 8 || 0];
@@ -80,7 +81,7 @@ function whyReach(m) {
   if (m.imdb?.v) out.push(`${fmt(m.imdb.v)} IMDb ratings${m.imdb.r ? ` · avg ${m.imdb.r}` : ''}`);
   if (m.n?.votes) out.push(`${fmt(m.n.votes)} TMDB ratings${m.va ? ` · avg ${m.va.toFixed(1)}` : ''}`);
   if (m.n?.plays) out.push(`${fmt(m.n.plays)} Trakt watchers`);
-  if (!out.length) out.push({ favorite: 'Most horror fans have seen this one', known: 'Widely seen by horror fans', cult: 'A smaller but devoted audience', deep: 'Few people have found this one' }[m.tier]);
+  if (!out.length) out.push({ favorite: 'Most horror fans have seen this one', known: 'Widely seen by horror fans', cult: 'A smaller but devoted audience', deep: 'Few people have found this one', fresh: 'Too new to have many ratings yet' }[m.tier]);
   return out;
 }
 
@@ -249,8 +250,8 @@ views.browse = () => {
 // Pick for me
 function pickOne() {
   const p = S.p;
-  const tiers = { crowd: ['favorite', 'known'], different: ['known', 'cult'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep'] }[p.mix];
-  let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && !m.flags.includes('soon') &&
+  const tiers = { crowd: ['favorite', 'known', 'fresh'], different: ['known', 'cult', 'fresh'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep', 'fresh'] }[p.mix];
+  let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || p.mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
     (!p.sg.size || m.sg.some((k) => p.sg.has(k))) &&
     (!p.mine || onMine(m)) &&
     (!p.queueOnly || status(m.id)?.status === 'queue') &&
@@ -315,6 +316,7 @@ views.queue = () => {
   const rows = tab === 'queue' ? q : seen;
   return `<div class="page-head"><h1>My queue</h1><p class="muted">${q.length} to watch · ${seen.length} seen${favs ? ` · Most watched: ${esc(favs)}` : ''}</p></div>
   <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
+  ${tab === 'seen' ? '<p class="muted">Badges, milestones and your watch log live in the <a href="#/trophies">Trophy Case</a>.</p>' : ''}
   ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${tab === 'queue' ? 'Your queue is empty. Add movies from any shelf with "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</div>`}`;
 };
 
@@ -480,6 +482,160 @@ function searchList(q, act, n = 6) {
     .map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="muted mono">${m.y ?? ''}</span></span><button class="btn small" data-act="${act}" data-id="${m.id}">${{ feature: 'Feature', hide: 'Hide', fixpick: 'Edit tags', nsuggest: 'Suggest' }[act]}</button></div>`).join('') || '<p class="muted">No matches.</p>';
 }
 
+// ---------- trophy case ----------
+const MILESTONES = [
+  [1, 'First Blood', 'Logged your first horror movie'],
+  [13, 'Unlucky 13', 'Thirteen movies seen'],
+  [31, 'Thirty-One Nights', 'A full October of horror'],
+  [50, 'Half a Hundred', 'Fifty movies seen'],
+  [100, 'Centurion', 'One hundred movies seen'],
+  [250, 'Lifer', 'Two hundred fifty movies seen'],
+  [500, 'Crypt Keeper', 'Five hundred movies seen'],
+  [666, 'Number of the Beast', 'Six hundred sixty-six movies seen'],
+];
+const LEVELS = [[1, 'Initiate'], [5, 'Regular'], [10, 'Devotee'], [25, 'Master']];
+const ESSENTIALS = 100;
+const today = () => new Date().toISOString().slice(0, 10);
+
+// Everything the user has seen, using the saved snapshot when a movie has left the nightly list.
+function seenList() {
+  return [...S.mine.entries()].filter(([, st]) => st.status === 'seen' || st.wasSeen).map(([id, st]) => {
+    const m = S.byId.get(id);
+    return {
+      id, st, m,
+      t: m?.t || st.title || 'Unknown title', y: m?.y ?? st.y ?? null,
+      sg: m?.sg || st.sg || [], rt: m?.rt ?? st.rt ?? null, tier: m?.tier || st.tier || null,
+      date: m?.date || st.date || null, on: st.seenOn || '',
+    };
+  });
+}
+function essentialsList() {
+  return S.data.movies.filter((m) => m.tier !== 'fresh').slice().sort((a, b) => b.reach - a.reach || (b.n?.votes || 0) - (a.n?.votes || 0)).slice(0, ESSENTIALS);
+}
+function levelFor(n) {
+  let cur = null, next = LEVELS[0];
+  for (const l of LEVELS) { if (n >= l[0]) cur = l; else { next = l; break; } next = null; }
+  return { cur, next };
+}
+function computeBadges(seen) {
+  const ess = new Set(essentialsList().map((m) => String(m.id)));
+  const essSeen = seen.filter((x) => ess.has(x.id)).length;
+  const decades = new Set(seen.map((x) => x.y && Math.floor(x.y / 10) * 10).filter(Boolean));
+  const deep = seen.filter((x) => x.tier === 'deep').length;
+  const rated = seen.filter((x) => x.st.rating).length;
+  const early = seen.filter((x) => x.on && x.date && (Date.parse(x.on) - Date.parse(x.date)) / 864e5 <= 30 && Date.parse(x.on) >= Date.parse(x.date)).length;
+  const perDay = {};
+  for (const x of seen) if (x.on) perDay[x.on] = (perDay[x.on] || 0) + 1;
+  const marathon = Math.max(0, ...Object.values(perDay));
+  const oct = seen.filter((x) => x.on && x.on.slice(5, 7) === '10' && x.on.slice(0, 4) === today().slice(0, 4)).length;
+  const covered = new Set(seen.flatMap((x) => x.sg)).size;
+  return [
+    { k: 'ess', name: 'Horror Essentials', desc: `Seen ${ESSENTIALS} of the most widely seen horror movies`, have: essSeen, need: ESSENTIALS, steps: [10, 25, 50, 100] },
+    { k: 'sub', name: 'Well Rounded', desc: 'Seen at least one movie in every subgenre', have: covered, need: S.data.subgenres.length },
+    { k: 'dec', name: 'Time Traveler', desc: 'Movies from six different decades', have: decades.size, need: 6 },
+    { k: 'deep', name: 'Deep Diver', desc: 'Ten Deep Cuts seen', have: deep, need: 10 },
+    { k: 'early', name: 'Opening Night', desc: 'Watched a movie within 30 days of release', have: early, need: 1 },
+    { k: 'mar', name: 'Marathoner', desc: 'Three movies logged on the same day', have: marathon, need: 3 },
+    { k: 'crit', name: 'Critic', desc: 'Rated 25 movies', have: rated, need: 25 },
+    { k: 'oct', name: 'Spooky Season', desc: `31 movies watched this October`, have: oct, need: 31 },
+  ];
+}
+function prog(have, need) {
+  const pct = Math.min(100, Math.round((have / need) * 100));
+  return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"><i style="width:${pct}%"></i></div>`;
+}
+function skullsText(r) { return r ? '💀'.repeat(r) : '<span class="muted">Not rated</span>'; }
+
+views.trophies = () => {
+  if (!S.user) return signInPrompt('Sign in to keep a trophy case of every horror movie you have seen.');
+  const seen = seenList();
+  const mins = seen.reduce((s, x) => s + (x.rt || 0), 0);
+  const rated = seen.filter((x) => x.st.rating);
+  const avg = rated.length ? (rated.reduce((s, x) => s + x.st.rating, 0) / rated.length).toFixed(1) : '—';
+  const nextMs = MILESTONES.find(([n]) => seen.length < n);
+  const earnedMs = MILESTONES.filter(([n]) => seen.length >= n);
+  const badges = computeBadges(seen);
+  const counts = {};
+  for (const x of seen) for (const k of x.sg) counts[k] = (counts[k] || 0) + 1;
+  const ess = essentialsList();
+  const essNext = ess.filter((m) => !everSeen(m)).slice(0, 12);
+  // watch log grouped by month
+  const groups = new Map();
+  for (const x of seen.sort((a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0))) {
+    const key = x.on ? x.on.slice(0, 7) : '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(x);
+  }
+  const monthName = (k) => (k ? new Date(k + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'Before Scream Queue');
+  return `<div class="page-head"><h1>Trophy Case</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the classics in bulk.</p></div>
+  <section class="tiles">
+    <div class="tile"><b class="mono">${seen.length}</b><span>Movies seen</span></div>
+    <div class="tile"><b class="mono">${Math.round(mins / 60)}</b><span>Hours of horror</span></div>
+    <div class="tile"><b class="mono">${avg}</b><span>Average rating</span></div>
+    <div class="tile"><b class="mono">${Object.keys(counts).length}<small>/${S.data.subgenres.length}</small></b><span>Subgenres explored</span></div>
+  </section>
+
+  <section class="panel stack">
+    <div class="shelf-head"><h2>Milestones</h2>${nextMs ? `<span class="muted mono" style="font-size:.85rem">${nextMs[0] - seen.length} more to ${esc(nextMs[1])}</span>` : ''}</div>
+    ${nextMs ? prog(seen.length, nextMs[0]) : ''}
+    <div class="medals">${MILESTONES.map(([n, name, desc]) => `<div class="medal ${seen.length >= n ? 'won' : ''}" title="${esc(desc)}"><span class="mono">${n}</span><b>${esc(name)}</b></div>`).join('')}</div>
+    ${earnedMs.length ? '' : '<p class="muted">Log your first movie to earn First Blood.</p>'}
+  </section>
+
+  <section class="stack">
+    <h2>Badges</h2>
+    <div class="badges">${badges.map((b) => {
+      const won = b.have >= b.need;
+      const step = b.steps ? b.steps.filter((s) => b.have >= s).pop() : null;
+      const nextStep = b.steps ? b.steps.find((s) => b.have < s) : null;
+      return `<div class="badge ${won ? 'won' : step ? 'part' : ''}">
+        <div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span class="mono muted">${Math.min(b.have, b.need)}/${b.need}</span></div>
+        <span class="muted" style="font-size:.85rem">${esc(b.desc)}${step && !won ? ` · ${step} reached, next ${nextStep}` : ''}</span>
+        ${prog(b.have, b.need)}</div>`;
+    }).join('')}</div>
+  </section>
+
+  <section class="panel stack">
+    <div class="shelf-head"><h2>Subgenre mastery</h2><span class="muted" style="font-size:.85rem">${LEVELS.map(([n, l]) => `${l} ${n}`).join(' · ')}</span></div>
+    <div class="mastery">${S.data.subgenres.map((s) => {
+      const n = counts[s.key] || 0; const { cur, next } = levelFor(n);
+      return `<button class="mast ${cur ? 'won' : ''}" data-act="sgbrowse" data-k="${s.key}" title="Browse ${esc(s.label)}">
+        <span class="row" style="justify-content:space-between;gap:6px"><b>${esc(s.label)}</b><span class="mono">${n}</span></span>
+        <span class="muted" style="font-size:.8rem">${cur ? esc(cur[1]) : 'Not started'}${next ? ` · ${next[0] - n} to ${next[1]}` : ' · Maxed'}</span>
+        ${prog(n, next ? next[0] : n || 1)}</button>`;
+    }).join('')}</div>
+  </section>
+
+  <section class="shelf">
+    <div class="shelf-head"><div><h2>Horror Essentials · ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}</h2><p class="muted">The ${ESSENTIALS} most widely seen horror movies on the site. Next up for you:</p></div><a class="btn small" href="#/checklist">Check off what you've seen</a></div>
+    ${essNext.length ? `<div class="shelf-track">${essNext.map(card).join('')}</div>` : '<div class="empty">You have seen every one of them. Respect.</div>'}
+  </section>
+
+  <section class="stack">
+    <h2>Watch log</h2>
+    ${seen.length ? [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:8px"><h3 class="muted">${esc(monthName(k))} <span class="mono">(${list.length})</span></h3>
+      <div class="list">${list.map((x) => `<div class="list-item">
+        <div style="min-width:0">${x.m ? `<button class="linkish" data-act="open" data-id="${x.id}">${esc(x.t)}</button>` : `<b>${esc(x.t)}</b>`} <span class="muted mono" style="font-size:.85rem">${x.y ?? ''}</span>
+        <div class="muted" style="font-size:.82rem">${x.on ? esc(new Date(x.on + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })) + ' · ' : ''}${x.sg.slice(0, 3).map((k) => esc(S.sgLabel.get(k) || k)).join(', ')}</div></div>
+        <span aria-label="${x.st.rating || 0} of 5">${skullsText(x.st.rating)}</span></div>`).join('')}</div></div>`).join('')
+    : '<div class="empty">Nothing logged yet. Open any movie and press "Seen it", or use the checklist to add the ones you have already watched.</div>'}
+  </section>`;
+};
+
+views.checklist = () => {
+  if (!S.user) return signInPrompt('Sign in to check off the movies you have seen.');
+  const q = (S.ckq || '').toLowerCase();
+  const base = S.ckAll ? S.movies.slice().sort((a, b) => b.reach - a.reach) : essentialsList();
+  const list = base.filter((m) => !q || m.t.toLowerCase().includes(q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
+  const done = base.filter(everSeen).length;
+  return `<div class="page-head"><h1>Check off what you've seen</h1><p class="muted">Tap every movie you've already watched. They go into your Trophy Case as "Before Scream Queue" so you don't need dates.</p></div>
+  <div class="row"><a class="btn" href="#/trophies">Back to Trophy Case</a>
+    <div class="chips"><button class="chip" data-act="ckmode" data-k="ess" aria-pressed="${!S.ckAll}">Horror Essentials</button><button class="chip" data-act="ckmode" data-k="all" aria-pressed="${!!S.ckAll}">Everything on the site</button></div>
+    <span class="muted mono" id="ck-count">${done} of ${base.length} seen</span></div>
+  <input type="search" id="ck-q" placeholder="Filter by title" value="${esc(S.ckq || '')}" aria-label="Filter by title" style="max-width:420px">
+  <div class="checks">${list.map((m) => `<button class="check" data-act="ck" data-id="${m.id}" aria-pressed="${everSeen(m)}"><span class="box" aria-hidden="true"></span><span style="min-width:0"><b>${esc(m.t)}</b> <span class="muted mono">${m.y ?? ''}</span><br><span class="muted" style="font-size:.8rem">${esc(S.tierLabel.get(m.tier))}${m.sg.length ? ' · ' + esc(S.sgLabel.get(m.sg[0])) : ''}</span></span></button>`).join('')}</div>`;
+};
+
 // ---------- detail dialog ----------
 function openDetail(id) {
   const m = S.byId.get(String(id)); if (!m) return;
@@ -504,6 +660,7 @@ function openDetail(id) {
           <span class="muted" style="font-size:.75rem">Streaming data from JustWatch via TMDB${SAMPLE() ? ' · sample data, not real' : ''}</span></div>
         <div class="row">${queueBtn(m)}<button class="btn" data-act="seen" data-id="${m.id}" aria-pressed="${st?.status === 'seen'}">${st?.status === 'seen' ? 'Seen' : 'Seen it'}</button>
           ${st?.status === 'seen' ? `<span class="skulls" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-act="rate" data-id="${m.id}" data-k="${n}" class="${(st.rating || 0) >= n ? 'on' : ''}" aria-label="${n} of 5">💀</button>`).join('')}</span>` : ''}
+          ${st?.status === 'seen' ? `<label class="row" style="gap:6px;font-size:.85rem" class="muted">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}" style="width:auto"></label>` : ''}
           ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
         <div class="row" style="gap:12px;font-size:.9rem">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${l}</a>`).join('')}</div>
       </div></div></div>`;
@@ -516,7 +673,10 @@ function refreshDetail() { const d = $('#detail'); if (d.open && d.dataset.id) o
 async function setStatus(id, data) {
   if (!needUser()) return;
   const m = S.byId.get(String(id));
-  const next = { title: m?.t || '', ...data };
+  const prev = S.mine.get(String(id)) || {};
+  const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null } : {};
+  const next = { ...prev, ...snap, ...data };
+  delete next.at;
   S.mine.set(String(id), { ...next, at: Date.now() });
   await store.setMovie(id, next);
 }
@@ -530,17 +690,27 @@ const actions = {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     if (st?.status === 'queue') { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); toast('Removed from your queue'); }
-    else { await setStatus(el.dataset.id, { status: 'queue' }); toast('Added to your queue'); }
+    else { await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' }); toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue'); }
     refreshAll();
   },
   async seen(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     if (st?.status === 'seen') return;
-    await setStatus(el.dataset.id, { status: 'seen', rating: 0 }); toast('Marked as seen. Rate it with the skulls.');
+    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() }); toast('Added to your Trophy Case. Rate it with the skulls.');
     refreshAll();
   },
   async rate(el) { await setStatus(el.dataset.id, { status: 'seen', rating: Number(el.dataset.k) }); refreshAll(); },
+  sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.f.hideSeen = false; location.hash = '#/browse'; },
+  ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
+  async ck(el) {
+    if (!needUser()) return;
+    const id = el.dataset.id;
+    if (everSeen({ id })) { S.mine.delete(String(id)); await store.removeMovie(id); el.setAttribute('aria-pressed', 'false'); }
+    else { await setStatus(id, { status: 'seen', rating: 0, seenOn: '' }); el.setAttribute('aria-pressed', 'true'); }
+    const base = S.ckAll ? S.movies : essentialsList();
+    const c = $('#ck-count'); if (c) c.textContent = `${base.filter(everSeen).length} of ${base.length} seen`;
+  },
   async forget(el) { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); refreshAll(); },
   more() { S.f.limit += 60; renderResults(); },
   fsg(el) { toggle(S.f.sg, el.dataset.k); el.setAttribute('aria-pressed', S.f.sg.has(el.dataset.k)); S.f.limit = 60; renderResults(); },
@@ -635,6 +805,7 @@ $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e
 
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
   if (el.dataset.bind && location.hash.startsWith('#/browse')) { S.f[el.dataset.bind] = el.value; S.f.limit = 60; renderResults(); }
   if (el.dataset.bind === 'maxRt') S.p.maxRt = el.value;
   if (el.id === 'night-search') $('#night-search-results').innerHTML = searchList(el.value, 'nsuggest');
@@ -642,6 +813,10 @@ document.addEventListener('input', (e) => {
   if (el.id === 'adm-hide-search') $('#adm-hide-results').innerHTML = searchList(el.value, 'hide');
   if (el.id === 'adm-fix-search') $('#adm-fix-results').innerHTML = searchList(el.value, 'fixpick');
   if (el.hasAttribute('data-bind-theme')) setTheme(el.value);
+});
+
+document.addEventListener('change', async (e) => {
+  if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved'); }
 });
 
 document.addEventListener('submit', async (e) => {
@@ -669,7 +844,7 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight'], ['#/browse', 'Browse'], ['#/pick', 'Pick for me'], ['#/queue', 'My queue'], ['#/nights', 'Movie nights']];
+const NAV = [['#/', 'Tonight'], ['#/browse', 'Browse'], ['#/pick', 'Pick for me'], ['#/queue', 'My queue'], ['#/trophies', 'Trophy Case'], ['#/nights', 'Movie nights']];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
   $('#nav').innerHTML = [...NAV, ...(S.user?.isAdmin ? [['#/admin', 'Admin']] : [])]
@@ -694,7 +869,7 @@ async function route(keepScroll) {
   const html = await view(arg);
   $('#main').innerHTML = html;
   if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Trophy Case', checklist: 'Checklist' }[name] || '') : ''}`;
 }
 
 async function boot() {

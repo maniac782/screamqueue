@@ -29,7 +29,8 @@ export const SUBGENRES = [
   { key: 'anthology',  label: 'Anthology',           kw: /anthology|horror anthology|segment/ },
   { key: 'scifi',      label: 'Sci-Fi Horror',       kw: /space horror|sci-fi horror/, genre: GENRE.scifi },
   { key: 'comedy',     label: 'Horror Comedy',       kw: /horror comedy|horror spoof|splatstick|parody/, genre: GENRE.comedy },
-  { key: 'terror',     label: 'Thriller & Terror',   kw: /survival thriller|psychological thriller|suspense/, genre: GENRE.thriller },
+  // Only keyword-driven: TMDB tags so much horror as "Thriller" that the genre alone tells you little.
+  { key: 'terror',     label: 'Thriller & Terror',   kw: /suspense|psychological thriller|survival thriller|cat and mouse|hostage|kidnapping|abduction|siege|held captive|trapped in a room|isolation/ },
 ];
 
 export function tagSubgenres(keywordNames = [], genreIds = []) {
@@ -78,7 +79,9 @@ export function rankScore(rank, depth = 60) {
   return Math.max(0, 100 * (1 - (rank - 1) / depth));
 }
 
+// "fresh" is set by date, not reach: brand-new movies haven't had time to collect ratings.
 export const TIERS = [
+  { key: 'fresh',    label: 'New Release',    min: Infinity },
   { key: 'favorite', label: 'Crowd Favorite', min: 80 },
   { key: 'known',    label: 'Well-Known',     min: 55 },
   { key: 'cult',     label: 'Cult Pick',      min: 30 },
@@ -119,7 +122,7 @@ export function scoreMovies(movies, today = new Date()) {
     if (isNew) flags.push('new');
     if (isNew && b < 45) flags.push('quiet');
     if (soon) flags.push('soon');
-    return { ...m, buzz: b, reach: r, tier: tierFor(r), flags };
+    return { ...m, buzz: b, reach: r, tier: isNew || soon ? 'fresh' : tierFor(r), flags };
   });
 }
 

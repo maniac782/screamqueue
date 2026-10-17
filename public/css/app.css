@@ -12,6 +12,7 @@
   --teal: #3fc1b0;
   --violet: #a98af0;
   --amber: #e8b33a;
+  --fresh: #74a9ff;
   --danger: #ff6b6b;
   --shadow: 0 10px 30px rgba(0, 0, 0, .45);
   --font-logo: 'Creepster', 'Impact', fantasy;
@@ -25,7 +26,7 @@
   :root:not([data-theme="dark"]) {
     --bg: #f4f0f2; --surface: #ffffff; --surface-2: #ebe4e8; --line: #d8ccd3;
     --fg: #1d1218; --muted: #6b5862; --accent: #b8183a; --accent-fg: #ffffff;
-    --teal: #127467; --violet: #6b4bc4; --amber: #9a6a00; --danger: #c0282f;
+    --teal: #127467; --violet: #6b4bc4; --amber: #9a6a00; --fresh: #2b5fb4; --danger: #c0282f;
     --shadow: 0 8px 24px rgba(60, 20, 40, .14);
     color-scheme: light;
   }
@@ -33,7 +34,7 @@
 :root[data-theme="light"] {
   --bg: #f4f0f2; --surface: #ffffff; --surface-2: #ebe4e8; --line: #d8ccd3;
   --fg: #1d1218; --muted: #6b5862; --accent: #b8183a; --accent-fg: #ffffff;
-  --teal: #127467; --violet: #6b4bc4; --amber: #9a6a00; --danger: #c0282f;
+  --teal: #127467; --violet: #6b4bc4; --amber: #9a6a00; --fresh: #2b5fb4; --danger: #c0282f;
   --shadow: 0 8px 24px rgba(60, 20, 40, .14);
   color-scheme: light;
 }
@@ -250,3 +251,39 @@ footer .wrap { padding-block: 16px; display: grid; gap: 6px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 .hero-pick .mark, .hero-pick .sticker.hot { display: none; }
+
+.t-fresh { --tier: var(--fresh); }
+/* Trophy Case */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; display: grid; gap: 2px; }
+.tile b { font-size: 2rem; line-height: 1.1; font-weight: 500; }
+.tile b small { font-size: 1rem; color: var(--muted); }
+.tile span { font-size: .85rem; color: var(--muted); font-family: var(--font-head); text-transform: uppercase; letter-spacing: .08em; }
+.prog { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.prog i { display: block; height: 100%; background: var(--teal); border-radius: 3px; }
+.medals { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.medal { border: 1px dashed var(--line); border-radius: var(--radius); padding: 10px; display: grid; gap: 2px; text-align: center; color: var(--muted); opacity: .6; }
+.medal span { font-size: 1.4rem; }
+.medal b { font-family: var(--font-head); font-weight: 500; font-size: .85rem; text-transform: uppercase; letter-spacing: .05em; }
+.medal.won { opacity: 1; border-style: solid; border-color: var(--accent); color: var(--fg); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+.medal.won span { color: var(--accent); }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.badge { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; display: grid; gap: 8px; }
+.badge.won { border-color: var(--teal); }
+.badge.won .prog i { background: var(--accent); }
+.badge.part { border-color: color-mix(in srgb, var(--teal) 50%, var(--line)); }
+.mastery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.mast { all: unset; cursor: pointer; display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+.mast:hover { border-color: var(--muted); }
+.mast:focus-visible { outline: 2px solid var(--teal); }
+.mast.won { border-color: color-mix(in srgb, var(--teal) 60%, var(--line)); }
+.linkish { all: unset; cursor: pointer; font-weight: 600; }
+.linkish:hover { color: var(--teal); text-decoration: underline; }
+.linkish:focus-visible { outline: 2px solid var(--teal); }
+.checks { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.check { all: unset; cursor: pointer; display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.check:focus-visible { outline: 2px solid var(--teal); }
+.check .box { width: 18px; height: 18px; border: 2px solid var(--muted); border-radius: 4px; margin-top: 2px; }
+.check[aria-pressed="true"] { border-color: var(--teal); }
+.check[aria-pressed="true"] .box { background: var(--teal); border-color: var(--teal); box-shadow: inset 0 0 0 3px var(--surface); }

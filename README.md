@@ -3,11 +3,11 @@
 Find the horror movie to watch next. Each movie gets two scores so a buzzy hit is easy to tell from something that just came out:
 
 - **Buzz** (0–100): activity right now — TMDB daily/weekly trending rank and popularity, plus Trakt watchers if connected.
-- **Reach** (0–100): how widely it has been seen — TMDB and IMDb rating counts, plus Trakt watchers if connected. Reach sets the tier sticker: Crowd Favorite, Well-Known, Cult Pick, Deep Cut.
+- **Reach** (0–100): how widely it has been seen — TMDB and IMDb rating counts, plus Trakt watchers if connected. Reach sets the tier sticker: Crowd Favorite, Well-Known, Cult Pick, Deep Cut. Movies released in the last four months get a New Release sticker instead, since they have not had time to collect ratings.
 
 Movies are tagged with subgenres (slasher, possession, demonic, ghosts, folk horror, found footage, creature feature and more) from TMDB keywords, and show where they stream in the US, including Shudder.
 
-Features: Google and email sign-in, open sign-ups, watch queue, seen list with 1–5 skull ratings, "Pick for me", movie nights with shared suggestions and voting, streaming-service filters, an admin page (featured movies, hidden movies, subgenre fixes, poster toggle, announcement banner), installable app, offline cache.
+Features: Google and email sign-in, open sign-ups, watch queue, a Trophy Case (milestones, badges, subgenre mastery, Horror Essentials checklist, dated watch log with 1–5 skull ratings), "Pick for me", movie nights with shared suggestions and voting, streaming-service filters, an admin page (featured movies, hidden movies, subgenre fixes, poster toggle, announcement banner), installable app, offline cache.
 
 ## How it fits together
 

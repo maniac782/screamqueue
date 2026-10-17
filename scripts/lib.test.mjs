@@ -6,7 +6,8 @@ test('tags subgenres from keywords and genres', () => {
   const sg = tagSubgenres(['demonic possession', 'exorcism', 'priest'], [27]);
   assert.ok(sg.includes('possession'));
   assert.ok(sg.includes('demonic'));
-  assert.deepEqual(tagSubgenres(['slasher', 'summer camp'], [27, GENRE.thriller]).sort(), ['slasher', 'teen', 'terror']);
+  assert.deepEqual(tagSubgenres(['slasher', 'summer camp'], [27, GENRE.thriller]).sort(), ['slasher', 'teen']);
+  assert.deepEqual(tagSubgenres(['kidnapping'], [27]), ['terror']);
   assert.deepEqual(tagSubgenres([], [27]), []);
 });
 
@@ -22,9 +23,10 @@ test('scores separate a widely seen hit from a quiet new release', () => {
     { id: 3, pop: 40, votes: 4000, imdbVotes: 90000, weekRank: null, dayRank: null, date: '1980-05-09' },
   ];
   const [hit, quiet, classic] = scoreMovies(movies, today);
-  assert.equal(hit.tier, 'favorite');
+  assert.equal(hit.tier, 'fresh');
   assert.ok(hit.flags.includes('hot') && hit.flags.includes('new'));
-  assert.equal(quiet.tier, 'deep');
+  assert.equal(quiet.tier, 'fresh');
+  assert.equal(classic.tier !== 'fresh', true);
   assert.ok(quiet.flags.includes('quiet'));
   assert.ok(!classic.flags.includes('new'));
   assert.ok(hit.buzz > classic.buzz && classic.buzz > quiet.buzz);
