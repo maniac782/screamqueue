@@ -4,7 +4,7 @@
   "description": "Find the horror movie to watch next.",
   "start_url": "./",
   "display": "standalone",
-  "background_color": "#140d12",
-  "theme_color": "#20151c",
+  "background_color": "#0f1013",
+  "theme_color": "#0f1013",
   "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

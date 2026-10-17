@@ -1,7 +1,7 @@
 // Offline cache. The cache name follows the site version so each release refreshes it.
 const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
 const CACHE = 'screamqueue-' + VERSION;
-const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'js/store-local.js', 'js/store-firebase.js', 'manifest.webmanifest', 'icons/icon.svg'];
+const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/config.js', 'js/store-local.js', 'js/icons.js', 'js/art.js', 'js/store-firebase.js', 'manifest.webmanifest', 'icons/icon.svg'];
 
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', (e) => {

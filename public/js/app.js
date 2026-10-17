@@ -1,4 +1,6 @@
 import { VERSION, SITE_NAME, TAGLINE, DEMO, VOTES_PER_PERSON } from './config.js';
+import { icon } from './icons.js';
+import { art, SG_HUE } from './art.js';
 
 const { store } = globalThis.SQ_STORE
   ? { store: globalThis.SQ_STORE }
@@ -31,14 +33,16 @@ const status = (id) => S.mine.get(String(id));
 const isSeen = (m) => status(m.id)?.status === 'seen';
 const everSeen = (m) => { const st = status(m.id); return st?.status === 'seen' || !!st?.wasSeen; };
 const onMine = (m) => S.profile.services.some((p) => m.pv.includes(p) || m.fr.includes(p));
-const HUES = ['#b3243f', '#2b8a7e', '#6d55c2', '#b7791f', '#3b6fb6', '#8a3b8f', '#4f7f3a', '#a0522d'];
-const hueFor = (m) => HUES[(S.data?.subgenres.findIndex((s) => s.key === m.sg[0]) + 8) % 8 || 0];
 const SAMPLE = () => !!S.data?.sample;
+const hue = (k) => (SG_HUE[k] || [350])[0];
+const today = () => new Date().toISOString().slice(0, 10);
+const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-function toast(msg) {
+function toast(msg, ic = 'check') {
   document.querySelectorAll('.toast').forEach((x) => x.remove());
   const t = document.createElement('div');
-  t.className = 'toast'; t.setAttribute('role', 'status'); t.textContent = msg;
+  t.className = 'toast'; t.setAttribute('role', 'status');
+  t.innerHTML = `${icon(ic)}<span>${esc(msg)}</span>`;
   document.body.append(t);
   setTimeout(() => t.remove(), 2600);
 }
@@ -57,74 +61,85 @@ function links(m) {
       ['Letterboxd', `https://letterboxd.com/search/${encodeURIComponent(m.t)}/`],
       ['IMDb', `https://www.imdb.com/find/?q=${q}`],
       ['TMDB', `https://www.themoviedb.org/search?query=${q}`],
-      ['Where to watch', `https://www.justwatch.com/us/search?q=${encodeURIComponent(m.t)}`],
+      ['JustWatch', `https://www.justwatch.com/us/search?q=${encodeURIComponent(m.t)}`],
     ];
   }
   const out = [['Letterboxd', `https://letterboxd.com/tmdb/${m.id}/`]];
   if (m.imdb?.id) out.push(['IMDb', `https://www.imdb.com/title/${m.imdb.id}/`]);
   out.push(['TMDB', `https://www.themoviedb.org/movie/${m.id}`]);
-  if (m.wl) out.push(['Where to watch', m.wl]);
+  if (m.wl) out.push(['All streaming options', m.wl]);
   return out;
 }
 
-function whyBuzz(m) {
-  const out = [];
-  if (m.weekRank) out.push(`#${m.weekRank} horror movie on TMDB's trending list this week`);
-  else if (m.dayRank) out.push(`#${m.dayRank} horror movie on TMDB's trending list today`);
-  if (m.n?.trakt) out.push(`${fmt(m.n.trakt)} people watching on Trakt right now`);
-  if (m.flags.includes('quiet')) out.push('Just released, but few people are talking about it yet');
-  if (!out.length) out.push(m.buzz >= 60 ? 'Lots of activity on TMDB lately' : m.buzz >= 35 ? 'Steady interest on TMDB' : 'Not much chatter right now');
-  return out;
+// Plain-language reasons a movie is on the shelf (the scores stay behind the scenes).
+function trendLine(m) {
+  if (m.weekRank) return { b: `#${m.weekRank} trending horror movie this week`, s: 'Based on TMDB activity' };
+  if (m.dayRank) return { b: `#${m.dayRank} trending horror movie today`, s: 'Based on TMDB activity' };
+  if (m.n?.trakt) return { b: `${fmt(m.n.trakt)} people watching right now`, s: 'From Trakt' };
+  if (m.flags.includes('quiet')) return { b: 'Just released, still under the radar', s: 'Not many people talking about it yet' };
+  if (m.buzz >= 60) return { b: 'Getting a lot of attention lately', s: 'Busy on TMDB this week' };
+  if (m.buzz >= 35) return { b: 'Steady interest', s: 'People keep coming back to it' };
+  return { b: 'Quiet right now', s: 'Not much activity this week' };
 }
-function whyReach(m) {
-  const out = [];
-  if (m.imdb?.v) out.push(`${fmt(m.imdb.v)} IMDb ratings${m.imdb.r ? ` · avg ${m.imdb.r}` : ''}`);
-  if (m.n?.votes) out.push(`${fmt(m.n.votes)} TMDB ratings${m.va ? ` · avg ${m.va.toFixed(1)}` : ''}`);
-  if (m.n?.plays) out.push(`${fmt(m.n.plays)} Trakt watchers`);
-  if (!out.length) out.push({ favorite: 'Most horror fans have seen this one', known: 'Widely seen by horror fans', cult: 'A smaller but devoted audience', deep: 'Few people have found this one', fresh: 'Too new to have many ratings yet' }[m.tier]);
-  return out;
+function reachLine(m) {
+  const b = { fresh: 'Too new to have many ratings', favorite: 'One of the most-watched horror movies', known: 'Widely seen by horror fans', cult: 'Smaller audience, loyal fans', deep: 'Few people have found this one' }[m.tier];
+  const s = m.imdb?.v ? `${fmt(m.imdb.v)} ratings on IMDb` : m.n?.votes ? `${fmt(m.n.votes)} ratings on TMDB` : 'Based on how many people have rated it';
+  return { b, s };
 }
-
-function meter(label, value, color) {
-  const on = Math.round(value / 10);
-  return `<div class="meter" style="--m:${color}"><div class="lbl"><span>${label}</span><b>${value}</b></div>
-    <div class="bar" aria-hidden="true">${Array.from({ length: 10 }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div></div>`;
+function shortLine(m) {
+  if (m.weekRank) return `#${m.weekRank} trending this week`;
+  if (m.flags.includes('quiet')) return 'Just released, under the radar';
+  return reachLine(m).b;
 }
+function rating(m) { const r = m.imdb?.r ?? (m.va ? Number(m.va.toFixed(1)) : null); return r ? `${icon('star')}${r}` : ''; }
 
 function servicesText(m) {
   const names = [...m.pv, ...m.fr].map((p) => S.provName.get(p)).filter(Boolean);
-  if (names.length) return names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+  const mine = S.profile.services.length ? names.filter((_, i) => S.profile.services.includes([...m.pv, ...m.fr][i])) : [];
+  const list = mine.length ? mine : names;
+  if (list.length) return list.slice(0, 2).join(', ') + (list.length > 2 ? ` +${list.length - 2}` : '');
   return m.rent ? 'Rent or buy' : 'Not streaming';
 }
 
-function cover(m) {
+function poster(m, opts = {}) {
   const st = status(m.id);
   const img = S.config.showPosters && m.poster;
-  return `<div class="cover ${img ? 'has-img' : ''}" style="--hue:${hueFor(m)}">
-    ${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
-    <div class="band"></div>
-    <div class="label"><span class="ttl">${esc(m.t)}</span><span class="yr">${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</span></div>
-    <div class="foot"><span>BUZZ ${m.buzz}</span><span>REACH ${m.reach}</span></div>
-    <span class="sticker t-${m.tier}">${esc(S.tierLabel.get(m.tier))}</span>
-    ${m.flags.includes('hot') ? '<span class="sticker hot">Hot this week</span>' : ''}
-    ${st ? `<span class="mark">${st.status === 'seen' ? 'Seen' : 'Queued'}</span>` : ''}
+  return `<div class="poster ${img ? 'has-img' : ''}">
+    ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
+    <div class="scrim"></div>
+    ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}"><i></i>${esc(S.tierLabel.get(m.tier))}</span>`}
+    ${!opts.noBadges && m.flags.includes('hot') ? `<span class="badge-hot" title="Trending this week">${icon('flame')}</span>` : ''}
+    ${!opts.noBadges && st ? `<span class="badge-me ${everSeen(m) && st.status !== 'queue' ? 'seen' : ''}" title="${st.status === 'seen' ? 'Seen' : 'In your queue'}">${icon(st.status === 'seen' ? 'check' : 'bookmark')}</span>` : ''}
+    <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
 
 function card(m) {
-  const tags = m.sg.slice(0, 2).map((k) => `<span class="tag">${esc(S.sgLabel.get(k))}</span>`).join('');
-  return `<button class="sleeve" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
-    ${cover(m)}
-    <span class="meta"><span class="muted" style="font-size:.82rem">${esc(servicesText(m))}</span><span class="chips">${tags}</span></span>
+  const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
+  return `<button class="card" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
+    ${poster(m)}
+    <span class="meta"><span class="l1">${esc(servicesText(m))}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
   </button>`;
 }
 
-function shelf(title, desc, list, emptyText, more) {
+let shelfN = 0;
+function shelf(title, desc, list, emptyText, more = '') {
+  const id = 'rail' + (++shelfN);
   return `<section class="shelf">
-    <div class="shelf-head"><div><h2>${title}</h2>${desc ? `<p class="muted">${desc}</p>` : ''}</div>${more || ''}</div>
-    ${list.length ? `<div class="shelf-track">${list.map(card).join('')}</div>` : `<div class="empty">${emptyText}</div>`}
+    <div class="shelf-head"><div><h2>${title}</h2>${desc ? `<p class="muted">${desc}</p>` : ''}</div>
+      <div class="shelf-nav">${more}${list.length > 4 ? `<button class="icon-btn" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll back">${icon('left')}</button><button class="icon-btn" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll forward">${icon('right')}</button>` : ''}</div></div>
+    ${list.length ? `<div class="track" id="${id}">${list.map(card).join('')}</div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
 }
+
+function chip(act, k, label, pressed, extra = '') {
+  return `<button class="chip" data-act="${act}" data-k="${k}" aria-pressed="${!!pressed}" ${extra}><span class="tick">${icon('check')}</span>${label}</button>`;
+}
+function sgChip(act, s, pressed) {
+  return `<button class="chip" data-act="${act}" data-k="${s.key}" aria-pressed="${!!pressed}" style="--h:${hue(s.key)}"><span class="sw"></span><span class="tick">${icon('check')}</span>${esc(s.label)}</button>`;
+}
+function sgTag(k) { return `<span class="tag" style="--h:${hue(k)}"><span class="sw"></span>${esc(S.sgLabel.get(k) || k)}</span>`; }
+function skullRow(r) { return r ? `<span class="skull-row" aria-label="${r} of 5">${Array.from({ length: r }, () => icon('skull')).join('')}</span>` : '<span class="faint">Not rated</span>'; }
 
 // ---------- data ----------
 async function loadData() {
@@ -137,10 +152,9 @@ async function loadData() {
 }
 function applyConfig() {
   const hidden = new Set((S.config.hidden || []).map(String));
-  S.movies = S.data.movies
-    .filter((m) => !hidden.has(String(m.id)))
-    .map((m) => (S.config.sgFix?.[m.id] ? { ...m, sg: S.config.sgFix[m.id] } : m));
-  S.byId = new Map(S.data.movies.map((m) => [String(m.id), S.config.sgFix?.[m.id] ? { ...m, sg: S.config.sgFix[m.id] } : m]));
+  const fix = (m) => (S.config.sgFix?.[m.id] ? { ...m, sg: S.config.sgFix[m.id] } : m);
+  S.movies = S.data.movies.filter((m) => !hidden.has(String(m.id))).map(fix);
+  S.byId = new Map(S.data.movies.map((m) => [String(m.id), fix(m)]));
 }
 async function loadMine() {
   if (!S.user) { S.mine = new Map(); S.profile = { name: '', services: [], hideSeen: false }; return; }
@@ -152,54 +166,50 @@ async function loadMine() {
 // ---------- views ----------
 const views = {};
 
+function queueBtn(m, cls = '') {
+  const st = status(m.id);
+  const on = st?.status === 'queue';
+  return `<button class="btn ${cls}" data-act="queue" data-id="${m.id}" aria-pressed="${on}">${icon(on ? 'check' : 'bookmark')}${on ? 'In your queue' : isSeen(m) ? 'Queue a rewatch' : 'Add to queue'}</button>`;
+}
+
 views.tonight = () => {
+  shelfN = 0;
   const pool = S.movies.filter((m) => !isSeen(m));
   const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
-  const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz).slice(0, 16);
-  const crowd = mineFirst(pool.filter((m) => m.tier === 'favorite' || m.tier === 'known')).sort((a, b) => b.buzz + b.reach - a.buzz - a.reach).slice(0, 16);
-  const cult = pool.filter((m) => m.tier === 'cult').sort((a, b) => b.buzz - a.buzz).slice(0, 16);
-  const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz).slice(0, 16);
-  const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 16);
-  const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 16);
-  const top = featured[0] || mineFirst(hot)[0] || hot[0] || pool[0];
-  const firstRun = 'Shows up after the first nightly data refresh.';
+  const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const crowd = mineFirst(pool.filter((m) => m.tier === 'favorite' || m.tier === 'known')).sort((a, b) => b.buzz + b.reach - a.buzz - a.reach).slice(0, 18);
+  const cult = pool.filter((m) => m.tier === 'cult').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 18);
+  const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
+  const firstRun = 'This shelf fills in after the next nightly data refresh.';
   return `
-  <section class="hero">
-    <div class="stack">
-      <span class="kicker">Tonight</span>
-      <h1>What are we watching?</h1>
-      <p class="muted">Horror sorted by what people are actually watching and talking about, not just what came out this week. ${S.profile.services.length ? 'Shelves lean toward your streaming services.' : '<a href="#/settings">Add your streaming services</a> to see what you can watch right now.'}</p>
-      <div class="row"><a class="btn primary" href="#/pick">Pick for me</a><a class="btn" href="#/browse">Browse the shelves</a></div>
+  ${top ? `<section class="hero">
+    ${art(top, true)}<div class="shade"></div>
+    <div class="hero-body">
+      <span class="eyebrow">${icon(featured[0] ? 'star' : 'flame')}${featured[0] ? 'Featured tonight' : esc(trendLine(top).b)}</span>
+      <h1>${esc(top.t)}</h1>
+      <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}<span>${esc(servicesText(top))}</span></div>
+      ${top.ov ? `<p class="ov">${esc(top.ov)}</p>` : ''}
+      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for me</a></div>
     </div>
-    ${top ? `<div class="hero-pick">
-      <button class="sleeve" data-act="open" data-id="${top.id}" aria-label="${esc(top.t)}">${cover(top)}</button>
-      <div class="stack" style="gap:8px">
-        <span class="kicker">${featured[0] ? 'Featured pick' : 'Top of the shelf'}</span>
-        <h2>${esc(top.t)} <span class="muted mono" style="font-size:.9rem">${top.y ?? ''}</span></h2>
-        <p class="muted" style="font-size:.92rem">${esc(whyBuzz(top)[0])}. ${esc(servicesText(top))}.</p>
-        <div class="row"><button class="btn small" data-act="open" data-id="${top.id}">Details</button>${queueBtn(top, true)}</div>
-      </div></div>` : ''}
-  </section>
-  ${featured.length > 1 ? shelf('Featured', 'Hand-picked by the site admin.', featured, '') : ''}
-  ${shelf('Trending this week', 'The horror movies with the most activity right now.', hot, firstRun, '<a class="btn small ghost" href="#/browse">See all</a>')}
-  ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen, well-liked, easy to get a group on board with.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services. Try the Browse page.' : firstRun)}
-  ${shelf('New and buzzing', 'Released in the last four months and getting real attention.', newBuzz, firstRun)}
-  ${shelf('New and quiet', 'Recently released, but few people are watching yet. Proceed with curiosity.', quiet, firstRun)}
-  ${shelf('Cult picks', 'Smaller audiences, loyal fans.', cult, firstRun)}
-  ${shelf('On Shudder now', 'Ranked by current buzz.', shudder, firstRun)}`;
+  </section>` : ''}
+  ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
+  ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
+  ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun, '<a class="btn small ghost" href="#/browse">See all</a>')}
+  ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen and well liked. Easy to get a group on board.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services right now.' : firstRun)}
+  ${shelf('New and catching on', 'Out in the last four months and already getting attention.', newBuzz, firstRun)}
+  ${shelf('New and under the radar', 'Recently released, but few people have found them yet.', quiet, firstRun)}
+  ${shelf('Cult picks', 'Smaller audiences with loyal fans.', cult, firstRun)}
+  ${shelf('On Shudder now', 'The busiest titles on Shudder this week.', shudder, firstRun)}`;
 };
-
-function queueBtn(m, small) {
-  const st = status(m.id);
-  const on = st?.status === 'queue';
-  return `<button class="btn ${small ? 'small' : ''}" data-act="queue" data-id="${m.id}" aria-pressed="${on}">${on ? 'In your queue' : st?.status === 'seen' ? 'Queue again' : 'Add to queue'}</button>`;
-}
 
 // Browse
 function filtered() {
   const f = S.f; const q = f.q.trim().toLowerCase();
-  let list = S.movies.filter((m) =>
+  const list = S.movies.filter((m) =>
     (!q || m.t.toLowerCase().includes(q) || m.dir.some((d) => d.toLowerCase().includes(q))) &&
     (!f.sg.size || [...f.sg].every((k) => m.sg.includes(k))) &&
     (!f.tier.size || f.tier.has(m.tier)) &&
@@ -219,35 +229,42 @@ function filtered() {
 function renderResults() {
   const list = filtered();
   const el = $('#results'); if (!el) return;
-  el.innerHTML = `<p class="muted mono" style="font-size:.85rem">${list.length} movie${list.length === 1 ? '' : 's'}</p>
-    ${list.length ? `<div class="grid">${list.slice(0, S.f.limit).map(card).join('')}</div>` : '<div class="empty">Nothing matches all of those filters. Try removing a subgenre.</div>'}
+  el.innerHTML = `<p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>
+    ${list.length ? `<div class="grid">${list.slice(0, S.f.limit).map(card).join('')}</div>` : `<div class="empty">${icon('search')}<span>Nothing matches all of those filters. Try removing a subgenre.</span></div>`}
     ${list.length > S.f.limit ? '<div class="row" style="justify-content:center"><button class="btn" data-act="more">Show more</button></div>' : ''}`;
 }
 views.browse = () => {
   const f = S.f;
   const decades = [...new Set(S.movies.map((m) => m.y && Math.floor(m.y / 10) * 10).filter(Boolean))].sort((a, b) => b - a);
   const provs = S.data.providers.filter((p) => S.movies.some((m) => m.pv.includes(p.id) || m.fr.includes(p.id)));
-  setTimeout(renderResults);
-  return `<div class="page-head"><h1>Browse the shelves</h1><p class="muted">Stack subgenres to narrow it down. Buzz is what people are watching now; Reach is how widely it has been seen overall.</p></div>
-  <div class="panel filters">
+  S.after = renderResults;
+  const any = f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine;
+  return `<div class="page-head"><h1>Browse</h1><p class="muted">Pick a few subgenres to narrow it down. Every filter you add has to match.</p></div>
+  <div class="filters">
     <div class="toolbar">
-      <input type="search" id="f-q" data-bind="q" placeholder="Search by title or director" value="${esc(f.q)}" aria-label="Search">
-      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Most buzz'], ['reach', 'Most seen'], ['rating', 'Highest rated'], ['newest', 'Newest'], ['title', 'Title A–Z']].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="Search titles or directors" value="${esc(f.q)}"></label>
+      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ['newest', 'Newest'], ['title', 'Title A to Z']].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     </div>
-    <div class="filter-row"><span>Subgenre</span><div class="chips">${S.data.subgenres.map((s) => `<button class="chip" data-act="fsg" data-k="${s.key}" aria-pressed="${f.sg.has(s.key)}">${esc(s.label)}</button>`).join('')}</div></div>
-    <div class="filter-row"><span>How known</span><div class="chips">${S.data.tiers.map((t) => `<button class="chip" data-act="ftier" data-k="${t.key}" aria-pressed="${f.tier.has(t.key)}">${esc(t.label)}</button>`).join('')}</div></div>
+    <div class="filter-row"><span>Subgenre</span><div class="chips">${S.data.subgenres.map((s) => sgChip('fsg', s, f.sg.has(s.key))).join('')}</div></div>
+    <div class="filter-row"><span>How known</span><div class="chips">${S.data.tiers.map((t) => chip('ftier', t.key, esc(t.label), f.tier.has(t.key))).join('')}</div></div>
     <div class="filter-row"><span>Show</span><div class="chips">
-      <button class="chip" data-act="fmine" aria-pressed="${f.mine}" ${S.profile.services.length ? '' : 'disabled title="Add services in Settings"'}>On my services</button>
-      <button class="chip" data-act="fseen" aria-pressed="${f.hideSeen}">Hide what I've seen</button>
-      ${f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine ? '<button class="chip" data-act="fclear">Clear filters</button>' : ''}
+      ${chip('fmine', '', 'On my services', f.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
+      ${chip('fseen', '', "Hide what I've seen", f.hideSeen)}
+      ${any ? `<button class="chip" data-act="fclear">${icon('x')}Clear filters</button>` : ''}
     </div></div>
   </div>
   <div id="results" class="stack"></div>`;
 };
 
 // Pick for me
+const MOODS = [
+  ['crowd', 'Crowd pleaser', 'Popular and well liked'],
+  ['different', 'Something different', 'Known, but off the main path'],
+  ['deep', 'Deep cut', 'Cult and obscure picks'],
+  ['any', 'Surprise me', 'Anything goes'],
+];
 function pickOne() {
   const p = S.p;
   const tiers = { crowd: ['favorite', 'known', 'fresh'], different: ['known', 'cult', 'fresh'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep', 'fresh'] }[p.mix];
@@ -269,35 +286,37 @@ function pickOne() {
   for (const m of pool) { r -= weight(m); if (r <= 0) return m; }
   return pool[pool.length - 1];
 }
-function renderPick() {
+function renderPick(animate) {
   const el = $('#pick-result'); if (!el) return;
   const m = S.p.current && S.byId.get(String(S.p.current));
-  if (!m) { el.innerHTML = `<div class="empty">${S.p.current === false ? 'Nothing fits all of those choices. Loosen a filter and try again.' : 'Set your mood on the left, then press Pick for me.'}</div>`; return; }
-  el.innerHTML = `<div class="panel hero-pick" style="grid-template-columns:150px minmax(0,1fr)">
-    <button class="sleeve" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}">${cover(m)}</button>
-    <div class="stack" style="gap:10px">
-      <h2>${esc(m.t)} <span class="muted mono" style="font-size:.9rem">${m.y ?? ''}</span></h2>
-      <div class="chips">${m.sg.map((k) => `<span class="tag">${esc(S.sgLabel.get(k))}</span>`).join('')}</div>
-      <p class="muted" style="font-size:.92rem">${esc(m.ov || '')}</p>
-      <p style="font-size:.9rem"><b>Watch:</b> ${esc(servicesText(m))}</p>
-      <div class="meters">${meter('Buzz', m.buzz, 'var(--accent)')}${meter('Reach', m.reach, 'var(--teal)')}</div>
-      <div class="row"><button class="btn primary" data-act="repick">Another one</button>${queueBtn(m)}<button class="btn" data-act="open" data-id="${m.id}">Details</button></div>
+  if (!m) {
+    el.innerHTML = `<div class="pick-card empty-pick"><div class="stack" style="justify-items:center;padding:28px">${icon('dice')}<p>${S.p.current === false ? 'Nothing fits all of those choices. Loosen a filter and try again.' : 'Choose a mood, then press Pick for me.'}</p></div></div>`;
+    return;
+  }
+  el.innerHTML = `<div class="pick-card ${animate ? 'spin' : ''}">
+    ${art(m, true)}<div class="shade"></div>
+    <div class="body">
+      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}<span>${esc(servicesText(m))}</span></div>
+      <h2>${esc(m.t)}</h2>
+      ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
+      <div class="row">${m.sg.slice(0, 4).map(sgTag).join('')}</div>
+      <div class="row"><button class="btn primary" data-act="repick">${icon('dice')}Pick another</button>${queueBtn(m)}<button class="btn" data-act="open" data-id="${m.id}">Details</button></div>
     </div></div>`;
 }
 views.pick = () => {
   const p = S.p;
-  setTimeout(renderPick);
-  return `<div class="page-head"><h1>Pick for me</h1><p class="muted">Tell it the mood and it pulls one from the shelf, weighted toward what fits. Movies you've seen are skipped.</p></div>
-  <div class="two-col">
+  S.after = () => renderPick(false);
+  return `<div class="page-head"><h1>Pick for me</h1><p class="muted">Set the mood and we'll pull one off the shelf. Movies you've seen are skipped.</p></div>
+  <div class="pick-layout">
     <div class="panel filters">
-      <div class="filter-row"><span>Mood</span><div class="chips">${[['crowd', 'Crowd pleaser'], ['different', 'Something different'], ['deep', 'Deep cut'], ['any', 'Surprise me']].map(([k, l]) => `<button class="chip" data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}">${l}</button>`).join('')}</div></div>
-      <div class="filter-row"><span>Any of</span><div class="chips">${S.data.subgenres.map((s) => `<button class="chip" data-act="psg" data-k="${s.key}" aria-pressed="${p.sg.has(s.key)}">${esc(s.label)}</button>`).join('')}</div></div>
-      <div class="filter-row"><span>Limits</span><div class="chips">
-        <button class="chip" data-act="pmine" aria-pressed="${p.mine}" ${S.profile.services.length ? '' : 'disabled title="Add services in Settings"'}>On my services</button>
-        <button class="chip" data-act="pqueue" aria-pressed="${p.queueOnly}" ${S.user ? '' : 'disabled'}>From my queue</button>
-        <select id="p-rt" data-bind="maxRt" aria-label="Maximum length" style="width:auto"><option value="">Any length</option>${[90, 100, 110, 120].map((n) => `<option value="${n}" ${String(p.maxRt) === String(n) ? 'selected' : ''}>Under ${n} min</option>`).join('')}</select>
+      <div class="stack" style="gap:10px"><h3>Mood</h3><div class="seg">${MOODS.map(([k, l, d]) => `<button data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>
+      <div class="stack" style="gap:10px"><h3>Any of these subgenres</h3><div class="chips">${S.data.subgenres.map((s) => sgChip('psg', s, p.sg.has(s.key))).join('')}</div></div>
+      <div class="stack" style="gap:10px"><h3>Limits</h3><div class="chips">
+        ${chip('pmine', '', 'On my services', p.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
+        ${chip('pqueue', '', 'From my queue', p.queueOnly, S.user ? '' : 'disabled')}
+        <select id="p-rt" data-bind="maxRt" aria-label="Maximum length" style="width:auto;min-height:36px;padding-block:6px;border-radius:999px"><option value="">Any length</option>${[90, 100, 110, 120].map((n) => `<option value="${n}" ${String(p.maxRt) === String(n) ? 'selected' : ''}>Under ${n} min</option>`).join('')}</select>
       </div></div>
-      <div class="row"><button class="btn primary" data-act="repick">Pick for me</button></div>
+      <button class="btn primary" data-act="repick" style="justify-self:start">${icon('dice')}Pick for me</button>
     </div>
     <div id="pick-result"></div>
   </div>`;
@@ -309,43 +328,41 @@ views.queue = () => {
   const all = [...S.mine.entries()].map(([id, st]) => ({ m: S.byId.get(id), st, id })).filter((x) => x.m);
   const q = all.filter((x) => x.st.status === 'queue').sort((a, b) => b.st.at - a.st.at);
   const seen = all.filter((x) => x.st.status === 'seen').sort((a, b) => b.st.at - a.st.at);
-  const counts = {};
-  for (const { m } of seen) for (const k of m.sg) counts[k] = (counts[k] || 0) + 1;
-  const favs = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${S.sgLabel.get(k)} (${n})`).join(', ');
   const tab = S.qTab;
   const rows = tab === 'queue' ? q : seen;
-  return `<div class="page-head"><h1>My queue</h1><p class="muted">${q.length} to watch · ${seen.length} seen${favs ? ` · Most watched: ${esc(favs)}` : ''}</p></div>
+  return `<div class="page-head"><h1>My queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
   <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
-  ${tab === 'seen' ? '<p class="muted">Badges, milestones and your watch log live in the <a href="#/trophies">Trophy Case</a>.</p>' : ''}
-  ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${tab === 'queue' ? 'Your queue is empty. Add movies from any shelf with "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</div>`}`;
+  ${tab === 'seen' ? '<p class="muted">Badges, milestones and your full watch log live in the <a href="#/trophies">Trophy Case</a>.</p>' : ''}
+  ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${icon(tab === 'queue' ? 'bookmark' : 'check')}<span>${tab === 'queue' ? 'Your queue is empty. Open any movie and press "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</span></div>`}`;
 };
 
 // Movie nights
 views.nights = async () => {
   if (!S.user) return signInPrompt('Sign in to start a movie night and vote with friends.');
   const list = (await store.listNights()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return `<div class="page-head"><h1>Movie nights</h1><p class="muted">Start a night, send friends the link, everyone suggests movies and gets ${VOTES_PER_PERSON} votes.</p></div>
+  return `<div class="page-head"><h1>Movie nights</h1><p class="muted">Start a night and send friends the link. Everyone suggests movies and gets ${VOTES_PER_PERSON} votes.</p></div>
   <div class="two-col">
-    <div class="list">${list.length ? list.map((n) => `<a class="list-item" href="#/night/${n.id}" style="text-decoration:none;color:inherit">
-      <div><div class="t">${esc(n.title)}</div><div class="muted" style="font-size:.85rem">${n.date ? esc(n.date) + ' · ' : ''}${n.members.length} ${n.members.length === 1 ? 'person' : 'people'} · ${Object.keys(n.candidates || {}).length} suggestions${n.winner ? ' · Decided: ' + esc(S.byId.get(String(n.winner))?.t || '') : ''}</div></div>
-      <span class="tag">${n.status === 'decided' ? 'Decided' : 'Voting'}</span></a>`).join('') : '<div class="empty">No movie nights yet. Start one on the right.</div>'}</div>
+    <div class="list">${list.length ? list.map((n) => `<a class="list-item" href="#/night/${n.id}">
+      <div><div class="t">${esc(n.title)}</div><div class="muted" style="font-size:.88rem">${n.date ? esc(n.date) + ', ' : ''}${n.members.length} ${n.members.length === 1 ? 'person' : 'people'}, ${Object.keys(n.candidates || {}).length} suggestions${n.winner ? `. Watching ${esc(S.byId.get(String(n.winner))?.t || '')}` : ''}</div></div>
+      <span class="tag">${n.status === 'decided' ? 'Decided' : 'Voting open'}</span></a>`).join('') : `<div class="empty">${icon('users')}<span>No movie nights yet. Start one and invite your friends.</span></div>`}</div>
     <form class="panel stack" data-form="new-night">
       <h2>Start a movie night</h2>
       <label class="field">Name<input type="text" id="night-title" name="title" required maxlength="60" placeholder="Friday Fright Night"></label>
       <label class="field">Date (optional)<input type="date" id="night-date" name="date"></label>
-      <button class="btn primary" type="submit">Create and get the link</button>
+      <button class="btn primary" type="submit">${icon('plus')}Create and get the link</button>
     </form>
   </div>`;
 };
 
+function thumb(m) { return `<span class="thumb">${art(m)}</span>`; }
 function renderNight(n, id) {
   const el = $('#night'); if (!el) return;
-  if (!n) { el.innerHTML = '<div class="empty">This movie night was not found. It may have been deleted, or the link is incomplete.</div>'; return; }
+  if (!n) { el.innerHTML = `<div class="empty">${icon('users')}<span>This movie night was not found. It may have been deleted, or the link is incomplete.</span></div>`; return; }
   const me = S.user.uid;
   const member = n.members.includes(me);
   const owner = n.owner === me;
   if (!member) {
-    el.innerHTML = `<div class="panel stack auth-card"><h1>${esc(n.title)}</h1><p class="muted">${esc(n.memberNames?.[n.owner] || 'Someone')} invited you to suggest and vote on what to watch${n.date ? ' on ' + esc(n.date) : ''}.</p><button class="btn primary" data-act="join" data-id="${id}">Join this movie night</button></div>`;
+    el.innerHTML = `<div class="panel stack auth-card"><h1>${esc(n.title)}</h1><p class="muted">${esc(n.memberNames?.[n.owner] || 'Someone')} invited you to suggest and vote on what to watch${n.date ? ' on ' + esc(n.date) : ''}.</p><button class="btn primary" data-act="join" data-id="${id}">${icon('users')}Join this movie night</button></div>`;
     return;
   }
   const votes = n.votes || {};
@@ -357,30 +374,30 @@ function renderNight(n, id) {
   const queueIdeas = [...S.mine.entries()].filter(([mid, st]) => st.status === 'queue' && !n.candidates?.[mid]).map(([mid]) => S.byId.get(mid)).filter(Boolean).slice(0, 8);
   const link = location.href.split('#')[0] + '#/night/' + id;
   el.innerHTML = `
-  <div class="page-head"><h1>${esc(n.title)}</h1><p class="muted">${n.date ? esc(n.date) + ' · ' : ''}${n.members.map((u) => esc(n.memberNames?.[u] || 'Guest')).join(', ')}</p></div>
-  ${winner ? `<div class="panel list-item winner"><div><div class="muted" style="font-size:.8rem;text-transform:uppercase;letter-spacing:.1em">We're watching</div><div class="t" style="font-size:1.3rem">${esc(winner.t)} <span class="muted mono" style="font-size:.9rem">${winner.y ?? ''}</span></div><div class="muted" style="font-size:.9rem">${esc(servicesText(winner))}</div></div>
-    <div class="row"><button class="btn small" data-act="open" data-id="${winner.id}">Details</button><button class="btn small" data-act="seen" data-id="${winner.id}">Mark seen</button>${owner ? `<button class="btn small ghost" data-act="decide" data-night="${id}" data-id="">Reopen voting</button>` : ''}</div></div>` : ''}
+  <div class="page-head"><h1>${esc(n.title)}</h1><p class="muted">${n.date ? esc(n.date) + '. ' : ''}With ${n.members.map((u) => esc(n.memberNames?.[u] || 'Guest')).join(', ')}</p></div>
+  ${winner ? `<div class="list-item with-art winner">${thumb(winner)}<div><div class="muted" style="font-size:.88rem">We're watching</div><div class="t" style="font-size:1.3rem;font-family:var(--font-display)">${esc(winner.t)} <span class="faint">${winner.y ?? ''}</span></div><div class="muted" style="font-size:.88rem">${esc(servicesText(winner))}</div></div>
+    <div class="row"><button class="btn small" data-act="open" data-id="${winner.id}">Details</button><button class="btn small" data-act="seen" data-id="${winner.id}">${icon('check')}Mark seen</button>${owner ? `<button class="btn small ghost" data-act="decide" data-night="${id}" data-id="">Reopen voting</button>` : ''}</div></div>` : ''}
   <div class="two-col">
     <section class="stack">
-      <div class="shelf-head"><h2>Suggestions</h2><span class="muted mono" style="font-size:.85rem">You have ${Math.max(0, VOTES_PER_PERSON - mine.length)} of ${VOTES_PER_PERSON} votes left</span></div>
+      <div class="shelf-head"><h2>Suggestions</h2><span class="muted" style="font-size:.9rem">${Math.max(0, VOTES_PER_PERSON - mine.length)} of ${VOTES_PER_PERSON} votes left</span></div>
       <div class="list">${cands.length ? cands.map(({ mid, c, m, v }) => {
         const voted = mine.includes(mid);
-        return `<div class="list-item ${winner && String(winner.id) === mid ? 'winner' : ''}">
-          <div style="min-width:0"><button class="btn ghost small" style="padding:0;border:0;text-transform:none;font-family:var(--font-body);font-size:1rem;font-weight:600;letter-spacing:0" data-act="open" data-id="${mid}">${esc(m.t)}</button> <span class="muted mono" style="font-size:.85rem">${m.y ?? ''}</span>
-          <div class="muted" style="font-size:.82rem">${esc(servicesText(m))} · suggested by ${esc(n.memberNames?.[c.by] || 'Guest')}</div></div>
+        return `<div class="list-item with-art ${winner && String(winner.id) === mid ? 'winner' : ''}">${thumb(m)}
+          <div style="min-width:0"><button class="linkish" data-act="open" data-id="${mid}">${esc(m.t)}</button> <span class="faint">${m.y ?? ''}</span>
+          <div class="muted" style="font-size:.85rem">${esc(servicesText(m))}. Suggested by ${esc(n.memberNames?.[c.by] || 'Guest')}</div></div>
           <div class="row"><span class="tally" aria-label="${v} votes">${v}</span>
-            <button class="btn small" data-act="vote" data-night="${id}" data-id="${mid}" aria-pressed="${voted}" ${!voted && mine.length >= VOTES_PER_PERSON ? 'disabled' : ''}>${voted ? 'Voted' : 'Vote'}</button>
-            ${owner ? `<button class="btn small" data-act="decide" data-night="${id}" data-id="${mid}">Pick</button><button class="btn small ghost" data-act="unsuggest" data-night="${id}" data-id="${mid}" aria-label="Remove ${esc(m.t)}">Remove</button>` : ''}</div>
+            <button class="btn small" data-act="vote" data-night="${id}" data-id="${mid}" aria-pressed="${voted}" ${!voted && mine.length >= VOTES_PER_PERSON ? 'disabled' : ''}>${voted ? `${icon('check')}Voted` : 'Vote'}</button>
+            ${owner ? `<button class="btn small" data-act="decide" data-night="${id}" data-id="${mid}">Pick</button><button class="icon-btn" data-act="unsuggest" data-night="${id}" data-id="${mid}" aria-label="Remove ${esc(m.t)}">${icon('x')}</button>` : ''}</div>
         </div>`;
-      }).join('') : '<div class="empty">No suggestions yet. Add a few from the right.</div>'}</div>
+      }).join('') : `<div class="empty">${icon('plus')}<span>No suggestions yet. Add a few from the right.</span></div>`}</div>
     </section>
     <aside class="stack">
       <div class="panel stack"><h3>Invite friends</h3><p class="muted" style="font-size:.9rem">Anyone with this link can sign up and join.</p>
-        <input type="text" id="invite-link" readonly value="${esc(link)}" aria-label="Invite link"><button class="btn" data-act="copy" data-target="invite-link">Copy link</button></div>
+        <input type="text" id="invite-link" readonly value="${esc(link)}" aria-label="Invite link"><button class="btn" data-act="copy" data-target="invite-link">${icon('link')}Copy link</button></div>
       <div class="panel stack"><h3>Suggest a movie</h3>
-        <input type="search" id="night-search" placeholder="Search titles" aria-label="Search titles to suggest">
+        <label class="search"><span class="sr">Search titles to suggest</span>${icon('search')}<input type="search" id="night-search" placeholder="Search titles"></label>
         <div id="night-search-results" class="list"></div>
-        ${queueIdeas.length ? `<div class="muted" style="font-size:.85rem">From your queue</div><div class="chips">${queueIdeas.map((m) => `<button class="chip" data-act="suggest" data-night="${id}" data-id="${m.id}">+ ${esc(m.t)}</button>`).join('')}</div>` : ''}
+        ${queueIdeas.length ? `<div class="muted" style="font-size:.88rem">From your queue</div><div class="chips">${queueIdeas.map((m) => `<button class="chip" data-act="suggest" data-night="${id}" data-id="${m.id}">${icon('plus')}${esc(m.t)}</button>`).join('')}</div>` : ''}
       </div>
       ${owner ? `<button class="btn ghost" data-act="delnight" data-night="${id}">Delete this movie night</button>` : ''}
     </aside>
@@ -389,7 +406,7 @@ function renderNight(n, id) {
 }
 views.night = (id) => {
   if (!S.user) return signInPrompt('Sign in or create an account to join this movie night.');
-  setTimeout(() => { S.stopNight = store.watchNight(id, (n) => { S.lastNight = n; renderNight(n, id); }); });
+  S.after = () => { S.stopNight = store.watchNight(id, (n) => { S.lastNight = n; renderNight(n, id); }); };
   return '<div id="night" class="stack"><div class="empty">Loading movie night…</div></div>';
 };
 
@@ -398,25 +415,25 @@ views.settings = () => {
   if (!S.user) return signInPrompt('Sign in to save your name and streaming services.');
   let theme = 'system'; try { theme = localStorage.getItem('sq-theme') || 'system'; } catch { /* ignore */ }
   return `<div class="page-head"><h1>Settings</h1></div>
-  <form class="panel stack" data-form="settings" style="max-width:760px">
+  <form class="panel stack" data-form="settings" style="max-width:820px;gap:22px">
     <label class="field">Display name (shown on movie nights)<input type="text" id="set-name" name="name" maxlength="40" value="${esc(S.profile.name)}"></label>
-    <div class="stack" style="gap:6px"><span class="muted" style="font-size:.9rem">Streaming services you have</span>
-      <div class="chips">${S.data.providers.map((p) => `<button type="button" class="chip" data-act="svc" data-k="${p.id}" aria-pressed="${S.profile.services.includes(p.id)}">${esc(p.name)}</button>`).join('')}</div></div>
-    <label class="row" style="gap:8px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
-    <label class="field" style="max-width:220px">Theme<select id="set-theme" data-bind-theme>${['system', 'dark', 'light'].map((t) => `<option value="${t}" ${theme === t ? 'selected' : ''}>${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}</select></label>
+    <div class="stack" style="gap:10px"><h3>Streaming services you have</h3><p class="muted" style="font-size:.9rem">Shelves and Pick for me will lean toward these.</p>
+      <div class="chips">${S.data.providers.map((p) => `<button type="button" class="chip" data-act="svc" data-k="${p.id}" aria-pressed="${S.profile.services.includes(p.id)}"><span class="tick">${icon('check')}</span>${esc(p.name)}</button>`).join('')}</div></div>
+    <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
+    <label class="field" style="max-width:240px">Theme<select id="set-theme" data-bind-theme>${['system', 'dark', 'light'].map((t) => `<option value="${t}" ${theme === t ? 'selected' : ''}>${{ system: 'Match my device', dark: 'Dark', light: 'Light' }[t]}</option>`).join('')}</select></label>
     <div class="row"><button class="btn primary" type="submit">Save settings</button><button class="btn ghost" type="button" data-act="signout">Sign out</button>${store.demo ? '<button class="btn ghost" type="button" data-act="resetdemo">Reset demo data</button>' : ''}</div>
   </form>`;
 };
 
 // Sign in
 function signInPrompt(msg) {
-  return `<div class="panel stack auth-card"><h1>Sign in</h1><p class="muted">${msg}</p><a class="btn primary" href="#/signin" data-act="gosignin">Sign in or create an account</a></div>`;
+  return `<div class="panel stack auth-card" style="text-align:center;justify-items:center"><span class="logo"><span class="mark">${icon('skull')}</span></span><h2>Sign in to continue</h2><p class="muted">${msg}</p><a class="btn primary" href="#/signin" data-act="gosignin">Sign in or create an account</a></div>`;
 }
 views.signin = () => {
   if (S.user) { setTimeout(() => (location.hash = S.afterSignIn || '#/')); return ''; }
-  return `<div class="panel stack auth-card">
-    <h1>Welcome to ${esc(SITE_NAME)}</h1>
-    <p class="muted">${esc(TAGLINE)} An account keeps your queue, ratings and movie nights.</p>
+  return `<div class="panel stack auth-card" style="gap:18px">
+    <h1 style="font-size:2rem">Welcome to ${esc(SITE_NAME)}</h1>
+    <p class="muted">${esc(TAGLINE)} An account keeps your queue, Trophy Case and movie nights.</p>
     ${store.demo ? '<p class="ok">Demo mode: any details work and nothing leaves this browser.</p>' : ''}
     <button class="btn primary" data-act="google">Continue with Google</button>
     <div class="divider">or use email</div>
@@ -432,46 +449,48 @@ views.signin = () => {
 
 // About
 views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} works</h1></div>
-  <div class="panel stack" style="max-width:760px">
-    <p>Every night the site pulls the most popular, most trending and most-rated horror movies from TMDB, along with where they're streaming in the US.</p>
-    <h3>Buzz (0–100)</h3><p class="muted">How much activity a movie is getting right now: its place on TMDB's daily and weekly trending lists, its current TMDB popularity, and (when connected) how many people are watching it on Trakt.</p>
-    <h3>Reach (0–100)</h3><p class="muted">How widely it has been seen overall: rating counts on TMDB and IMDb, and Trakt watchers when available. Reach sets the sticker on each sleeve:</p>
-    <div class="chips">${S.data.tiers.map((t) => `<span class="tag">${esc(t.label)}</span>`).join('')}</div>
-    <p class="muted">A movie that came out last week with low Buzz and low Reach lands on the "New and quiet" shelf, so you can tell a new release from one people are actually watching.</p>
-    <h3>Subgenres</h3><p class="muted">Tagged from TMDB keywords (for example "slasher", "demonic possession", "found footage") plus genre overlaps like horror-comedy and sci-fi horror. A movie can have several. The admin can correct tags.</p>
-    <p class="muted" style="font-size:.85rem">Both scores are relative to the other horror movies on the site, not to all movies.</p>
+  <div class="panel stack prose" style="max-width:760px;gap:18px">
+    <p>Every night the site pulls the most popular, most talked-about and most-rated horror movies from TMDB, along with where they're streaming in the US.</p>
+    <h3>Trending vs. widely seen</h3>
+    <p class="muted">Each movie is measured two ways. How much attention it's getting this week (from TMDB's trending lists and activity), and how many people have seen it overall (from rating counts on TMDB and IMDb). That's how the site can tell a new release people are actually watching from one that just came out.</p>
+    <h3>The labels on each movie</h3>
+    <div class="chips">${S.data.tiers.map((t) => `<span class="tag t-${t.key}" style="--h:0"><span class="sw" style="background:var(--tc)"></span>${esc(t.label)}</span>`).join('')}</div>
+    <p class="muted">New Release covers the last four months, since brand-new movies haven't had time to collect ratings. The rest go from the most-watched horror movies down to ones few people have found. The labels compare horror movies with each other, not with all movies.</p>
+    <h3>Subgenres</h3><p class="muted">Tagged from TMDB keywords like "slasher", "demonic possession" or "found footage", plus overlaps like horror comedy and sci-fi horror. A movie can have several. The site admin can correct them.</p>
+    <h3>The artwork</h3><p class="muted">Each movie gets its own generated artwork in the colors of its main subgenre, so the shelves stay readable without studio posters.</p>
   </div>`;
 
 // Admin
 views.admin = async () => {
-  if (!S.user?.isAdmin) return '<div class="empty">This page is for site admins.</div>';
+  if (!S.user?.isAdmin) return `<div class="empty">${icon('shield')}<span>This page is for site admins.</span></div>`;
   const stats = await store.adminStats().catch(() => ({ users: '—' }));
   const c = S.config;
   const d = S.data;
-  const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="muted mono">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`).join('') || '<p class="muted">None.</p>';
+  const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`).join('') || '<p class="muted">None.</p>';
   const fix = S.adminFix && S.byId.get(String(S.adminFix));
   return `<div class="page-head"><h1>Admin</h1><p class="muted">Site-wide settings. Changes apply for everyone after you press Save.</p></div>
   <div class="two-col">
   <div class="stack">
     <div class="panel stack"><h2>Data</h2>
-      <p class="mono" style="font-size:.9rem">${d.movies.length} movies · refreshed ${new Date(d.generatedAt).toLocaleString()}<br>
-      Sources: TMDB ${d.sources.tmdb ? 'on' : 'off'} · Trakt ${d.sources.trakt ? 'on' : 'off'} · OMDb/IMDb ${d.sources.omdb ? 'on' : 'off'}${d.sample ? '<br>Showing sample data until the first nightly refresh runs.' : ''}<br>Accounts: ${stats.users}</p></div>
+      <p>${d.movies.length} movies, refreshed ${new Date(d.generatedAt).toLocaleString()}.</p>
+      <p class="muted">TMDB ${d.sources.tmdb ? 'connected' : 'off'}. Trakt ${d.sources.trakt ? 'connected' : 'off'}. IMDb ratings (OMDb) ${d.sources.omdb ? 'connected' : 'off'}.${d.sample ? ' Showing sample data until the first nightly refresh runs.' : ''}</p>
+      <p class="muted">${stats.users} account${stats.users === 1 ? '' : 's'}.</p></div>
     <div class="panel stack"><h2>Site settings</h2>
-      <label class="row" style="gap:8px"><input type="checkbox" id="adm-posters" ${c.showPosters ? 'checked' : ''}> Show TMDB poster art on sleeves</label>
-      <p class="muted" style="font-size:.85rem">Posters belong to the studios. TMDB's API terms allow showing them with TMDB credit. Off by default.</p>
-      <label class="field">Announcement banner (leave blank for none)<input type="text" id="adm-announce" maxlength="160" value="${esc(c.announcement || '')}"></label>
+      <label class="row" style="gap:10px"><input type="checkbox" id="adm-posters" ${c.showPosters ? 'checked' : ''}> Show TMDB poster art instead of generated artwork</label>
+      <p class="muted" style="font-size:.88rem">Posters belong to the studios. TMDB's API terms allow showing them with TMDB credit. Off by default.</p>
+      <label class="field">Announcement (leave blank for none)<input type="text" id="adm-announce" maxlength="160" value="${esc(c.announcement || '')}"></label>
     </div>
     <div class="panel stack"><h2>Fix a movie's subgenres</h2>
-      <input type="search" id="adm-fix-search" placeholder="Search a title" aria-label="Search a title to fix">
+      <label class="search"><span class="sr">Search a title to fix</span>${icon('search')}<input type="search" id="adm-fix-search" placeholder="Search a title"></label>
       <div id="adm-fix-results" class="list"></div>
-      ${fix ? `<div class="stack"><b>${esc(fix.t)}</b><div class="chips">${d.subgenres.map((s) => `<button class="chip" data-act="fixsg" data-k="${s.key}" aria-pressed="${fix.sg.includes(s.key)}">${esc(s.label)}</button>`).join('')}</div>${c.sgFix?.[fix.id] ? `<button class="btn small ghost" data-act="fixclear" data-id="${fix.id}">Use automatic tags again</button>` : ''}</div>` : ''}
+      ${fix ? `<div class="stack"><b>${esc(fix.t)}</b><div class="chips">${d.subgenres.map((s) => sgChip('fixsg', s, fix.sg.includes(s.key))).join('')}</div>${c.sgFix?.[fix.id] ? `<button class="btn small ghost" data-act="fixclear" data-id="${fix.id}">Use automatic tags again</button>` : ''}</div>` : ''}
     </div>
   </div>
   <div class="stack">
     <div class="panel stack"><h2>Featured</h2><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
-      <input type="search" id="adm-feat-search" placeholder="Search to feature" aria-label="Search a title to feature"><div id="adm-feat-results" class="list"></div></div>
+      <label class="search"><span class="sr">Search a title to feature</span>${icon('search')}<input type="search" id="adm-feat-search" placeholder="Search to feature"></label><div id="adm-feat-results" class="list"></div></div>
     <div class="panel stack"><h2>Hidden from the site</h2><div class="list">${listOf(c.hidden || [], 'unhide')}</div>
-      <input type="search" id="adm-hide-search" placeholder="Search to hide" aria-label="Search a title to hide"><div id="adm-hide-results" class="list"></div></div>
+      <label class="search"><span class="sr">Search a title to hide</span>${icon('search')}<input type="search" id="adm-hide-search" placeholder="Search to hide"></label><div id="adm-hide-results" class="list"></div></div>
     <button class="btn primary" data-act="savecfg">Save admin changes</button>
   </div></div>`;
 };
@@ -479,7 +498,7 @@ views.admin = async () => {
 function searchList(q, act, n = 6) {
   q = q.trim().toLowerCase(); if (!q) return '';
   return S.data.movies.filter((m) => m.t.toLowerCase().includes(q)).slice(0, n)
-    .map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="muted mono">${m.y ?? ''}</span></span><button class="btn small" data-act="${act}" data-id="${m.id}">${{ feature: 'Feature', hide: 'Hide', fixpick: 'Edit tags', nsuggest: 'Suggest' }[act]}</button></div>`).join('') || '<p class="muted">No matches.</p>';
+    .map((m) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small" data-act="${act}" data-id="${m.id}">${{ feature: 'Feature', hide: 'Hide', fixpick: 'Edit tags', nsuggest: 'Suggest' }[act]}</button></div>`).join('') || '<p class="muted">No matches.</p>';
 }
 
 // ---------- trophy case ----------
@@ -495,7 +514,6 @@ const MILESTONES = [
 ];
 const LEVELS = [[1, 'Initiate'], [5, 'Regular'], [10, 'Devotee'], [25, 'Master']];
 const ESSENTIALS = 100;
-const today = () => new Date().toISOString().slice(0, 10);
 
 // Everything the user has seen, using the saved snapshot when a movie has left the nightly list.
 function seenList() {
@@ -530,36 +548,34 @@ function computeBadges(seen) {
   const oct = seen.filter((x) => x.on && x.on.slice(5, 7) === '10' && x.on.slice(0, 4) === today().slice(0, 4)).length;
   const covered = new Set(seen.flatMap((x) => x.sg)).size;
   return [
-    { k: 'ess', name: 'Horror Essentials', desc: `Seen ${ESSENTIALS} of the most widely seen horror movies`, have: essSeen, need: ESSENTIALS, steps: [10, 25, 50, 100] },
-    { k: 'sub', name: 'Well Rounded', desc: 'Seen at least one movie in every subgenre', have: covered, need: S.data.subgenres.length },
-    { k: 'dec', name: 'Time Traveler', desc: 'Movies from six different decades', have: decades.size, need: 6 },
-    { k: 'deep', name: 'Deep Diver', desc: 'Ten Deep Cuts seen', have: deep, need: 10 },
-    { k: 'early', name: 'Opening Night', desc: 'Watched a movie within 30 days of release', have: early, need: 1 },
-    { k: 'mar', name: 'Marathoner', desc: 'Three movies logged on the same day', have: marathon, need: 3 },
-    { k: 'crit', name: 'Critic', desc: 'Rated 25 movies', have: rated, need: 25 },
-    { k: 'oct', name: 'Spooky Season', desc: `31 movies watched this October`, have: oct, need: 31 },
+    { ic: 'star', name: 'Horror Essentials', desc: `See all ${ESSENTIALS} of the most widely seen horror movies`, have: essSeen, need: ESSENTIALS, steps: [10, 25, 50, 100] },
+    { ic: 'grid', name: 'Well Rounded', desc: 'At least one movie in every subgenre', have: covered, need: S.data.subgenres.length },
+    { ic: 'clock', name: 'Time Traveler', desc: 'Movies from six different decades', have: decades.size, need: 6 },
+    { ic: 'eye', name: 'Deep Diver', desc: 'Ten Deep Cuts seen', have: deep, need: 10 },
+    { ic: 'flame', name: 'Opening Night', desc: 'Watched a movie within 30 days of release', have: early, need: 1 },
+    { ic: 'play', name: 'Marathoner', desc: 'Three movies logged on the same day', have: marathon, need: 3 },
+    { ic: 'skull', name: 'Critic', desc: 'Rated 25 movies', have: rated, need: 25 },
+    { ic: 'trophy', name: 'Spooky Season', desc: '31 movies watched this October', have: oct, need: 31 },
   ];
 }
-function prog(have, need) {
-  const pct = Math.min(100, Math.round((have / need) * 100));
-  return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"><i style="width:${pct}%"></i></div>`;
+function prog(have, need, h) {
+  const pct = Math.min(100, Math.round((have / Math.max(1, need)) * 100));
+  return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"${h != null ? ` style="--h:${h}"` : ''}><i style="width:${pct}%"></i></div>`;
 }
-function skullsText(r) { return r ? '💀'.repeat(r) : '<span class="muted">Not rated</span>'; }
 
 views.trophies = () => {
-  if (!S.user) return signInPrompt('Sign in to keep a trophy case of every horror movie you have seen.');
+  shelfN = 0;
+  if (!S.user) return signInPrompt('Sign in to keep a Trophy Case of every horror movie you have seen.');
   const seen = seenList();
   const mins = seen.reduce((s, x) => s + (x.rt || 0), 0);
   const rated = seen.filter((x) => x.st.rating);
-  const avg = rated.length ? (rated.reduce((s, x) => s + x.st.rating, 0) / rated.length).toFixed(1) : '—';
+  const avg = rated.length ? (rated.reduce((s, x) => s + x.st.rating, 0) / rated.length).toFixed(1) : '–';
   const nextMs = MILESTONES.find(([n]) => seen.length < n);
-  const earnedMs = MILESTONES.filter(([n]) => seen.length >= n);
   const badges = computeBadges(seen);
   const counts = {};
   for (const x of seen) for (const k of x.sg) counts[k] = (counts[k] || 0) + 1;
   const ess = essentialsList();
   const essNext = ess.filter((m) => !everSeen(m)).slice(0, 12);
-  // watch log grouped by month
   const groups = new Map();
   for (const x of seen.sort((a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0))) {
     const key = x.on ? x.on.slice(0, 7) : '';
@@ -567,58 +583,54 @@ views.trophies = () => {
     groups.get(key).push(x);
   }
   const monthName = (k) => (k ? new Date(k + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'Before Scream Queue');
-  return `<div class="page-head"><h1>Trophy Case</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the classics in bulk.</p></div>
+  return `<div class="page-head"><h1>Trophy Case</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the ones you've already watched in bulk.</p></div>
   <section class="tiles">
-    <div class="tile"><b class="mono">${seen.length}</b><span>Movies seen</span></div>
-    <div class="tile"><b class="mono">${Math.round(mins / 60)}</b><span>Hours of horror</span></div>
-    <div class="tile"><b class="mono">${avg}</b><span>Average rating</span></div>
-    <div class="tile"><b class="mono">${Object.keys(counts).length}<small>/${S.data.subgenres.length}</small></b><span>Subgenres explored</span></div>
+    <div class="tile"><b>${seen.length}</b><span>Movies seen</span></div>
+    <div class="tile"><b>${Math.round(mins / 60)}</b><span>Hours of horror</span></div>
+    <div class="tile"><b>${avg}</b><span>Your average rating</span></div>
+    <div class="tile"><b>${Object.keys(counts).length}<small> of ${S.data.subgenres.length}</small></b><span>Subgenres explored</span></div>
   </section>
 
-  <section class="panel stack">
-    <div class="shelf-head"><h2>Milestones</h2>${nextMs ? `<span class="muted mono" style="font-size:.85rem">${nextMs[0] - seen.length} more to ${esc(nextMs[1])}</span>` : ''}</div>
+  <section class="panel stack" style="gap:18px">
+    <div class="shelf-head"><h2>Milestones</h2>${nextMs ? `<span class="muted">${nextMs[0] - seen.length} more to ${esc(nextMs[1])}</span>` : '<span class="muted">Every milestone earned</span>'}</div>
     ${nextMs ? prog(seen.length, nextMs[0]) : ''}
-    <div class="medals">${MILESTONES.map(([n, name, desc]) => `<div class="medal ${seen.length >= n ? 'won' : ''}" title="${esc(desc)}"><span class="mono">${n}</span><b>${esc(name)}</b></div>`).join('')}</div>
-    ${earnedMs.length ? '' : '<p class="muted">Log your first movie to earn First Blood.</p>'}
+    <div class="medals">${MILESTONES.map(([n, name, desc]) => `<div class="medal ${seen.length >= n ? 'won' : ''}" title="${esc(desc)}"><span class="n">${n}</span><b>${esc(name)}</b></div>`).join('')}</div>
   </section>
 
-  <section class="stack">
+  <section class="stack" style="gap:16px">
     <h2>Badges</h2>
     <div class="badges">${badges.map((b) => {
       const won = b.have >= b.need;
       const step = b.steps ? b.steps.filter((s) => b.have >= s).pop() : null;
       const nextStep = b.steps ? b.steps.find((s) => b.have < s) : null;
-      return `<div class="badge ${won ? 'won' : step ? 'part' : ''}">
-        <div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span class="mono muted">${Math.min(b.have, b.need)}/${b.need}</span></div>
-        <span class="muted" style="font-size:.85rem">${esc(b.desc)}${step && !won ? ` · ${step} reached, next ${nextStep}` : ''}</span>
+      return `<div class="badge ${won ? 'won' : step || b.have ? 'part' : ''}">
+        <div class="hd"><span class="ico">${icon(b.ic)}</span><b>${esc(b.name)}</b><span class="num">${Math.min(b.have, b.need)} of ${b.need}</span></div>
+        <p>${esc(b.desc)}${step && !won ? `. Next stop: ${nextStep}` : ''}</p>
         ${prog(b.have, b.need)}</div>`;
     }).join('')}</div>
   </section>
 
-  <section class="panel stack">
-    <div class="shelf-head"><h2>Subgenre mastery</h2><span class="muted" style="font-size:.85rem">${LEVELS.map(([n, l]) => `${l} ${n}`).join(' · ')}</span></div>
+  <section class="panel stack" style="gap:16px">
+    <div class="shelf-head"><div><h2>Subgenre mastery</h2><p class="muted" style="font-size:.9rem">${LEVELS.map(([n, l]) => `${l} at ${n}`).join(', ')}. Tap one to browse it.</p></div></div>
     <div class="mastery">${S.data.subgenres.map((s) => {
       const n = counts[s.key] || 0; const { cur, next } = levelFor(n);
-      return `<button class="mast ${cur ? 'won' : ''}" data-act="sgbrowse" data-k="${s.key}" title="Browse ${esc(s.label)}">
-        <span class="row" style="justify-content:space-between;gap:6px"><b>${esc(s.label)}</b><span class="mono">${n}</span></span>
-        <span class="muted" style="font-size:.8rem">${cur ? esc(cur[1]) : 'Not started'}${next ? ` · ${next[0] - n} to ${next[1]}` : ' · Maxed'}</span>
-        ${prog(n, next ? next[0] : n || 1)}</button>`;
+      return `<button class="mast" data-act="sgbrowse" data-k="${s.key}" style="--h:${hue(s.key)}">
+        <span class="hd"><span style="font-family:var(--font-body);font-weight:700">${esc(s.label)}</span><span>${n}</span></span>
+        <small>${cur ? esc(cur[1]) : 'Not started'}${next ? `. ${next[0] - n} to ${next[1]}` : '. Maxed out'}</small>
+        ${prog(n, next ? next[0] : Math.max(n, 1), hue(s.key))}</button>`;
     }).join('')}</div>
   </section>
 
-  <section class="shelf">
-    <div class="shelf-head"><div><h2>Horror Essentials · ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}</h2><p class="muted">The ${ESSENTIALS} most widely seen horror movies on the site. Next up for you:</p></div><a class="btn small" href="#/checklist">Check off what you've seen</a></div>
-    ${essNext.length ? `<div class="shelf-track">${essNext.map(card).join('')}</div>` : '<div class="empty">You have seen every one of them. Respect.</div>'}
-  </section>
+  ${shelf(`Horror Essentials: ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}`, `The ${ESSENTIALS} most widely seen horror movies on the site. Here's what's next for you.`, essNext, 'You have seen every one of them.', `<a class="btn small" href="#/checklist">${icon('check')}Check off what you've seen</a>`)}
 
-  <section class="stack">
+  <section class="stack" style="gap:18px">
     <h2>Watch log</h2>
-    ${seen.length ? [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:8px"><h3 class="muted">${esc(monthName(k))} <span class="mono">(${list.length})</span></h3>
-      <div class="list">${list.map((x) => `<div class="list-item">
-        <div style="min-width:0">${x.m ? `<button class="linkish" data-act="open" data-id="${x.id}">${esc(x.t)}</button>` : `<b>${esc(x.t)}</b>`} <span class="muted mono" style="font-size:.85rem">${x.y ?? ''}</span>
-        <div class="muted" style="font-size:.82rem">${x.on ? esc(new Date(x.on + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })) + ' · ' : ''}${x.sg.slice(0, 3).map((k) => esc(S.sgLabel.get(k) || k)).join(', ')}</div></div>
-        <span aria-label="${x.st.rating || 0} of 5">${skullsText(x.st.rating)}</span></div>`).join('')}</div></div>`).join('')
-    : '<div class="empty">Nothing logged yet. Open any movie and press "Seen it", or use the checklist to add the ones you have already watched.</div>'}
+    ${seen.length ? [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:10px"><h3 class="muted">${esc(monthName(k))} <span class="faint">(${list.length})</span></h3>
+      <div class="list">${list.map((x) => `<div class="list-item with-art">${thumb(x.m || { id: x.id, sg: x.sg })}
+        <div style="min-width:0">${x.m ? `<button class="linkish" data-act="open" data-id="${x.id}">${esc(x.t)}</button>` : `<b>${esc(x.t)}</b>`} <span class="faint">${x.y ?? ''}</span>
+        <div class="muted" style="font-size:.85rem">${x.on ? esc(new Date(x.on + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })) + '. ' : ''}${x.sg.slice(0, 3).map((k) => esc(S.sgLabel.get(k) || k)).join(', ')}</div></div>
+        ${skullRow(x.st.rating)}</div>`).join('')}</div></div>`).join('')
+    : `<div class="empty">${icon('trophy')}<span>Nothing logged yet. Open any movie and press "Seen it", or use the checklist to add the ones you've already watched.</span><a class="btn small" href="#/checklist">Open the checklist</a></div>`}
   </section>`;
 };
 
@@ -628,44 +640,51 @@ views.checklist = () => {
   const base = S.ckAll ? S.movies.slice().sort((a, b) => b.reach - a.reach) : essentialsList();
   const list = base.filter((m) => !q || m.t.toLowerCase().includes(q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
   const done = base.filter(everSeen).length;
-  return `<div class="page-head"><h1>Check off what you've seen</h1><p class="muted">Tap every movie you've already watched. They go into your Trophy Case as "Before Scream Queue" so you don't need dates.</p></div>
-  <div class="row"><a class="btn" href="#/trophies">Back to Trophy Case</a>
-    <div class="chips"><button class="chip" data-act="ckmode" data-k="ess" aria-pressed="${!S.ckAll}">Horror Essentials</button><button class="chip" data-act="ckmode" data-k="all" aria-pressed="${!!S.ckAll}">Everything on the site</button></div>
-    <span class="muted mono" id="ck-count">${done} of ${base.length} seen</span></div>
-  <input type="search" id="ck-q" placeholder="Filter by title" value="${esc(S.ckq || '')}" aria-label="Filter by title" style="max-width:420px">
-  <div class="checks">${list.map((m) => `<button class="check" data-act="ck" data-id="${m.id}" aria-pressed="${everSeen(m)}"><span class="box" aria-hidden="true"></span><span style="min-width:0"><b>${esc(m.t)}</b> <span class="muted mono">${m.y ?? ''}</span><br><span class="muted" style="font-size:.8rem">${esc(S.tierLabel.get(m.tier))}${m.sg.length ? ' · ' + esc(S.sgLabel.get(m.sg[0])) : ''}</span></span></button>`).join('')}</div>`;
+  return `<div class="page-head"><h1>What have you seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Trophy Case under "Before Scream Queue", so you don't need dates.</p></div>
+  <div class="row" style="justify-content:space-between">
+    <div class="tabs" role="tablist"><button role="tab" data-act="ckmode" data-k="ess" aria-selected="${!S.ckAll}">Horror Essentials</button><button role="tab" data-act="ckmode" data-k="all" aria-selected="${!!S.ckAll}">Everything</button></div>
+    <span class="muted" id="ck-count">${done} of ${base.length} seen</span>
+  </div>
+  <div class="row"><label class="search" style="flex:1;max-width:440px"><span class="sr">Filter by title</span>${icon('search')}<input type="search" id="ck-q" placeholder="Filter by title" value="${esc(S.ckq || '')}"></label><a class="btn" href="#/trophies">${icon('trophy')}Back to Trophy Case</a></div>
+  <div class="checks">${list.map((m) => `<button class="check" data-act="ck" data-id="${m.id}" aria-pressed="${everSeen(m)}">${thumb(m)}<span style="min-width:0"><b>${esc(m.t)}</b> <span class="faint">${m.y ?? ''}</span><br><span class="muted" style="font-size:.82rem">${esc(S.tierLabel.get(m.tier))}${m.sg.length ? ', ' + esc(S.sgLabel.get(m.sg[0])) : ''}</span></span><span class="box" aria-hidden="true">${icon('check')}</span></button>`).join('')}</div>`;
 };
 
-// ---------- detail dialog ----------
+// ---------- detail sheet ----------
 function openDetail(id) {
   const m = S.byId.get(String(id)); if (!m) return;
   const dlg = $('#detail');
   const st = status(m.id);
-  const providers = [...m.pv.map((p) => [p, 'Subscription']), ...m.fr.map((p) => [p, 'Free with ads'])].map(([p, kind]) => `<span class="tag">${esc(S.provName.get(p) || 'Service')} · ${kind}</span>`).join('');
-  dlg.innerHTML = `<div style="position:relative">
-    <button class="btn small ghost close" data-act="close" aria-label="Close">Close</button>
-    <div class="detail-body">
-      <div>${cover(m)}</div>
-      <div class="stack" style="gap:14px;min-width:0">
-        <div class="stack" style="gap:4px"><h2 style="font-size:1.6rem;padding-right:60px">${esc(m.t)}</h2>
-          <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Dir. ${m.dir.join(', ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div></div>
-        <div class="chips">${m.sg.map((k) => `<span class="tag">${esc(S.sgLabel.get(k))}</span>`).join('') || '<span class="muted" style="font-size:.85rem">No subgenre tags yet</span>'}</div>
-        ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
-        ${m.cast.length ? `<p class="muted" style="font-size:.9rem">With ${esc(m.cast.join(', '))}</p>` : ''}
-        <div class="meters">
-          <div class="stack" style="gap:6px">${meter('Buzz', m.buzz, 'var(--accent)')}<div class="why">${whyBuzz(m).map((x) => `<span>${esc(x)}</span>`).join('')}</div></div>
-          <div class="stack" style="gap:6px">${meter('Reach', m.reach, 'var(--teal)')}<div class="why">${whyReach(m).map((x) => `<span>${esc(x)}</span>`).join('')}</div></div>
-        </div>
-        <div class="stack" style="gap:6px"><b style="font-size:.9rem">Where to watch (US)</b><div class="chips">${providers || `<span class="muted" style="font-size:.9rem">${m.rent ? 'Rent or buy only' : 'Not on a streaming service right now'}</span>`}</div>
-          <span class="muted" style="font-size:.75rem">Streaming data from JustWatch via TMDB${SAMPLE() ? ' · sample data, not real' : ''}</span></div>
-        <div class="row">${queueBtn(m)}<button class="btn" data-act="seen" data-id="${m.id}" aria-pressed="${st?.status === 'seen'}">${st?.status === 'seen' ? 'Seen' : 'Seen it'}</button>
-          ${st?.status === 'seen' ? `<span class="skulls" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-act="rate" data-id="${m.id}" data-k="${n}" class="${(st.rating || 0) >= n ? 'on' : ''}" aria-label="${n} of 5">💀</button>`).join('')}</span>` : ''}
-          ${st?.status === 'seen' ? `<label class="row" style="gap:6px;font-size:.85rem" class="muted">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}" style="width:auto"></label>` : ''}
-          ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
-        <div class="row" style="gap:12px;font-size:.9rem">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${l}</a>`).join('')}</div>
-      </div></div></div>`;
+  const seen = st?.status === 'seen';
+  const tr = trendLine(m), rc = reachLine(m);
+  const provs = [...m.pv.map((p) => [p, 'Included']), ...m.fr.map((p) => [p, 'Free with ads'])]
+    .map(([p, kind]) => `<span class="prov">${esc(S.provName.get(p) || 'Service')}<small>${kind}</small></span>`).join('');
+  const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
+  dlg.innerHTML = `<div class="sheet">
+    <div class="sheet-hero">${art(m, true)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
+    <div class="sheet-title">
+      <h2>${esc(m.t)}</h2>
+      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}</div>
+    </div>
+    <div class="sheet-body">
+      <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
+      ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
+      ${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}
+      <div class="signals">
+        <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
+        <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
+      </div>
+      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}">${icon('check')}${seen ? 'Seen' : 'Seen it'}</button>
+        ${seen ? `<span class="skulls" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-act="rate" data-id="${m.id}" data-k="${n}" class="${(st.rating || 0) >= n ? 'on' : ''}" aria-label="Rate ${n} of 5">${icon('skull')}</button>`).join('')}</span>
+        <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
+        ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
+      <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
+        <div class="providers">${provs || `<span class="muted">${m.rent ? 'Available to rent or buy.' : 'Not on a streaming service right now.'}</span>`}</div>
+        <span class="fine">Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
+      <div class="linkrow">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${icon('link')}${l}</a>`).join('')}</div>
+    </div></div>`;
   dlg.dataset.id = m.id;
   if (!dlg.open) { try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); } }
+  else { const sh = $('.sheet', dlg); if (sh) sh.scrollTop = keepScroll; }
 }
 function refreshDetail() { const d = $('#detail'); if (d.open && d.dataset.id) openDetail(d.dataset.id); }
 
@@ -681,23 +700,24 @@ async function setStatus(id, data) {
   await store.setMovie(id, next);
 }
 
-async function patchConfig(fn) { fn(S.config); applyConfig(); await route(); }
+async function patchConfig(fn) { fn(S.config); applyConfig(); await route(true); }
 
 const actions = {
   open: (el) => openDetail(el.dataset.id),
   close: () => $('#detail').close(),
+  scroll(el) { const t = document.getElementById(el.dataset.target); if (t) t.scrollBy({ left: Number(el.dataset.k) * t.clientWidth * 0.85, behavior: reduceMotion() ? 'auto' : 'smooth' }); },
   async queue(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
-    if (st?.status === 'queue') { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); toast('Removed from your queue'); }
-    else { await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' }); toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue'); }
+    if (st?.status === 'queue') { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); toast('Removed from your queue', 'x'); }
+    else { await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' }); toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark'); }
     refreshAll();
   },
   async seen(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     if (st?.status === 'seen') return;
-    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() }); toast('Added to your Trophy Case. Rate it with the skulls.');
+    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() }); toast('Added to your Trophy Case', 'trophy');
     refreshAll();
   },
   async rate(el) { await setStatus(el.dataset.id, { status: 'seen', rating: Number(el.dataset.k) }); refreshAll(); },
@@ -717,7 +737,7 @@ const actions = {
   ftier(el) { toggle(S.f.tier, el.dataset.k); el.setAttribute('aria-pressed', S.f.tier.has(el.dataset.k)); renderResults(); },
   fmine(el) { S.f.mine = !S.f.mine; el.setAttribute('aria-pressed', S.f.mine); renderResults(); },
   fseen(el) { S.f.hideSeen = !S.f.hideSeen; el.setAttribute('aria-pressed', S.f.hideSeen); renderResults(); },
-  fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', limit: 60 }); route(); },
+  fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', limit: 60 }); route(true); },
   pmix(el) { S.p.mix = el.dataset.k; document.querySelectorAll('[data-act="pmix"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.p.mix)); },
   psg(el) { toggle(S.p.sg, el.dataset.k); el.setAttribute('aria-pressed', S.p.sg.has(el.dataset.k)); },
   pmine(el) { S.p.mine = !S.p.mine; el.setAttribute('aria-pressed', S.p.mine); },
@@ -725,11 +745,12 @@ const actions = {
   repick() {
     const m = pickOne();
     S.p.current = m ? m.id : false;
-    if (m) { S.p.recent = [m.id, ...S.p.recent].slice(0, 12); }
-    renderPick();
+    if (m) S.p.recent = [m.id, ...S.p.recent].slice(0, 12);
+    renderPick(true);
+    if (window.innerWidth < 900) $('#pick-result')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
   },
-  qtab(el) { S.qTab = el.dataset.k; route(); },
-  async join(el) { await store.joinNight(el.dataset.id); toast('You joined the movie night'); },
+  qtab(el) { S.qTab = el.dataset.k; route(true); },
+  async join(el) { await store.joinNight(el.dataset.id); toast('You joined the movie night', 'users'); },
   async vote(el) {
     const n = S.lastNight; if (!n) return;
     const mine = new Set(n.votes?.[S.user.uid] || []);
@@ -737,8 +758,8 @@ const actions = {
     else if (mine.size < VOTES_PER_PERSON) mine.add(el.dataset.id);
     await store.vote(el.dataset.night, [...mine]);
   },
-  async suggest(el) { await store.suggest(el.dataset.night, el.dataset.id); toast('Suggested'); },
-  async nsuggest(el) { await store.suggest($('#night').dataset.night, el.dataset.id); toast('Suggested'); const s = $('#night-search'); if (s) s.value = ''; },
+  async suggest(el) { await store.suggest(el.dataset.night, el.dataset.id); toast('Suggested', 'plus'); },
+  async nsuggest(el) { await store.suggest($('#night').dataset.night, el.dataset.id); toast('Suggested', 'plus'); const s = $('#night-search'); if (s) s.value = ''; },
   async unsuggest(el) { await store.unsuggest(el.dataset.night, el.dataset.id); },
   async decide(el) { await store.decide(el.dataset.night, el.dataset.id || null); },
   async delnight(el) {
@@ -747,13 +768,13 @@ const actions = {
   },
   async copy(el) {
     const input = document.getElementById(el.dataset.target);
-    try { await navigator.clipboard.writeText(input.value); toast('Link copied'); } catch { input.select(); toast('Press Ctrl+C to copy'); }
+    try { await navigator.clipboard.writeText(input.value); toast('Link copied', 'link'); } catch { input.select(); toast('Press Ctrl+C to copy', 'link'); }
   },
   svc(el) { const id = Number(el.dataset.k); const s = new Set(S.profile.services); s.has(id) ? s.delete(id) : s.add(id); S.profile.services = [...s]; el.setAttribute('aria-pressed', s.has(id)); },
   async signout() { await store.signOut(); location.hash = '#/'; },
   resetdemo() { store.resetDemo(); location.hash = '#/'; },
   gosignin() { S.afterSignIn = location.hash || '#/'; },
-  authtab(el) { S.authTab = el.dataset.k; route(); },
+  authtab(el) { S.authTab = el.dataset.k; route(true); },
   async google() { try { await store.signInGoogle(); } catch (e) { authError(e); } },
   async reset() {
     const email = $('#auth-email')?.value.trim();
@@ -764,7 +785,7 @@ const actions = {
   unfeature(el) { patchConfig((c) => { c.featured = (c.featured || []).filter((x) => String(x) !== el.dataset.id); }); },
   hide(el) { patchConfig((c) => { c.hidden = [...new Set([...(c.hidden || []), Number(el.dataset.id)])]; }); },
   unhide(el) { patchConfig((c) => { c.hidden = (c.hidden || []).filter((x) => String(x) !== el.dataset.id); }); },
-  fixpick(el) { S.adminFix = el.dataset.id; route(); },
+  fixpick(el) { S.adminFix = el.dataset.id; route(true); },
   fixsg(el) {
     const m = S.byId.get(String(S.adminFix));
     const set = new Set(m.sg); toggle(set, el.dataset.k);
@@ -774,7 +795,7 @@ const actions = {
   async savecfg() {
     S.config.showPosters = $('#adm-posters').checked;
     S.config.announcement = $('#adm-announce').value.trim();
-    await store.saveConfig({ ...S.config }); toast('Saved for everyone'); renderChrome(); route();
+    await store.saveConfig({ ...S.config }); toast('Saved for everyone'); renderChrome(); route(true);
   },
 };
 function toggle(set, k) { set.has(k) ? set.delete(k) : set.add(k); }
@@ -791,7 +812,7 @@ function authError(e) {
   }[code] || e?.message || 'Something went wrong. Try again.';
 }
 
-async function refreshAll() { refreshDetail(); const r = location.hash; if (!r.startsWith('#/night/')) await route(true); }
+async function refreshAll() { refreshDetail(); if (!location.hash.startsWith('#/night/')) await route(true, true); }
 
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]');
@@ -799,13 +820,13 @@ document.addEventListener('click', async (e) => {
   const fn = actions[el.dataset.act];
   if (!fn) return;
   if (el.tagName === 'A' && el.dataset.act !== 'gosignin') e.preventDefault();
-  try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.'); }
+  try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.', 'x'); }
 });
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
 
 document.addEventListener('input', (e) => {
   const el = e.target;
-  if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
+  if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
   if (el.dataset.bind && location.hash.startsWith('#/browse')) { S.f[el.dataset.bind] = el.value; S.f.limit = 60; renderResults(); }
   if (el.dataset.bind === 'maxRt') S.p.maxRt = el.value;
   if (el.id === 'night-search') $('#night-search-results').innerHTML = searchList(el.value, 'nsuggest');
@@ -816,7 +837,7 @@ document.addEventListener('input', (e) => {
 });
 
 document.addEventListener('change', async (e) => {
-  if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved'); }
+  if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved', 'clock'); }
 });
 
 document.addEventListener('submit', async (e) => {
@@ -834,7 +855,7 @@ document.addEventListener('submit', async (e) => {
       if (S.authTab === 'up') await store.signUpEmail(v.name.trim(), v.email.trim(), v.password);
       else await store.signInEmail(v.email.trim(), v.password);
     }
-  } catch (err) { authError(err); if (form.dataset.form !== 'auth') toast(err?.message || 'That did not save.'); }
+  } catch (err) { authError(err); if (form.dataset.form !== 'auth') toast(err?.message || 'That did not save.', 'x'); }
 });
 
 function setTheme(t) {
@@ -844,31 +865,37 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight'], ['#/browse', 'Browse'], ['#/pick', 'Pick for me'], ['#/queue', 'My queue'], ['#/trophies', 'Trophy Case'], ['#/nights', 'Movie nights']];
+const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for me', 'dice'], ['#/queue', 'My queue', 'bookmark'], ['#/trophies', 'Trophy Case', 'trophy'], ['#/nights', 'Movie nights', 'users']];
+const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/nights'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
-  $('#nav').innerHTML = [...NAV, ...(S.user?.isAdmin ? [['#/admin', 'Admin']] : [])]
-    .map(([h, l]) => `<a href="${h}" ${(h === here || (h === '#/nights' && here === '#/night')) ? 'aria-current="page"' : ''}>${l}</a>`).join('');
+  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/trophies' && here === '#/checklist') ? 'aria-current="page"' : '');
+  $('#nav').innerHTML = [...NAV, ...(S.user?.isAdmin ? [['#/admin', 'Admin', 'shield']] : [])].map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}</a>`).join('');
+  $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie nights', 'Nights').replace('My queue', 'Queue').replace('Pick for me', 'Pick')}</span></a>`).join('');
+  const name = S.profile.name || S.user?.name || '';
+  const ah = [...name].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
   $('#who').innerHTML = S.user
-    ? `<a class="btn small ghost" href="#/settings" title="Settings">${esc(S.profile.name || S.user.name)}</a>`
+    ? `<a class="icon-btn m-only" href="#/trophies" aria-label="Trophy Case" ${cur('#/trophies')}>${icon('trophy')}</a>${S.user.isAdmin ? `<a class="icon-btn m-only" href="#/admin" aria-label="Admin" ${cur('#/admin')}>${icon('shield')}</a>` : ''}<a class="avatar" href="#/settings" title="Settings" style="--ah:${ah}">${esc((name[0] || '?').toUpperCase())}</a>`
     : '<a class="btn small primary" href="#/signin" data-act="gosignin">Sign in</a>';
   const notes = [];
-  if (store.demo) notes.push('<strong>Demo mode</strong><span>Accounts are simulated and everything is saved in this browser only.</span>');
-  if (SAMPLE()) notes.push('<strong>Sample shelf</strong><span>Scores and streaming info are made up until the first nightly data refresh.</span>');
-  if (S.config.announcement) notes.push(`<strong>News</strong><span>${esc(S.config.announcement)}</span>`);
+  if (store.demo) notes.push('<span class="note"><span class="dot"></span><b>Demo mode.</b> Accounts are simulated and saved in this browser only.</span>');
+  if (SAMPLE()) notes.push('<span class="note"><span class="dot"></span><b>Sample shelf.</b> Streaming info is made up until the first nightly refresh.</span>');
+  if (S.config.announcement) notes.push(`<span class="note"><span class="dot"></span>${esc(S.config.announcement)}</span>`);
   $('#banner').hidden = !notes.length;
-  $('#banner').innerHTML = notes.map((n) => `<div class="wrap">${n}</div>`).join('');
+  $('#banner').innerHTML = `<div class="wrap">${notes.join('')}</div>`;
 }
 
-async function route(keepScroll) {
+async function route(keepScroll, quiet) {
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   const view = views[name || 'tonight'] || views.tonight;
   renderChrome();
   const y = window.scrollY;
   const html = await view(arg);
-  $('#main').innerHTML = html;
-  if (keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
+  const after = S.after; S.after = null;
+  const swap = () => { $('#main').innerHTML = html; after?.(); window.scrollTo(0, keepScroll ? y : 0); };
+  if (!quiet && document.startViewTransition && !reduceMotion()) await document.startViewTransition(swap).updateCallbackDone.catch(() => {});
+  else swap();
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Trophy Case', checklist: 'Checklist' }[name] || '') : ''}`;
 }
 
@@ -876,6 +903,7 @@ async function boot() {
   try { const t = localStorage.getItem('sq-theme'); if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t); } catch { /* ignore */ }
   $('#version').textContent = 'v' + VERSION;
   $('#brand').textContent = SITE_NAME;
+  $('#mark').innerHTML = icon('skull');
   [S.config] = await Promise.all([store.getConfig(), loadData()]);
   applyConfig();
   let first = true;
@@ -883,10 +911,11 @@ async function boot() {
     S.user = u;
     await loadMine();
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
-    else await route(!first);
+    else await route(!first, !first);
     first = false;
   });
   window.addEventListener('hashchange', () => route());
+  window.addEventListener('keydown', (e) => { if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement?.tagName || '')) { const q = $('#f-q'); if (q) { e.preventDefault(); q.focus(); } } });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !globalThis.SQ_STORE) {
     navigator.serviceWorker.register('sw.js?v=' + VERSION).catch(() => {});
   }
