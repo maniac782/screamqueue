@@ -143,11 +143,24 @@ function bloodDrip(id) {
     <circle cx="${f(20 - 1.5)}" cy="${f(mainL - 6)}" r="2.2" fill="url(#${g}h)"/>
   </svg><i class="drop" style="--top:${f((mainL / 80) * 100)}%"></i></span>`;
 }
+// Streaming logos for a movie: one per service (channel and ad-tier versions folded together), your services first.
+function serviceLogos(m, max = 3) {
+  const ids = [...m.pv, ...m.fr];
+  if (!ids.length) return `<span class="svc-none">${m.rent ? 'Rent or buy' : 'Not streaming'}</span>`;
+  const seen = new Map();
+  for (const g of serviceGroups()) if (g.ids.some((id) => ids.includes(id))) seen.set(g.key, g);
+  const list = [...seen.values()].sort((a, b) => groupOn(b) - groupOn(a));
+  const shown = list.slice(0, max);
+  return shown.map((g) => g.logo
+    ? `<img class="svc-logo${groupOn(g) ? ' mine' : ''}" src="https://image.tmdb.org/t/p/w92${g.logo}" alt="${esc(g.label)}" title="${esc(g.label)}" loading="lazy">`
+    : `<span class="svc-logo txt" title="${esc(g.label)}">${esc(g.label.slice(0, 2))}</span>`).join('')
+    + (list.length > max ? `<span class="svc-more">+${list.length - max}</span>` : '');
+}
 function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
   return `<button class="card" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
     ${poster(m)}
-    <span class="meta"><span class="l1">${esc(servicesText(m))}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
+    <span class="meta"><span class="mt">${esc(m.t)}${m.y ? ` <span class="yr">(${m.y})</span>` : ''}</span><span class="l2">${esc(sg || 'Horror')}</span><span class="svcs">${serviceLogos(m)}</span></span>
   </button>`;
 }
 
