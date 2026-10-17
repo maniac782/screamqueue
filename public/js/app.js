@@ -105,12 +105,14 @@ function servicesText(m) {
 function poster(m, opts = {}) {
   const st = status(m.id);
   const img = S.config.showPosters && m.poster;
-  return `<div class="poster ${img ? 'has-img' : ''}">
+  const state = opts.noBadges || !st ? '' : st.status === 'queue' ? 'queued' : 'seen';
+  return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just === String(m.id) ? 'just' : ''}">
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
     ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}"><i></i>${esc(S.tierLabel.get(m.tier))}</span>`}
     ${!opts.noBadges && m.flags.includes('hot') ? `<span class="badge-hot" title="Trending this week">${icon('flame')}</span>` : ''}
-    ${!opts.noBadges && st ? `<span class="badge-me ${everSeen(m) && st.status !== 'queue' ? 'seen' : ''} ${S.just === String(m.id) ? 'pop' : ''}" title="${st.status === 'seen' ? 'Seen' : 'In your queue'}">${icon(st.status === 'seen' ? 'check' : 'bookmark')}</span>` : ''}
+    ${state === 'queued' ? `<span class="status-bar q">${icon('bookmark')}In your queue</span>` : ''}
+    ${state === 'seen' ? `<span class="status-bar s">${icon('check')}Seen${st.rating ? ` · ${fmtRating(st.rating)}` : ''}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
@@ -725,12 +727,12 @@ views.bodycount = () => {
     <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
   </div>
   ${tab === 'watched' ? `<div class="row bc-tools">
-      <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges and milestones</button></div>
-      <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Recently watched'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges</button></div>
+      <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
       <a class="btn" href="#/checklist" style="margin-left:auto">${icon("check")}Check off movies</a>
     </div>
-    <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges and milestones</button></div></div>${badgesSection(seen, counts)}`}`;
+    <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges</button></div></div>${badgesSection(seen, counts)}`}`;
 };
 
 function badgesSection(seen, counts) {
