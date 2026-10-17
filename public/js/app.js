@@ -105,13 +105,13 @@ function servicesText(m) {
 function poster(m, opts = {}) {
   const st = status(m.id);
   const img = S.config.showPosters && m.poster;
-  const state = opts.noBadges || !st ? '' : st.status === 'queue' ? 'queued' : 'seen';
+  const state = opts.stamp ? 'seen' : opts.noBadges || !st ? '' : st.status === 'queue' ? 'queued' : 'seen';
   return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just === String(m.id) ? 'just' : ''}">
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
     ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(S.tierLabel.get(m.tier))}</span>`}
     ${state === 'queued' ? bloodDrip(m.id) : ''}
-    ${state === 'seen' ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
+    ${state === 'seen' ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st?.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
@@ -693,7 +693,7 @@ const shortDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', 
 function watchedCard(x) {
   const m = x.m || { id: x.id, t: x.t, y: x.y, sg: x.sg, rt: x.rt, tier: x.tier || 'known', poster: x.st.poster, flags: [], pv: [], fr: [] };
   return `<button class="card watched" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(x.t)}, seen">
-    ${poster(m, { noBadges: true })}<span class="seen-stamp">${icon('check')}</span>
+    ${poster(m, { noBadges: true, stamp: true })}
     <span class="meta"><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}</span></span>
   </button>`;
 }

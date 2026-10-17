@@ -721,3 +721,4 @@ html, body { overscroll-behavior-y: none; }
   .card:hover .poster, .card:hover .art .motif { transform: none; }
   .poster { transition: none; }
 }
+.card.watched .poster.seen .art, .card.watched .poster.seen img { filter: grayscale(.3) brightness(.78); }
