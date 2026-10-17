@@ -1128,7 +1128,9 @@ async function boot() {
   window.addEventListener('hashchange', () => route());
   window.addEventListener('keydown', (e) => { if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement?.tagName || '')) { const q = $('#f-q'); if (q) { e.preventDefault(); q.focus(); } } });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !globalThis.SQ_STORE) {
-    navigator.serviceWorker.register('sw.js?v=' + VERSION).catch(() => {});
+    navigator.serviceWorker.register('sw.js?v=' + VERSION).then((r) => r.update()).catch(() => {});
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (!reloaded && navigator.serviceWorker.controller) { reloaded = true; } });
   }
 }
 boot().catch((e) => { console.error(e); $('#main').innerHTML = `<div class="empty">The movie shelf could not load (${esc(e.message)}). Refresh to try again.</div>`; });
