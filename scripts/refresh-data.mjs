@@ -141,7 +141,7 @@ async function main() {
   const prov = await tmdb('/watch/providers/movie', { watch_region: REGION, language: 'en-US' });
   const providerList = (prov.results || [])
     .sort((a, b) => (a.display_priorities?.[REGION] ?? 999) - (b.display_priorities?.[REGION] ?? 999))
-    .map((p) => ({ id: p.provider_id, name: p.provider_name }));
+    .map((p) => ({ id: p.provider_id, name: p.provider_name, logo: p.logo_path || null, pr: p.display_priorities?.[REGION] ?? p.display_priority ?? 999 }));
 
   // OMDb (IMDb rating/votes), cached between runs
   let omdbCalls = 0;
@@ -184,6 +184,7 @@ async function main() {
       rent: (wp.rent || []).length > 0,
       wl: wp.link || null,
       poster: d.poster_path || null,
+      bd: d.backdrop_path || null,
       va: d.vote_average ?? null,
       // scoring inputs
       pop: d.popularity ?? null,
@@ -211,7 +212,7 @@ async function main() {
     sources: { tmdb: true, trakt: !!TRAKT_ID, omdb: !!OMDB_KEY },
     subgenres: SUBGENRES.map(({ key, label }) => ({ key, label })),
     tiers: TIERS.map(({ key, label }) => ({ key, label })),
-    providers: providerList.filter((p, i) => i < 40 || usedProviders.has(p.id)),
+    providers: providerList.filter((p, i) => i < 80 || usedProviders.has(p.id)),
     movies: scored,
   };
   await mkdir(dirname(OUT), { recursive: true });

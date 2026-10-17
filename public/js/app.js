@@ -115,6 +115,12 @@ function poster(m, opts = {}) {
   </div>`;
 }
 
+// Big artwork for the hero, pick card and details: the TMDB backdrop (or a blown-up poster) when posters are on, otherwise generated art.
+function wideArt(m) {
+  if (S.config.showPosters && m.bd) return `<div class="art photo" aria-hidden="true"><img src="https://image.tmdb.org/t/p/w1280${m.bd}" alt=""></div>`;
+  if (S.config.showPosters && m.poster) return `<div class="art photo blur" aria-hidden="true"><img src="https://image.tmdb.org/t/p/w500${m.poster}" alt=""></div>`;
+  return art(m, true);
+}
 function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
   return `<button class="card" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
@@ -188,7 +194,7 @@ views.tonight = () => {
   const firstRun = 'This shelf fills in after the next nightly data refresh.';
   return `
   ${top ? `<section class="hero">
-    ${art(top, true)}<div class="shade"></div>
+    ${wideArt(top)}<div class="shade"></div>
     <div class="hero-body">
       <span class="eyebrow">${icon(featured[0] ? 'star' : 'flame')}${featured[0] ? 'Featured tonight' : esc(trendLine(top).b)}</span>
       <h1>${esc(top.t)}</h1>
@@ -295,7 +301,7 @@ function renderPick(animate) {
     return;
   }
   el.innerHTML = `<div class="pick-card ${animate ? 'spin' : ''}">
-    ${art(m, true)}<div class="shade"></div>
+    ${wideArt(m)}<div class="shade"></div>
     <div class="body">
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}<span>${esc(servicesText(m))}</span></div>
       <h2>${esc(m.t)}</h2>
@@ -422,6 +428,8 @@ function brandOf(name) {
   n = n.replace(/\s+Plus$/i, '+').replace(/^Amazon Prime Video$/i, 'Prime Video').replace(/^Tubi TV$/i, 'Tubi');
   return n;
 }
+// The big US services people actually subscribe to, in rough order of popularity. Everything else follows by JustWatch's ranking.
+const POPULAR = ['netflix', 'prime video', 'hbo max', 'max', 'hulu', 'disney plus', 'disney+', 'paramount+', 'peacock', 'apple tv+', 'apple tv', 'shudder', 'tubi', 'pluto tv', 'the roku channel', 'amc+', 'starz', 'mgm+', 'youtube tv'];
 let groupCache = null;
 function serviceGroups() {
   if (groupCache) return groupCache;
@@ -430,11 +438,16 @@ function serviceGroups() {
   const g = new Map();
   for (const p of S.data.providers) {
     const label = brandOf(p.name); const key = label.toLowerCase();
-    if (!g.has(key)) g.set(key, { key, label, ids: [], movies: new Set(), free: true });
+    if (!g.has(key)) g.set(key, { key, label, ids: [], movies: new Set(), free: true, logo: null, exact: false, pr: 999 });
     const x = g.get(key); x.ids.push(p.id); if (!FREE_HINT.test(p.name)) x.free = false;
+    const exact = brandOf(p.name) === p.name.replace(/^Amazon Prime Video$/i, 'Prime Video').replace(/^Tubi TV$/i, 'Tubi') || p.name === label;
+    if (p.logo && (!x.logo || (exact && !x.exact))) { x.logo = p.logo; x.exact = exact; }
+    x.pr = Math.min(x.pr, p.pr ?? 999);
   }
   for (const m of S.data.movies) for (const x of g.values()) if (x.ids.some((id) => m.pv.includes(id) || m.fr.includes(id))) x.movies.add(m.id);
-  groupCache = [...g.values()].map((x) => ({ ...x, n: x.movies.size })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+  const rank = (x) => { const i = POPULAR.indexOf(x.key); return i < 0 ? 1000 + x.pr : i; };
+  groupCache = [...g.values()].map((x) => ({ ...x, n: x.movies.size, popular: POPULAR.includes(x.key) }))
+    .filter((x) => x.popular || x.n > 0).sort((a, b) => rank(a) - rank(b) || b.n - a.n);
   return groupCache;
 }
 const groupOn = (x) => x.ids.some((id) => S.profile.services.includes(id));
@@ -442,8 +455,8 @@ function serviceTile(x) {
   const h = [...x.label].reduce((s, c) => s + c.charCodeAt(0) * 7, 0) % 360;
   const on = groupOn(x);
   return `<button class="svc" data-act="svcgroup" data-k="${esc(x.key)}" aria-pressed="${on}" style="--sh:${h}">
-    <span class="mono-badge">${esc(x.label.replace(/^the /i, '').slice(0, 2))}</span>
-    <span class="nm"><b>${esc(x.label)}</b><small>${x.n} movie${x.n === 1 ? '' : 's'}${x.free ? ' · Free' : ''}</small></span>
+    ${x.logo ? `<img class="logo-img" src="https://image.tmdb.org/t/p/w92${x.logo}" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'mono-badge',textContent:${esc(JSON.stringify(x.label.replace(/^the /i, '').slice(0, 2)))}}))">` : `<span class="mono-badge">${esc(x.label.replace(/^the /i, '').slice(0, 2))}</span>`}
+    <span class="nm"><b>${esc(x.label)}</b><small>${x.n ? `${x.n} horror movie${x.n === 1 ? '' : 's'}` : 'No horror right now'}${x.free ? ' · Free' : ''}</small></span>
     <span class="box" aria-hidden="true">${icon('check')}</span></button>`;
 }
 function renderServices() {
@@ -452,9 +465,9 @@ function renderServices() {
   const q = (S.svcq || '').trim().toLowerCase();
   const picked = all.filter(groupOn);
   if (q) { const hits = all.filter((x) => x.label.toLowerCase().includes(q)); el.innerHTML = hits.length ? `<div class="svc-grid">${hits.map(serviceTile).join('')}</div>` : '<p class="muted">No service by that name carries horror movies right now.</p>'; return; }
-  const popular = all.slice(0, 12);
-  const rest = all.slice(12);
-  el.innerHTML = `<div class="svc-grid">${popular.map(serviceTile).join('')}</div>
+  const popular = all.filter((x) => x.popular);
+  const rest = all.filter((x) => !x.popular);
+  el.innerHTML = `<h3 class="svc-h">Popular services</h3><div class="svc-grid">${popular.map(serviceTile).join('')}</div>
     ${rest.length ? `<details class="more"${S.svcMore ? ' open' : ''}><summary>${icon('plus')}${rest.length} more services</summary><div class="svc-grid">${rest.map(serviceTile).join('')}</div></details>` : ''}`;
   const c = $('#svc-count'); if (c) c.textContent = picked.length ? `${picked.length} selected: ${picked.map((x) => x.label).join(', ')}` : 'None selected yet';
 }
@@ -477,7 +490,7 @@ views.profile = (sub) => {
       <p class="count" id="svc-count"></p>
       <label class="search"><span class="sr">Find a service</span>${icon('search')}<input type="search" id="svc-q" placeholder="Find a service" value="${esc(S.svcq || '')}"></label>
       <div id="svc-list"></div>
-      <p class="fine">Channel versions (like Shudder through Prime Video) are grouped with the main service.</p>
+      <p class="fine">Channel versions (like Shudder through Prime Video) and ad tiers are grouped with the main service. Logos and streaming data from JustWatch via TMDB.</p>
     </section>
     <div class="stack" style="gap:24px">
       <form class="panel stack" data-form="settings" style="gap:16px">
@@ -735,11 +748,13 @@ function openDetail(id) {
   const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
   const fxKeep = [...dlg.querySelectorAll('.fx-layer')];
   dlg.innerHTML = `<div class="sheet">
-    <div class="sheet-hero">${art(m, true)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
-    <div class="sheet-title">
+    <div class="sheet-hero">${wideArt(m)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
+    <div class="sheet-title ${S.config.showPosters && m.poster ? 'with-poster' : ''}">
+      ${S.config.showPosters && m.poster ? `<img class="sheet-poster" src="https://image.tmdb.org/t/p/w342${m.poster}" alt="${esc(m.t)} poster">` : ''}
+      <div class="stack" style="gap:8px;min-width:0">
       <h2>${esc(m.t)}</h2>
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}</div>
-    </div>
+    </div></div>
     <div class="sheet-body">
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
@@ -748,7 +763,7 @@ function openDetail(id) {
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
       </div>
-      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}">${icon('check')}${seen ? 'Seen' : 'Seen it'}</button>
+      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>
         ${seen ? `<span class="skulls" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-act="rate" data-id="${m.id}" data-k="${n}" class="${(st.rating || 0) >= n ? 'on' : ''}" aria-label="Rate ${n} of 5">${icon('skull')}</button>`).join('')}</span>
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
@@ -1089,7 +1104,7 @@ async function route(keepScroll, quiet) {
   const html = await view(arg);
   const after = S.after; S.after = null;
   const swap = () => { $('#main').innerHTML = html; after?.(); window.scrollTo(0, keepScroll ? y : 0); };
-  if (!quiet && document.startViewTransition && !reduceMotion()) await document.startViewTransition(swap).updateCallbackDone.catch(() => {});
+  if (!quiet && document.startViewTransition && !reduceMotion()) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
 }
