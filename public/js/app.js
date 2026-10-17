@@ -122,41 +122,26 @@ function wideArt(m) {
   if (S.config.showPosters && m.poster) return `<div class="art photo blur" aria-hidden="true"><img src="https://image.tmdb.org/t/p/w500${m.poster}" alt=""></div>`;
   return art(m, true);
 }
-// Blood running down from the top of a queued poster. Drip shapes are generated per movie so a shelf doesn't look stamped out.
-const dripCache = new Map();
-function dripPath(id) {
-  if (dripCache.has(id)) return dripCache.get(id);
+// A streak of blood running down from the top-right corner of a queued poster (where a bookmark ribbon would sit).
+// Lengths vary a little per movie so a shelf doesn't look stamped out.
+function bloodDrip(id) {
   let t = (Number(id) || 7) >>> 0;
   const r = () => { t += 0x6d2b79f5; let x = Math.imul(t ^ (t >>> 15), 1 | t); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
-  const base = 7;
-  const drips = [];
-  let x = 4 + r() * 6;
-  while (x < 96) {
-    const w = 5 + r() * 5;
-    const big = r() < 0.35;
-    const len = big ? 28 + r() * 18 : 11 + r() * 10;
-    drips.push([x, w, len]);
-    x += w + 4 + r() * 9;
-  }
   const f = (n) => n.toFixed(1);
-  let d = `M0 0H100V${base}`;
-  for (const [cx, w, L] of drips.reverse()) {
-    const rr = w * 0.36;
-    d += ` L${f(cx + w / 2)} ${base} C${f(cx + w * 0.18)} ${base} ${f(cx + w * 0.26)} ${f(L - rr * 2.2)} ${f(cx + rr)} ${f(L - rr)}`;
-    d += ` A${f(rr)} ${f(rr)} 0 1 1 ${f(cx - rr)} ${f(L - rr)}`;
-    d += ` C${f(cx - w * 0.26)} ${f(L - rr * 2.2)} ${f(cx - w * 0.18)} ${base} ${f(cx - w / 2)} ${base}`;
-  }
-  d += ` L0 ${base}Z`;
-  dripCache.set(id, d);
-  return d;
-}
-function bloodDrip(id) {
-  const d = dripPath(id);
+  const drip = (cx, w, L) => {
+    const rr = w * 0.42;
+    return ` L${f(cx + w / 2)} 7 C${f(cx + w * 0.2)} 9 ${f(cx + w * 0.3)} ${f(L - rr * 2.4)} ${f(cx + rr)} ${f(L - rr)} A${f(rr)} ${f(rr)} 0 1 1 ${f(cx - rr)} ${f(L - rr)} C${f(cx - w * 0.3)} ${f(L - rr * 2.4)} ${f(cx - w * 0.2)} 9 ${f(cx - w / 2)} 7`;
+  };
+  const mainL = 52 + r() * 22, sideL = 18 + r() * 16, tinyL = 11 + r() * 6;
+  // pool along the top edge, then drips right to left
+  let d = 'M0 0H40V7' + drip(33, 8, sideL) + drip(20, 13, mainL) + drip(7, 7, tinyL) + ' L0 6Z';
   const g = 'bl' + id;
-  return `<span class="blood" title="In your queue" aria-label="In your queue"><svg viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
-    <defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a0010"/><stop offset=".25" stop-color="#a3001f"/><stop offset="1" stop-color="#e0102f"/></linearGradient></defs>
-    <path d="${d}" fill="url(#${g})"/><path d="${d}" fill="none" stroke="rgba(255,140,150,.35)" stroke-width=".6" transform="translate(-.4 -.6)"/>
-  </svg><i class="drop"></i></span>`;
+  return `<span class="blood" title="In your queue" aria-label="In your queue"><svg viewBox="0 0 40 80" aria-hidden="true">
+    <defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d000d"/><stop offset=".3" stop-color="#9e001d"/><stop offset="1" stop-color="#e3112f"/></linearGradient>
+    <radialGradient id="${g}h" cx=".35" cy=".3" r=".6"><stop offset="0" stop-color="#ff8a96" stop-opacity=".8"/><stop offset="1" stop-color="#ff8a96" stop-opacity="0"/></radialGradient></defs>
+    <path d="${d}" fill="url(#${g})"/>
+    <circle cx="${f(20 - 1.5)}" cy="${f(mainL - 6)}" r="2.2" fill="url(#${g}h)"/>
+  </svg><i class="drop" style="--top:${f((mainL / 80) * 100)}%"></i></span>`;
 }
 function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
