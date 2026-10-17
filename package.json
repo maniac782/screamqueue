@@ -1,0 +1,11 @@
+{
+  "name": "screamqueue",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "refresh": "node scripts/refresh-data.mjs",
+    "test": "node --test scripts/lib.test.mjs",
+    "serve": "npx --yes http-server public -p 5050 -c-1"
+  },
+  "engines": { "node": ">=20" }
+}

@@ -1,0 +1,12 @@
+{
+  "hosting": {
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*"],
+    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "headers": [
+      { "source": "/data/**", "headers": [{ "key": "Cache-Control", "value": "public, max-age=1800" }] },
+      { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  },
+  "firestore": { "rules": "firestore.rules", "indexes": "firestore.indexes.json" }
+}

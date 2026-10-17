@@ -1,0 +1,10 @@
+{
+  "name": "Scream Queue",
+  "short_name": "Scream Queue",
+  "description": "Find the horror movie to watch next.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#140d12",
+  "theme_color": "#20151c",
+  "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

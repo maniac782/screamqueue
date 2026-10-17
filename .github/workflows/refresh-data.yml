@@ -1,0 +1,51 @@
+name: Refresh movie data
+
+on:
+  schedule:
+    - cron: '17 9 * * *'   # daily, about 5:17am Eastern
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Pull TMDB / Trakt / OMDb data
+        run: node scripts/refresh-data.mjs
+        env:
+          TMDB_READ_TOKEN: ${{ secrets.TMDB_READ_TOKEN }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+          OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+      - name: Commit updated data
+        id: commit
+        run: |
+          if git diff --quiet -- public/data/movies.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/data/movies.json
+          git commit -m "Nightly movie data refresh"
+          git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit

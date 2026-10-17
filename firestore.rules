@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(me())); }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    // Site settings: featured / hidden movies, subgenre fixes, poster toggle, announcement.
+    match /config/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Admin list is managed in the Firebase console only.
+    match /admins/{uid} {
+      allow get: if signedIn() && uid == me();
+      allow list: if isAdmin();
+      allow write: if false;
+    }
+
+    // Each person's profile, services, queue and ratings are private to them.
+    match /users/{uid} {
+      allow read: if signedIn() && (uid == me() || isAdmin());
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['name', 'services', 'createdAt', 'lastSeen', 'hideSeen']);
+      allow delete: if signedIn() && uid == me();
+
+      match /movies/{movieId} {
+        allow read, write: if signedIn() && uid == me();
+      }
+    }
+
+    // Movie nights: shared shortlist + voting. Knowing the night's link lets a signed-in person join.
+    match /nights/{nightId} {
+      allow get: if signedIn();
+      allow list: if signedIn() && me() in resource.data.members;
+      allow create: if signedIn()
+        && request.resource.data.owner == me()
+        && request.resource.data.members == [me()];
+      allow delete: if signedIn() && resource.data.owner == me();
+
+      allow update: if signedIn() && request.resource.data.owner == resource.data.owner && (
+        // The owner can change anything except ownership.
+        resource.data.owner == me()
+        // Members can suggest movies, vote for themselves, and set their own display name.
+        || (me() in resource.data.members
+            && changed().hasOnly(['candidates', 'votes', 'memberNames'])
+            && request.resource.data.votes.diff(resource.data.votes).affectedKeys().hasOnly([me()])
+            && request.resource.data.memberNames.diff(resource.data.memberNames).affectedKeys().hasOnly([me()]))
+        // Anyone signed in with the link can add themselves.
+        || (!(me() in resource.data.members)
+            && changed().hasOnly(['members', 'memberNames'])
+            && request.resource.data.members == resource.data.members.concat([me()])
+            && request.resource.data.memberNames.diff(resource.data.memberNames).affectedKeys().hasOnly([me()]))
+      );
+    }
+  }
+}
