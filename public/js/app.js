@@ -110,7 +110,7 @@ function poster(m, opts = {}) {
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
     ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(S.tierLabel.get(m.tier))}</span>`}
-    ${state === 'queued' ? `<span class="ribbon" title="In your queue"><span class="sr">In your queue</span></span>` : ''}
+    ${state === 'queued' ? bloodDrip(m.id) : ''}
     ${state === 'seen' ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
@@ -121,6 +121,42 @@ function wideArt(m) {
   if (S.config.showPosters && m.bd) return `<div class="art photo" aria-hidden="true"><img src="https://image.tmdb.org/t/p/w1280${m.bd}" alt=""></div>`;
   if (S.config.showPosters && m.poster) return `<div class="art photo blur" aria-hidden="true"><img src="https://image.tmdb.org/t/p/w500${m.poster}" alt=""></div>`;
   return art(m, true);
+}
+// Blood running down from the top of a queued poster. Drip shapes are generated per movie so a shelf doesn't look stamped out.
+const dripCache = new Map();
+function dripPath(id) {
+  if (dripCache.has(id)) return dripCache.get(id);
+  let t = (Number(id) || 7) >>> 0;
+  const r = () => { t += 0x6d2b79f5; let x = Math.imul(t ^ (t >>> 15), 1 | t); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; };
+  const base = 7;
+  const drips = [];
+  let x = 4 + r() * 6;
+  while (x < 96) {
+    const w = 5 + r() * 5;
+    const big = r() < 0.35;
+    const len = big ? 28 + r() * 18 : 11 + r() * 10;
+    drips.push([x, w, len]);
+    x += w + 4 + r() * 9;
+  }
+  const f = (n) => n.toFixed(1);
+  let d = `M0 0H100V${base}`;
+  for (const [cx, w, L] of drips.reverse()) {
+    const rr = w * 0.36;
+    d += ` L${f(cx + w / 2)} ${base} C${f(cx + w * 0.18)} ${base} ${f(cx + w * 0.26)} ${f(L - rr * 2.2)} ${f(cx + rr)} ${f(L - rr)}`;
+    d += ` A${f(rr)} ${f(rr)} 0 1 1 ${f(cx - rr)} ${f(L - rr)}`;
+    d += ` C${f(cx - w * 0.26)} ${f(L - rr * 2.2)} ${f(cx - w * 0.18)} ${base} ${f(cx - w / 2)} ${base}`;
+  }
+  d += ` L0 ${base}Z`;
+  dripCache.set(id, d);
+  return d;
+}
+function bloodDrip(id) {
+  const d = dripPath(id);
+  const g = 'bl' + id;
+  return `<span class="blood" title="In your queue" aria-label="In your queue"><svg viewBox="0 0 100 50" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5a0010"/><stop offset=".25" stop-color="#a3001f"/><stop offset="1" stop-color="#e0102f"/></linearGradient></defs>
+    <path d="${d}" fill="url(#${g})"/><path d="${d}" fill="none" stroke="rgba(255,140,150,.35)" stroke-width=".6" transform="translate(-.4 -.6)"/>
+  </svg><i class="drop"></i></span>`;
 }
 function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');

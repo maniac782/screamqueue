@@ -616,12 +616,12 @@ details.more summary .ic { transition: transform .25s var(--ease); }
 /* queue ribbon and seen stamp */
 .badge-tier .flame { display: inline-grid; color: #ff8a4c; margin-left: -2px; }
 .badge-tier .flame .ic { width: 13px; height: 13px; fill: currentColor; }
-.ribbon { position: absolute; z-index: 5; top: -4px; right: 12px; width: 30px; height: 60px; pointer-events: auto;
-  background: linear-gradient(90deg, #b30f2c, #ff3b54 45%, #d4142f 55%, #9c0b25);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 78%, 0 100%);
-  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, .55)); }
-.ribbon::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 3px; background: rgba(0, 0, 0, .25); }
-.ribbon::after { content: ""; position: absolute; left: 50%; top: 14px; width: 2px; height: 22px; transform: translateX(-50%); background: rgba(255, 255, 255, .22); }
+.blood { position: absolute; z-index: 3; left: 0; right: 0; top: 0; height: 34%; pointer-events: none; transform-origin: top center;
+  filter: drop-shadow(0 3px 3px rgba(0, 0, 0, .55)); }
+.blood svg { display: block; width: 100%; height: 100%; }
+.blood .drop { position: absolute; left: 51%; top: 86%; width: 7px; height: 9px; margin-left: -3.5px; border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: radial-gradient(circle at 35% 30%, #ff6b7d, #c40d2c 60%, #7a0518); opacity: 0; }
+.poster.queued .badge-tier { z-index: 5; box-shadow: 0 2px 8px rgba(0, 0, 0, .6); background: rgba(10, 4, 6, .75); }
 .stamp {
   position: absolute; z-index: 4; left: 50%; top: 42%; transform: translate(-50%, -50%) rotate(-14deg);
   display: grid; justify-items: center; gap: 2px; padding: 6px 12px 5px; color: #ff4057;
@@ -640,11 +640,15 @@ details.more summary .ic { transition: transform .25s var(--ease); }
 .in-q { display: inline-flex; align-items: center; gap: 5px; color: #ff4d63; font-weight: 700; }
 .in-q .ic { width: 14px; height: 14px; fill: currentColor; }
 @media (prefers-reduced-motion: no-preference) {
-  .poster.just .ribbon { animation: ribbonDrop .7s var(--spring) both; transform-origin: top center; }
+  .poster.just .blood { animation: bloodRun 1.4s cubic-bezier(.3, .7, .2, 1) both; }
+  .blood .drop { animation: dropFall 7s ease-in infinite; animation-delay: calc(var(--dd, 0) * 1s + 2s); }
+  .card:nth-child(3n) .blood .drop { --dd: 2.3; } .card:nth-child(3n+1) .blood .drop { --dd: 4.1; }
   .poster.just .stamp { animation: stampIn .5s cubic-bezier(.2, 1.6, .4, 1) both; }
-  @media (hover: hover) { .card:hover .ribbon { animation: sway 1.2s ease-in-out; transform-origin: top center; } }
+  @media (hover: hover) { .card:hover .blood { animation: ooze 1.6s ease-in-out; } }
 }
-@keyframes ribbonDrop { 0% { transform: translateY(-110%); } 70% { transform: translateY(6%); } 100% { transform: none; } }
+@keyframes bloodRun { 0% { transform: scaleY(0); } 60% { transform: scaleY(1.06); } 100% { transform: scaleY(1); } }
+@keyframes ooze { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.12); } }
+@keyframes dropFall { 0%, 82% { opacity: 0; transform: translateY(0) scale(.5); } 85% { opacity: 1; transform: translateY(0) scale(1); } 100% { opacity: 0; transform: translateY(260%) scale(.9, 1.3); } }
 @keyframes sway { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(5deg); } 65% { transform: rotate(-3deg); } }
 @keyframes stampIn { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(-14deg) scale(2.2); } 60% { opacity: 1; transform: translate(-50%, -50%) rotate(-14deg) scale(.92); } 100% { transform: translate(-50%, -50%) rotate(-14deg) scale(1); } }
 
