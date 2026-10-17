@@ -357,14 +357,21 @@ dialog.detail[open]::backdrop { animation: fade .3s ease; }
 .linkrow a:hover { color: var(--fg); background: var(--line-2); }
 .fine { font-size: .78rem; color: var(--faint); }
 
-.skulls { display: inline-flex; gap: 2px; padding: 4px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
-.skulls button { all: unset; cursor: pointer; width: 32px; height: 30px; display: grid; place-items: center; color: var(--faint); border-radius: 8px; transition: color .15s, transform .2s var(--spring), background .15s; }
-.skulls button .ic { width: 20px; height: 20px; }
-.skulls button:hover { background: var(--raised); transform: scale(1.12); }
-.skulls button.on { color: var(--accent); }
-.skulls button:focus-visible { outline: 2px solid var(--accent); }
-.skull-row { display: inline-flex; gap: 1px; color: var(--accent); }
-.skull-row .ic { width: 16px; height: 16px; }
+.skulls { display: inline-flex; align-items: center; gap: 2px; padding: 4px 8px 4px 4px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); }
+.sk { position: relative; display: inline-grid; place-items: center; color: var(--faint); }
+.sk .fill { position: absolute; inset: 0; display: grid; place-items: center; color: var(--accent); clip-path: inset(0 100% 0 0); transition: clip-path .2s var(--ease); }
+.sk.half .fill { clip-path: inset(0 50% 0 0); }
+.sk.on .fill { clip-path: inset(0 0 0 0); }
+.skulls .sk { width: 32px; height: 30px; border-radius: 8px; transition: transform .2s var(--spring), background .15s; }
+.skulls .sk .ic { width: 22px; height: 22px; }
+.skulls .sk:hover { background: var(--raised); transform: scale(1.1); }
+.skulls .sk button { all: unset; position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; z-index: 1; }
+.skulls .sk button.l { left: 0; border-radius: 8px 0 0 8px; }
+.skulls .sk button.r { right: 0; border-radius: 0 8px 8px 0; }
+.skulls .sk button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sk-val { min-width: 2.2ch; font-weight: 700; font-size: .9rem; color: var(--fg); margin-left: 4px; }
+.skull-row { display: inline-flex; gap: 1px; }
+.skull-row .sk .ic { width: 16px; height: 16px; }
 
 /* ---------- pick for me ---------- */
 .pick-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 24px; align-items: start; }
@@ -573,3 +580,5 @@ details.more summary .ic { transition: transform .25s var(--ease); }
 .sheet-title.with-poster { display: grid; grid-template-columns: 132px minmax(0, 1fr); gap: 20px; align-items: end; margin-top: -96px; position: relative; z-index: 1; }
 .sheet-poster { color: transparent; width: 132px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 12px; box-shadow: var(--shadow-lg), 0 0 0 1px rgba(255,255,255,.12); background: var(--raised); }
 @media (max-width: 560px) { .sheet-title.with-poster { grid-template-columns: 96px minmax(0, 1fr); gap: 14px; margin-top: -64px; } .sheet-poster { width: 96px; } }
+.thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.check .thumb, .list-item .thumb { box-shadow: 0 0 0 1px var(--line); }

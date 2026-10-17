@@ -146,7 +146,18 @@ function sgChip(act, s, pressed) {
   return `<button class="chip" data-act="${act}" data-k="${s.key}" aria-pressed="${!!pressed}" style="--h:${hue(s.key)}"><span class="sw"></span><span class="tick">${icon('check')}</span>${esc(s.label)}</button>`;
 }
 function sgTag(k) { return `<span class="tag" style="--h:${hue(k)}"><span class="sw"></span>${esc(S.sgLabel.get(k) || k)}</span>`; }
-function skullRow(r) { return r ? `<span class="skull-row" aria-label="${r} of 5">${Array.from({ length: r }, () => icon('skull')).join('')}</span>` : '<span class="faint">Not rated</span>'; }
+const fmtRating = (r) => (Number.isInteger(r) ? String(r) : r.toFixed(1));
+function skullRow(r) {
+  if (!r) return '<span class="faint">Not rated</span>';
+  const parts = [];
+  for (let n = 1; n <= 5; n++) if (r >= n - 0.5) parts.push(`<span class="sk ${r >= n ? 'on' : 'half'}">${icon('skull')}<span class="fill">${icon('skull')}</span></span>`);
+  return `<span class="skull-row" aria-label="${fmtRating(r)} of 5">${parts.join('')}</span>`;
+}
+function skullPicker(m, r = 0) {
+  return `<span class="skulls" role="group" aria-label="Your rating: ${r ? fmtRating(r) : 'none'} of 5">${[1, 2, 3, 4, 5].map((n) => `<span class="sk ${r >= n ? 'on' : r >= n - 0.5 ? 'half' : ''}">${icon('skull')}<span class="fill">${icon('skull')}</span>
+    <button class="l" data-act="rate" data-id="${m.id}" data-k="${n - 0.5}" aria-label="Rate ${n - 0.5} of 5"></button><button class="r" data-act="rate" data-id="${m.id}" data-k="${n}" aria-label="Rate ${n} of 5"></button></span>`).join('')}
+    <span class="sk-val">${r ? fmtRating(r) : ''}</span></span>`;
+}
 
 // ---------- data ----------
 async function loadData() {
@@ -361,7 +372,7 @@ views.nights = async () => {
   </div>`;
 };
 
-function thumb(m) { return `<span class="thumb">${art(m)}</span>`; }
+function thumb(m) { return `<span class="thumb">${art(m)}${S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w92${m.poster}" alt="" loading="lazy">` : ''}</span>`; }
 function renderNight(n, id) {
   const el = $('#night'); if (!el) return;
   if (!n) { el.innerHTML = `<div class="empty">${icon('users')}<span>This movie night was not found. It may have been deleted, or the link is incomplete.</span></div>`; return; }
@@ -713,7 +724,7 @@ views.bodycount = () => {
   <section class="stack" style="gap:18px">
     <h2>Watch log</h2>
     ${seen.length ? [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:10px"><h3 class="muted">${esc(monthName(k))} <span class="faint">(${list.length})</span></h3>
-      <div class="list">${list.map((x) => `<div class="list-item with-art">${thumb(x.m || { id: x.id, sg: x.sg })}
+      <div class="list">${list.map((x) => `<div class="list-item with-art">${thumb(x.m || { id: x.id, sg: x.sg, poster: x.st.poster })}
         <div style="min-width:0">${x.m ? `<button class="linkish" data-act="open" data-id="${x.id}">${esc(x.t)}</button>` : `<b>${esc(x.t)}</b>`} <span class="faint">${x.y ?? ''}</span>
         <div class="muted" style="font-size:.85rem">${x.on ? esc(new Date(x.on + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })) + '. ' : ''}${x.sg.slice(0, 3).map((k) => esc(S.sgLabel.get(k) || k)).join(', ')}</div></div>
         ${skullRow(x.st.rating)}</div>`).join('')}</div></div>`).join('')
@@ -764,7 +775,7 @@ function openDetail(id) {
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
       </div>
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>
-        ${seen ? `<span class="skulls" role="group" aria-label="Your rating">${[1, 2, 3, 4, 5].map((n) => `<button data-act="rate" data-id="${m.id}" data-k="${n}" class="${(st.rating || 0) >= n ? 'on' : ''}" aria-label="Rate ${n} of 5">${icon('skull')}</button>`).join('')}</span>
+        ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
       <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
@@ -847,7 +858,7 @@ async function setStatus(id, data) {
   if (!needUser()) return;
   const m = S.byId.get(String(id));
   const prev = S.mine.get(String(id)) || {};
-  const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null } : {};
+  const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null, poster: m.poster || null } : {};
   const next = { ...prev, ...snap, ...data };
   delete next.at;
   S.mine.set(String(id), { ...next, at: Date.now() });
@@ -887,10 +898,11 @@ const actions = {
     const sk = $('#detail').open && $('#detail .skulls'); if (sk && canFx()) sk.animate([{ opacity: 0, transform: 'translateY(8px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.4,.64,1)' });
   },
   async rate(el) {
-    const k = el.dataset.k;
-    await setStatus(el.dataset.id, { status: 'seen', rating: Number(k) });
+    let k = Number(el.dataset.k);
+    if ((status(el.dataset.id)?.rating || 0) === k) k = 0; // tap your current rating again to clear it
+    await setStatus(el.dataset.id, { status: 'seen', rating: k });
     await refreshAll();
-    if (canFx()) document.querySelectorAll('#detail .skulls button').forEach((b, i) => { if (i < Number(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
+    if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
   sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.f.hideSeen = false; location.hash = '#/browse'; },
   ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
