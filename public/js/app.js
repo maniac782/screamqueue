@@ -36,6 +36,7 @@ const onMine = (m) => S.profile.services.some((p) => m.pv.includes(p) || m.fr.in
 const SAMPLE = () => !!S.data?.sample;
 const hue = (k) => (SG_HUE[k] || [350])[0];
 const today = () => new Date().toISOString().slice(0, 10);
+const avatarHue = (name) => [...(name || '')].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 function toast(msg, ic = 'check') {
@@ -109,7 +110,7 @@ function poster(m, opts = {}) {
     <div class="scrim"></div>
     ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}"><i></i>${esc(S.tierLabel.get(m.tier))}</span>`}
     ${!opts.noBadges && m.flags.includes('hot') ? `<span class="badge-hot" title="Trending this week">${icon('flame')}</span>` : ''}
-    ${!opts.noBadges && st ? `<span class="badge-me ${everSeen(m) && st.status !== 'queue' ? 'seen' : ''}" title="${st.status === 'seen' ? 'Seen' : 'In your queue'}">${icon(st.status === 'seen' ? 'check' : 'bookmark')}</span>` : ''}
+    ${!opts.noBadges && st ? `<span class="badge-me ${everSeen(m) && st.status !== 'queue' ? 'seen' : ''} ${S.just === String(m.id) ? 'pop' : ''}" title="${st.status === 'seen' ? 'Seen' : 'In your queue'}">${icon(st.status === 'seen' ? 'check' : 'bookmark')}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
@@ -332,7 +333,7 @@ views.queue = () => {
   const rows = tab === 'queue' ? q : seen;
   return `<div class="page-head"><h1>My queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
   <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
-  ${tab === 'seen' ? '<p class="muted">Badges, milestones and your full watch log live in the <a href="#/trophies">Trophy Case</a>.</p>' : ''}
+  ${tab === 'seen' ? '<p class="muted">Badges, milestones and your full watch log live in the <a href="#/bodycount">Body Count</a>.</p>' : ''}
   ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${icon(tab === 'queue' ? 'bookmark' : 'check')}<span>${tab === 'queue' ? 'Your queue is empty. Open any movie and press "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</span></div>`}`;
 };
 
@@ -410,20 +411,93 @@ views.night = (id) => {
   return '<div id="night" class="stack"><div class="empty">Loading movie night…</div></div>';
 };
 
-// Settings
-views.settings = () => {
+// Streaming services, grouped so "Shudder", "Shudder Amazon Channel" and "Shudder Apple TV channel" are one choice.
+const FREE_HINT = /tubi|pluto|plex|roku channel|youtube free|fawesome|xumo|fandango at home free|kanopy|hoopla|free with ads|mx player|crackle|freevee/i;
+function brandOf(name) {
+  let n = name.trim();
+  n = n.replace(/\s+(Amazon|Apple TV|Roku Premium)\s+channel$/i, '');
+  if (!/^the roku channel$/i.test(n)) n = n.replace(/\s+Channel$/i, '');
+  n = n.replace(/\s+(Standard with Ads|Basic with Ads|Free with Ads|with Ads)$/i, '');
+  n = n.replace(/\s+(Premium Plus|Premium|Essential)$/i, '');
+  n = n.replace(/\s+Plus$/i, '+').replace(/^Amazon Prime Video$/i, 'Prime Video').replace(/^Tubi TV$/i, 'Tubi');
+  return n;
+}
+let groupCache = null;
+function serviceGroups() {
+  if (groupCache) return groupCache;
+  const count = new Map();
+  for (const m of S.data.movies) for (const p of new Set([...m.pv, ...m.fr])) count.set(p, (count.get(p) || 0) + 1);
+  const g = new Map();
+  for (const p of S.data.providers) {
+    const label = brandOf(p.name); const key = label.toLowerCase();
+    if (!g.has(key)) g.set(key, { key, label, ids: [], movies: new Set(), free: true });
+    const x = g.get(key); x.ids.push(p.id); if (!FREE_HINT.test(p.name)) x.free = false;
+  }
+  for (const m of S.data.movies) for (const x of g.values()) if (x.ids.some((id) => m.pv.includes(id) || m.fr.includes(id))) x.movies.add(m.id);
+  groupCache = [...g.values()].map((x) => ({ ...x, n: x.movies.size })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n);
+  return groupCache;
+}
+const groupOn = (x) => x.ids.some((id) => S.profile.services.includes(id));
+function serviceTile(x) {
+  const h = [...x.label].reduce((s, c) => s + c.charCodeAt(0) * 7, 0) % 360;
+  const on = groupOn(x);
+  return `<button class="svc" data-act="svcgroup" data-k="${esc(x.key)}" aria-pressed="${on}" style="--sh:${h}">
+    <span class="mono-badge">${esc(x.label.replace(/^the /i, '').slice(0, 2))}</span>
+    <span class="nm"><b>${esc(x.label)}</b><small>${x.n} movie${x.n === 1 ? '' : 's'}${x.free ? ' · Free' : ''}</small></span>
+    <span class="box" aria-hidden="true">${icon('check')}</span></button>`;
+}
+function renderServices() {
+  const el = $('#svc-list'); if (!el) return;
+  const all = serviceGroups();
+  const q = (S.svcq || '').trim().toLowerCase();
+  const picked = all.filter(groupOn);
+  if (q) { const hits = all.filter((x) => x.label.toLowerCase().includes(q)); el.innerHTML = hits.length ? `<div class="svc-grid">${hits.map(serviceTile).join('')}</div>` : '<p class="muted">No service by that name carries horror movies right now.</p>'; return; }
+  const popular = all.slice(0, 12);
+  const rest = all.slice(12);
+  el.innerHTML = `<div class="svc-grid">${popular.map(serviceTile).join('')}</div>
+    ${rest.length ? `<details class="more"${S.svcMore ? ' open' : ''}><summary>${icon('plus')}${rest.length} more services</summary><div class="svc-grid">${rest.map(serviceTile).join('')}</div></details>` : ''}`;
+  const c = $('#svc-count'); if (c) c.textContent = picked.length ? `${picked.length} selected: ${picked.map((x) => x.label).join(', ')}` : 'None selected yet';
+}
+let svcSaveTimer = null;
+function saveServicesSoon() {
+  clearTimeout(svcSaveTimer);
+  svcSaveTimer = setTimeout(async () => { await store.saveProfile({ services: S.profile.services }); toast('Services saved'); }, 600);
+}
+
+// Profile
+views.profile = (sub) => {
   if (!S.user) return signInPrompt('Sign in to save your name and streaming services.');
   let theme = 'system'; try { theme = localStorage.getItem('sq-theme') || 'system'; } catch { /* ignore */ }
-  return `<div class="page-head"><h1>Settings</h1></div>
-  <form class="panel stack" data-form="settings" style="max-width:820px;gap:22px">
-    <label class="field">Display name (shown on movie nights)<input type="text" id="set-name" name="name" maxlength="40" value="${esc(S.profile.name)}"></label>
-    <div class="stack" style="gap:10px"><h3>Streaming services you have</h3><p class="muted" style="font-size:.9rem">Shelves and Pick for me will lean toward these.</p>
-      <div class="chips">${S.data.providers.map((p) => `<button type="button" class="chip" data-act="svc" data-k="${p.id}" aria-pressed="${S.profile.services.includes(p.id)}"><span class="tick">${icon('check')}</span>${esc(p.name)}</button>`).join('')}</div></div>
-    <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
-    <label class="field" style="max-width:240px">Theme<select id="set-theme" data-bind-theme>${['system', 'dark', 'light'].map((t) => `<option value="${t}" ${theme === t ? 'selected' : ''}>${{ system: 'Match my device', dark: 'Dark', light: 'Light' }[t]}</option>`).join('')}</select></label>
-    <div class="row"><button class="btn primary" type="submit">Save settings</button><button class="btn ghost" type="button" data-act="signout">Sign out</button>${store.demo ? '<button class="btn ghost" type="button" data-act="resetdemo">Reset demo data</button>' : ''}</div>
-  </form>`;
+  const name = S.profile.name || S.user.name || '';
+  S.after = () => { renderServices(); if (sub === 'services') $('#services')?.scrollIntoView({ block: 'start' }); };
+  return `<div class="profile-head"><span class="avatar xl" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span><div><h1>${esc(name)}</h1><p class="muted">${esc(S.user.email || '')}</p></div></div>
+  <div class="profile-grid">
+    <section class="panel stack" id="services" style="gap:16px">
+      <div class="shelf-head"><div><h2>Your streaming services</h2><p class="muted">Tap the ones you pay for or use. Shelves and Pick for me lean toward them. Saved as you go.</p></div></div>
+      <p class="count" id="svc-count"></p>
+      <label class="search"><span class="sr">Find a service</span>${icon('search')}<input type="search" id="svc-q" placeholder="Find a service" value="${esc(S.svcq || '')}"></label>
+      <div id="svc-list"></div>
+      <p class="fine">Channel versions (like Shudder through Prime Video) are grouped with the main service.</p>
+    </section>
+    <div class="stack" style="gap:24px">
+      <form class="panel stack" data-form="settings" style="gap:16px">
+        <h2>Profile</h2>
+        <label class="field">Display name (shown on movie nights)<input type="text" id="set-name" name="name" maxlength="40" value="${esc(S.profile.name)}"></label>
+        <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
+        <button class="btn primary" type="submit" style="justify-self:start">Save profile</button>
+      </form>
+      <section class="panel stack" style="gap:14px">
+        <h2>Appearance</h2>
+        <div class="tabs" role="group" aria-label="Theme">${['system', 'dark', 'light'].map((t) => `<button data-act="theme" data-k="${t}" aria-selected="${theme === t}">${{ system: 'Match device', dark: 'Dark', light: 'Light' }[t]}</button>`).join('')}</div>
+      </section>
+      <section class="panel stack" style="gap:12px">
+        <h2>Account</h2>
+        <div class="row"><a class="btn" href="#/bodycount">${icon('skull')}Your Body Count</a><button class="btn ghost" type="button" data-act="signout">Sign out</button>${store.demo ? '<button class="btn ghost" type="button" data-act="resetdemo">Reset demo data</button>' : ''}</div>
+      </section>
+    </div>
+  </div>`;
 };
+views.settings = views.profile;
 
 // Sign in
 function signInPrompt(msg) {
@@ -433,7 +507,7 @@ views.signin = () => {
   if (S.user) { setTimeout(() => (location.hash = S.afterSignIn || '#/')); return ''; }
   return `<div class="panel stack auth-card" style="gap:18px">
     <h1 style="font-size:2rem">Welcome to ${esc(SITE_NAME)}</h1>
-    <p class="muted">${esc(TAGLINE)} An account keeps your queue, Trophy Case and movie nights.</p>
+    <p class="muted">${esc(TAGLINE)} An account keeps your queue, Body Count and movie nights.</p>
     ${store.demo ? '<p class="ok">Demo mode: any details work and nothing leaves this browser.</p>' : ''}
     <button class="btn primary" data-act="google">Continue with Google</button>
     <div class="divider">or use email</div>
@@ -563,9 +637,9 @@ function prog(have, need, h) {
   return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"${h != null ? ` style="--h:${h}"` : ''}><i style="width:${pct}%"></i></div>`;
 }
 
-views.trophies = () => {
+views.bodycount = () => {
   shelfN = 0;
-  if (!S.user) return signInPrompt('Sign in to keep a Trophy Case of every horror movie you have seen.');
+  if (!S.user) return signInPrompt('Sign in to keep a Body Count of every horror movie you have survived.');
   const seen = seenList();
   const mins = seen.reduce((s, x) => s + (x.rt || 0), 0);
   const rated = seen.filter((x) => x.st.rating);
@@ -583,9 +657,9 @@ views.trophies = () => {
     groups.get(key).push(x);
   }
   const monthName = (k) => (k ? new Date(k + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }) : 'Before Scream Queue');
-  return `<div class="page-head"><h1>Trophy Case</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the ones you've already watched in bulk.</p></div>
+  return `<div class="page-head"><h1>Body Count</h1><p class="muted">Every horror movie you've survived. Mark movies as seen anywhere on the site, or check off the ones you've already watched.</p></div>
   <section class="tiles">
-    <div class="tile"><b>${seen.length}</b><span>Movies seen</span></div>
+    <div class="tile"><b>${seen.length}</b><span>Movies survived</span></div>
     <div class="tile"><b>${Math.round(mins / 60)}</b><span>Hours of horror</span></div>
     <div class="tile"><b>${avg}</b><span>Your average rating</span></div>
     <div class="tile"><b>${Object.keys(counts).length}<small> of ${S.data.subgenres.length}</small></b><span>Subgenres explored</span></div>
@@ -640,12 +714,12 @@ views.checklist = () => {
   const base = S.ckAll ? S.movies.slice().sort((a, b) => b.reach - a.reach) : essentialsList();
   const list = base.filter((m) => !q || m.t.toLowerCase().includes(q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
   const done = base.filter(everSeen).length;
-  return `<div class="page-head"><h1>What have you seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Trophy Case under "Before Scream Queue", so you don't need dates.</p></div>
+  return `<div class="page-head"><h1>What have you seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Body Count under "Before Scream Queue", so you don't need dates.</p></div>
   <div class="row" style="justify-content:space-between">
     <div class="tabs" role="tablist"><button role="tab" data-act="ckmode" data-k="ess" aria-selected="${!S.ckAll}">Horror Essentials</button><button role="tab" data-act="ckmode" data-k="all" aria-selected="${!!S.ckAll}">Everything</button></div>
     <span class="muted" id="ck-count">${done} of ${base.length} seen</span>
   </div>
-  <div class="row"><label class="search" style="flex:1;max-width:440px"><span class="sr">Filter by title</span>${icon('search')}<input type="search" id="ck-q" placeholder="Filter by title" value="${esc(S.ckq || '')}"></label><a class="btn" href="#/trophies">${icon('trophy')}Back to Trophy Case</a></div>
+  <div class="row"><label class="search" style="flex:1;max-width:440px"><span class="sr">Filter by title</span>${icon('search')}<input type="search" id="ck-q" placeholder="Filter by title" value="${esc(S.ckq || '')}"></label><a class="btn" href="#/bodycount">${icon('trophy')}Back to Body Count</a></div>
   <div class="checks">${list.map((m) => `<button class="check" data-act="ck" data-id="${m.id}" aria-pressed="${everSeen(m)}">${thumb(m)}<span style="min-width:0"><b>${esc(m.t)}</b> <span class="faint">${m.y ?? ''}</span><br><span class="muted" style="font-size:.82rem">${esc(S.tierLabel.get(m.tier))}${m.sg.length ? ', ' + esc(S.sgLabel.get(m.sg[0])) : ''}</span></span><span class="box" aria-hidden="true">${icon('check')}</span></button>`).join('')}</div>`;
 };
 
@@ -659,6 +733,7 @@ function openDetail(id) {
   const provs = [...m.pv.map((p) => [p, 'Included']), ...m.fr.map((p) => [p, 'Free with ads'])]
     .map(([p, kind]) => `<span class="prov">${esc(S.provName.get(p) || 'Service')}<small>${kind}</small></span>`).join('');
   const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
+  const fxKeep = [...dlg.querySelectorAll('.fx-layer')];
   dlg.innerHTML = `<div class="sheet">
     <div class="sheet-hero">${art(m, true)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
     <div class="sheet-title">
@@ -682,11 +757,75 @@ function openDetail(id) {
         <span class="fine">Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
       <div class="linkrow">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${icon('link')}${l}</a>`).join('')}</div>
     </div></div>`;
+  fxKeep.forEach((l) => dlg.append(l));
   dlg.dataset.id = m.id;
   if (!dlg.open) { try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); } }
   else { const sh = $('.sheet', dlg); if (sh) sh.scrollTop = keepScroll; }
 }
 function refreshDetail() { const d = $('#detail'); if (d.open && d.dataset.id) openDetail(d.dataset.id); }
+
+
+// ---------- little celebrations ----------
+const QUEUE_TARGETS = '.nav a[href="#/queue"], .tabbar a[href="#/queue"]';
+const COUNT_TARGETS = '.nav a[href="#/bodycount"], .acct-btn';
+const canFx = () => !reduceMotion() && !!Element.prototype.animate;
+const rectOf = (el) => (el?.getBoundingClientRect ? el.getBoundingClientRect() : null);
+const visible = (sel) => [...document.querySelectorAll(sel)].find((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; });
+function fxLayer() {
+  const host = $('#detail')?.open ? $('#detail') : document.body;
+  const layer = document.createElement('div'); layer.className = 'fx-layer'; layer.setAttribute('aria-hidden', 'true');
+  host.append(layer); setTimeout(() => layer.remove(), 1400);
+  return layer;
+}
+function burst(target, kind = 'blood', at) {
+  if (!canFx()) return;
+  const r = at || rectOf(target); if (!r) return;
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const layer = fxLayer();
+  const n = kind === 'blood' ? 14 : 9;
+  for (let i = 0; i < n; i++) {
+    const d = document.createElement('i'); d.className = 'fx-dot ' + kind; layer.append(d);
+    const ang = (Math.PI * 2 * i) / n + Math.random() * 0.6;
+    const dist = (kind === 'blood' ? 34 : 24) + Math.random() * 30;
+    const size = kind === 'blood' ? 4 + Math.random() * 8 : 4 + Math.random() * 4;
+    d.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px`;
+    const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist;
+    d.animate([
+      { transform: 'translate(-50%,-50%) scale(.3)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) scale(1)`, opacity: 1, offset: 0.55 },
+      { transform: `translate(calc(-50% + ${dx * 1.1}px), calc(-50% + ${dy * 1.1 + (kind === 'blood' ? 26 : 6)}px)) scale(${kind === 'blood' ? 0.8 : 0.4})`, opacity: 0 },
+    ], { duration: 700 + Math.random() * 300, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+  }
+}
+function floatUp(at, html) {
+  if (!canFx() || !at) return;
+  const el = document.createElement('span'); el.className = 'fx-float'; el.innerHTML = html;
+  el.style.left = at.left + at.width / 2 + 'px'; el.style.top = at.top + 'px';
+  fxLayer().append(el);
+  el.animate([
+    { transform: 'translate(-50%, 0) scale(.6)', opacity: 0 },
+    { transform: 'translate(-50%, -26px) scale(1.1)', opacity: 1, offset: 0.3 },
+    { transform: 'translate(-50%, -64px) scale(1)', opacity: 0 },
+  ], { duration: 1100, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'forwards' });
+}
+function ping(el) { el?.animate?.([{ transform: 'scale(1)' }, { transform: 'scale(1.22)' }, { transform: 'scale(.96)' }, { transform: 'scale(1)' }], { duration: 520, easing: 'cubic-bezier(.34,1.4,.64,1)' }); }
+function flyTo(from, sel, ic) {
+  if (!canFx() || !from || $('#detail')?.open) return;
+  const target = visible(sel); if (!target) return;
+  const t = rectOf(target);
+  const x0 = from.left + from.width / 2, y0 = from.top + from.height / 2;
+  const x1 = t.left + t.width / 2, y1 = t.top + t.height / 2;
+  const el = document.createElement('span'); el.className = 'fx-fly'; el.innerHTML = icon(ic);
+  el.style.left = x0 + 'px'; el.style.top = y0 + 'px';
+  fxLayer().append(el);
+  const midX = (x1 - x0) * 0.5, midY = Math.min(0, y1 - y0) - 80;
+  el.animate([
+    { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 },
+    { transform: `translate(calc(-50% + ${midX}px), calc(-50% + ${midY}px)) scale(1.15)`, opacity: 1, offset: 0.45 },
+    { transform: `translate(calc(-50% + ${x1 - x0}px), calc(-50% + ${y1 - y0}px)) scale(.45)`, opacity: 0.2 },
+  ], { duration: 780, easing: 'cubic-bezier(.5,0,.3,1)', fill: 'forwards' }).finished.then(() => ping(target)).catch(() => {});
+}
+function markJust(id) { S.just = String(id); setTimeout(() => { if (S.just === String(id)) S.just = null; }, 1200); }
 
 // ---------- actions ----------
 async function setStatus(id, data) {
@@ -709,25 +848,42 @@ const actions = {
   async queue(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
+    const r = rectOf(el);
     if (st?.status === 'queue') { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); toast('Removed from your queue', 'x'); }
-    else { await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' }); toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark'); }
-    refreshAll();
+    else {
+      markJust(el.dataset.id);
+      await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
+      burst(null, 'pop', r); flyTo(r, QUEUE_TARGETS, 'bookmark');
+      toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark');
+    }
+    await refreshAll();
+    if (!st || st.status !== 'queue') ping($('#detail').open ? $('#detail [data-act="queue"]') : null);
   },
   async seen(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     if (st?.status === 'seen') return;
-    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() }); toast('Added to your Trophy Case', 'trophy');
-    refreshAll();
+    const r = rectOf(el);
+    markJust(el.dataset.id);
+    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() });
+    burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull');
+    toast('Body Count +1. Rate it with the skulls', 'skull');
+    await refreshAll();
+    const sk = $('#detail').open && $('#detail .skulls'); if (sk && canFx()) sk.animate([{ opacity: 0, transform: 'translateY(8px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.4,.64,1)' });
   },
-  async rate(el) { await setStatus(el.dataset.id, { status: 'seen', rating: Number(el.dataset.k) }); refreshAll(); },
+  async rate(el) {
+    const k = el.dataset.k;
+    await setStatus(el.dataset.id, { status: 'seen', rating: Number(k) });
+    await refreshAll();
+    if (canFx()) document.querySelectorAll('#detail .skulls button').forEach((b, i) => { if (i < Number(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
+  },
   sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.f.hideSeen = false; location.hash = '#/browse'; },
   ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
   async ck(el) {
     if (!needUser()) return;
     const id = el.dataset.id;
     if (everSeen({ id })) { S.mine.delete(String(id)); await store.removeMovie(id); el.setAttribute('aria-pressed', 'false'); }
-    else { await setStatus(id, { status: 'seen', rating: 0, seenOn: '' }); el.setAttribute('aria-pressed', 'true'); }
+    else { await setStatus(id, { status: 'seen', rating: 0, seenOn: '' }); el.setAttribute('aria-pressed', 'true'); burst(el.querySelector('.box'), 'blood'); }
     const base = S.ckAll ? S.movies : essentialsList();
     const c = $('#ck-count'); if (c) c.textContent = `${base.filter(everSeen).length} of ${base.length} seen`;
   },
@@ -770,8 +926,24 @@ const actions = {
     const input = document.getElementById(el.dataset.target);
     try { await navigator.clipboard.writeText(input.value); toast('Link copied', 'link'); } catch { input.select(); toast('Press Ctrl+C to copy', 'link'); }
   },
+  svcgroup(el) {
+    const x = serviceGroups().find((g) => g.key === el.dataset.k); if (!x) return;
+    const set = new Set(S.profile.services);
+    const on = groupOn(x);
+    x.ids.forEach((id) => (on ? set.delete(id) : set.add(id)));
+    S.profile.services = [...set];
+    el.setAttribute('aria-pressed', String(!on));
+    if (!on) burst(el.querySelector('.box'), 'pop');
+    const picked = serviceGroups().filter(groupOn);
+    const c = $('#svc-count'); if (c) c.textContent = picked.length ? `${picked.length} selected: ${picked.map((g) => g.label).join(', ')}` : 'None selected yet';
+    if (!S.p.mine && picked.length) S.p.mine = true;
+    saveServicesSoon();
+  },
+  theme(el) { setTheme(el.dataset.k); document.querySelectorAll('[data-act="theme"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === el.dataset.k))); },
+  acct(el, e) { e.stopPropagation(); setMenu(!S.menuOpen); },
+  async install() { setMenu(false); if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderChrome(); } },
   svc(el) { const id = Number(el.dataset.k); const s = new Set(S.profile.services); s.has(id) ? s.delete(id) : s.add(id); S.profile.services = [...s]; el.setAttribute('aria-pressed', s.has(id)); },
-  async signout() { await store.signOut(); location.hash = '#/'; },
+  async signout() { setMenu(false); await store.signOut(); location.hash = '#/'; },
   resetdemo() { store.resetDemo(); location.hash = '#/'; },
   gosignin() { S.afterSignIn = location.hash || '#/'; },
   authtab(el) { S.authTab = el.dataset.k; route(true); },
@@ -826,6 +998,7 @@ $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e
 
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'svc-q') { S.svcq = el.value; renderServices(); return; }
   if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
   if (el.dataset.bind && location.hash.startsWith('#/browse')) { S.f[el.dataset.bind] = el.value; S.f.limit = 60; renderResults(); }
   if (el.dataset.bind === 'maxRt') S.p.maxRt = el.value;
@@ -836,6 +1009,7 @@ document.addEventListener('input', (e) => {
   if (el.hasAttribute('data-bind-theme')) setTheme(el.value);
 });
 
+document.addEventListener('toggle', (e) => { if (e.target.matches?.('details.more')) S.svcMore = e.target.open; }, true);
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved', 'clock'); }
 });
@@ -865,17 +1039,27 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for me', 'dice'], ['#/queue', 'My queue', 'bookmark'], ['#/trophies', 'Trophy Case', 'trophy'], ['#/nights', 'Movie nights', 'users']];
+const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for me', 'dice'], ['#/queue', 'My queue', 'bookmark'], ['#/bodycount', 'Body Count', 'trophy'], ['#/nights', 'Movie nights', 'users']];
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/nights'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
-  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/trophies' && here === '#/checklist') ? 'aria-current="page"' : '');
-  $('#nav').innerHTML = [...NAV, ...(S.user?.isAdmin ? [['#/admin', 'Admin', 'shield']] : [])].map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}</a>`).join('');
+  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
+  $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}</a>`).join('');
   $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie nights', 'Nights').replace('My queue', 'Queue').replace('Pick for me', 'Pick')}</span></a>`).join('');
   const name = S.profile.name || S.user?.name || '';
-  const ah = [...name].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
+  const av = (cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span>`;
   $('#who').innerHTML = S.user
-    ? `<a class="icon-btn m-only" href="#/trophies" aria-label="Trophy Case" ${cur('#/trophies')}>${icon('trophy')}</a>${S.user.isAdmin ? `<a class="icon-btn m-only" href="#/admin" aria-label="Admin" ${cur('#/admin')}>${icon('shield')}</a>` : ''}<a class="avatar" href="#/settings" title="Settings" style="--ah:${ah}">${esc((name[0] || '?').toUpperCase())}</a>`
+    ? `<div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
+      <div class="acct-menu" role="menu" ${S.menuOpen ? '' : 'hidden'}>
+        <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
+        <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
+        <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
+        <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
+        ${S.user.isAdmin ? `<a role="menuitem" href="#/admin">${icon('shield')}Admin</a>` : ''}
+        ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
+        <button role="menuitem" data-act="signout">${icon('x')}Sign out</button>
+        <span class="acct-ver">${esc(SITE_NAME)} v${VERSION}</span>
+      </div></div>`
     : '<a class="btn small primary" href="#/signin" data-act="gosignin">Sign in</a>';
   const notes = [];
   if (store.demo) notes.push('<span class="note"><span class="dot"></span><b>Demo mode.</b> Accounts are simulated and saved in this browser only.</span>');
@@ -885,10 +1069,21 @@ function renderChrome() {
   $('#banner').innerHTML = `<div class="wrap">${notes.join('')}</div>`;
 }
 
+function setMenu(v) {
+  S.menuOpen = v;
+  const m = $('.acct-menu'), b = $('.acct-btn');
+  if (m) m.hidden = !v; if (b) b.setAttribute('aria-expanded', String(v));
+  if (v) { $('.acct-menu')?.querySelector('a,button')?.focus({ preventScroll: true }); m?.classList.remove('in'); void m?.offsetWidth; m?.classList.add('in'); }
+}
+document.addEventListener('click', (e) => { if (S.menuOpen && !e.target.closest('.acct-menu, .acct-btn')) setMenu(false); else if (S.menuOpen && e.target.closest('.acct-menu a')) setMenu(false); }, true);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.menuOpen) { setMenu(false); $('.acct-btn')?.focus(); } });
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installEvt = e; if (S.user) renderChrome(); });
+
 async function route(keepScroll, quiet) {
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
-  const view = views[name || 'tonight'] || views.tonight;
+  S.menuOpen = false;
+  const view = views[{ trophies: 'bodycount' }[name] || name || 'tonight'] || views.tonight;
   renderChrome();
   const y = window.scrollY;
   const html = await view(arg);
@@ -896,12 +1091,13 @@ async function route(keepScroll, quiet) {
   const swap = () => { $('#main').innerHTML = html; after?.(); window.scrollTo(0, keepScroll ? y : 0); };
   if (!quiet && document.startViewTransition && !reduceMotion()) await document.startViewTransition(swap).updateCallbackDone.catch(() => {});
   else swap();
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Trophy Case', checklist: 'Checklist' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
 }
 
 async function boot() {
   try { const t = localStorage.getItem('sq-theme'); if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t); } catch { /* ignore */ }
   $('#version').textContent = 'v' + VERSION;
+  if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');
   $('#brand').textContent = SITE_NAME;
   $('#mark').innerHTML = icon('skull');
   [S.config] = await Promise.all([store.getConfig(), loadData()]);

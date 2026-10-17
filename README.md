@@ -7,7 +7,7 @@ Find the horror movie to watch next. Each movie gets two scores so a buzzy hit i
 
 Movies are tagged with subgenres (slasher, possession, demonic, ghosts, folk horror, found footage, creature feature and more) from TMDB keywords, and show where they stream in the US, including Shudder.
 
-Features: Google and email sign-in, open sign-ups, watch queue, a Trophy Case (milestones, badges, subgenre mastery, Horror Essentials checklist, dated watch log with 1–5 skull ratings), "Pick for me", movie nights with shared suggestions and voting, streaming-service filters, an admin page (featured movies, hidden movies, subgenre fixes, poster toggle, announcement banner), installable app, offline cache.
+Features: Google and email sign-in, open sign-ups, watch queue, a Body Count (milestones, badges, subgenre mastery, Horror Essentials checklist, dated watch log with 1–5 skull ratings), "Pick for me", movie nights with shared suggestions and voting, streaming-service filters, an admin page (featured movies, hidden movies, subgenre fixes, poster toggle, announcement banner), installable app, offline cache.
 
 ## How it fits together
 
