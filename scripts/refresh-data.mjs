@@ -8,7 +8,7 @@
 //   TRAKT_CLIENT_ID  (optional; Trakt API keys now need a Trakt VIP account)
 //   OMDB_API_KEY     (optional; adds IMDb rating + vote count)
 //   REGION           (default US)
-//   MAX_MOVIES       (default 900)
+//   MAX_MOVIES       (default 5000)
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -18,7 +18,7 @@ import { SUBGENRES, TIERS, GENRE, tagSubgenres, scoreMovies, usCertification } f
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'public/data/movies.json');
 const REGION = process.env.REGION || 'US';
-const MAX_MOVIES = Number(process.env.MAX_MOVIES || 900);
+const MAX_MOVIES = Number(process.env.MAX_MOVIES || 5000);
 const TMDB_TOKEN = process.env.TMDB_READ_TOKEN;
 const TMDB_KEY = process.env.TMDB_API_KEY;
 const TRAKT_ID = process.env.TRAKT_CLIENT_ID;
@@ -104,7 +104,8 @@ async function main() {
   const lists = [
     weekly, daily,
     await pages('/discover/movie', { ...base, sort_by: 'popularity.desc', 'vote_count.gte': 20 }, 25),
-    await pages('/discover/movie', { ...base, sort_by: 'vote_count.desc' }, 15),
+    // The full back catalog: every horror movie with at least a few dozen ratings (not limited to a release region).
+    await pages('/discover/movie', { with_genres: GENRE.horror, include_adult: 'false', language: 'en-US', sort_by: 'vote_count.desc', 'vote_count.gte': 25 }, 250),
     await pages('/discover/movie', { ...base, sort_by: 'popularity.desc', 'primary_release_date.gte': isoDaysAgo(150) }, 4),
     // What's streaming on Shudder (TMDB provider 99) right now
     await pages('/discover/movie', { ...base, sort_by: 'popularity.desc', with_watch_providers: 99, watch_region: REGION }, 6),
@@ -134,7 +135,7 @@ async function main() {
   ids.splice(MAX_MOVIES);
   console.log(`Fetching details for ${ids.length} movies…`);
 
-  const details = await pool(ids, 8, (id) =>
+  const details = await pool(ids, 12, (id) =>
     tmdb(`/movie/${id}`, { language: 'en-US', append_to_response: 'keywords,watch/providers,external_ids,release_dates,credits' }));
 
   // Provider names for the "my services" picker
