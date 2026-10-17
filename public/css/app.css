@@ -364,7 +364,7 @@ dialog.detail[open]::backdrop { animation: fade .3s ease; }
 .sk.on .fill { clip-path: inset(0 0 0 0); }
 .skulls .sk { width: 32px; height: 30px; border-radius: 8px; transition: transform .2s var(--spring), background .15s; }
 .skulls .sk .ic { width: 22px; height: 22px; }
-.skulls .sk:hover { background: var(--raised); transform: scale(1.1); }
+
 .skulls .sk button { all: unset; position: absolute; top: 0; bottom: 0; width: 50%; cursor: pointer; z-index: 1; }
 .skulls .sk button.l { left: 0; border-radius: 8px 0 0 8px; }
 .skulls .sk button.r { right: 0; border-radius: 0 8px 8px 0; }
@@ -602,3 +602,13 @@ details.more summary .ic { transition: transform .25s var(--ease); }
 .bc-count span { font-size: .78rem; font-weight: 600; opacity: .9; padding-inline: 10px; line-height: 1.2; }
 @media (max-width: 600px) { .bc-count { width: 104px; height: 104px; border-radius: 22px; } .bc-count b { font-size: 2.5rem; } }
 .bc-tools .tabs { margin-right: 4px; }
+
+/* rating hover preview */
+.sk .fill { transition: clip-path .12s ease, filter .15s ease, color .15s ease; }
+.skulls.pv .sk .fill { clip-path: inset(0 100% 0 0); }
+.skulls.pv .sk.pv-half .fill { clip-path: inset(0 50% 0 0); }
+.skulls.pv .sk.pv-on .fill { clip-path: inset(0 0 0 0); }
+.skulls.pv .sk .fill { color: #ff2e4d; filter: drop-shadow(0 0 5px rgba(255, 46, 77, .95)) drop-shadow(0 0 12px rgba(255, 46, 77, .55)); }
+.skulls.pv .sk.pv-on, .skulls.pv .sk.pv-half { background: color-mix(in srgb, #ff2e4d 12%, transparent); }
+.skulls.pv .sk:not(.pv-on):not(.pv-half) .ic { opacity: .5; }
+.sk-val.pv { color: #ff2e4d; }

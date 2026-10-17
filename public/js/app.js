@@ -1081,6 +1081,22 @@ document.addEventListener('input', (e) => {
   if (el.hasAttribute('data-bind-theme')) setTheme(el.value);
 });
 
+// Rating preview: glow the skulls up to the half you're pointing at.
+function previewRating(group, k) {
+  group.classList.toggle('pv', k != null);
+  group.querySelectorAll('.sk').forEach((sk, i) => {
+    const n = i + 1;
+    sk.classList.toggle('pv-on', k != null && k >= n);
+    sk.classList.toggle('pv-half', k != null && k === n - 0.5);
+  });
+  const v = group.querySelector('.sk-val');
+  if (v) { if (k != null) { v.dataset.cur ??= v.textContent; v.textContent = fmtRating(k); v.classList.add('pv'); } else { v.textContent = v.dataset.cur ?? v.textContent; delete v.dataset.cur; v.classList.remove('pv'); } }
+}
+document.addEventListener('pointerover', (e) => { const b = e.target.closest?.('.skulls button[data-act="rate"]'); if (b) previewRating(b.closest('.skulls'), Number(b.dataset.k)); });
+document.addEventListener('pointerout', (e) => { const g = e.target.closest?.('.skulls'); if (g && !g.contains(e.relatedTarget)) previewRating(g, null); });
+document.addEventListener('focusin', (e) => { const b = e.target.closest?.('.skulls button[data-act="rate"]'); if (b) previewRating(b.closest('.skulls'), Number(b.dataset.k)); });
+document.addEventListener('focusout', (e) => { const g = e.target.closest?.('.skulls'); if (g && !g.contains(e.relatedTarget)) previewRating(g, null); });
+
 document.addEventListener('toggle', (e) => { if (e.target.matches?.('details.more')) S.svcMore = e.target.open; }, true);
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved', 'clock'); }
