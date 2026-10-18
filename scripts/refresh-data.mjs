@@ -322,6 +322,13 @@ async function main() {
       const v = kv.find((x) => x.k === normTitle(r.t) && Math.abs(x.y - r.y) <= 2 && !used.has(x.id) && !exact.has(`${x.k}|${r.y}`));
       if (v) { r.kc = v.id; used.add(v.id); kcMatched++; }
     }
+    // Last try: same year and one title is the start of the other ("Halloween H20" / "Halloween H20: 20 Years Later").
+    for (const r of rows) {
+      if (r.kc || !r.y) continue;
+      const k = normTitle(r.t);
+      const v = kv.find((x) => x.y === r.y && !used.has(x.id) && Math.min(x.k.length, k.length) >= 6 && (k.startsWith(x.k) || x.k.startsWith(k)));
+      if (v) { r.kc = v.id; used.add(v.id); kcMatched++; }
+    }
     const sameMovie = new Set(kv.filter((v) => used.has(v.id)).map((v) => `${v.k}|${v.y}`));
     const unmatched = kv.filter((v) => !used.has(v.id) && !sameMovie.has(`${v.k}|${v.y}`)).map((v) => v.title);
     await writeFile(resolve(ROOT, 'public/data/killcount-unmatched.json'), JSON.stringify(unmatched, null, 0));
