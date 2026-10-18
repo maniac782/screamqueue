@@ -756,10 +756,10 @@ details.more summary .ic { transition: transform .25s var(--ease); }
 .in-q { display: inline-flex; align-items: center; gap: 5px; color: #ff4d63; font-weight: 700; }
 .in-q .ic { width: 14px; height: 14px; fill: currentColor; }
 @media (prefers-reduced-motion: no-preference) {
-  .poster.just .blood { animation: bloodRun 1.4s cubic-bezier(.3, .7, .2, 1) both; }
+  .poster.just-q .blood { animation: bloodRun 1.4s cubic-bezier(.3, .7, .2, 1) both; }
   .blood .drop { animation: dropFall 7s ease-in infinite; animation-delay: calc(var(--dd, 0) * 1s + 2s); }
   .card:nth-child(3n) .blood .drop { --dd: 2.3; } .card:nth-child(3n+1) .blood .drop { --dd: 4.1; }
-  .poster.just .stamp { animation: stampIn .5s cubic-bezier(.2, 1.6, .4, 1) both; }
+  .poster.just-s .stamp { animation: stampIn .5s cubic-bezier(.2, 1.6, .4, 1) both; }
   @media (hover: hover) { .card:hover .blood { animation: ooze 1.6s ease-in-out; } }
 }
 @keyframes bloodRun { 0% { transform: scaleY(0); } 60% { transform: scaleY(1.06); } 100% { transform: scaleY(1); } }

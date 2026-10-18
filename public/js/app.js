@@ -52,8 +52,9 @@ function toast(msg, ic = 'check', undo = null) {
 // Put a movie back the way it was before a queue/seen tap.
 function undoTo(id, prev) {
   return async () => {
-    if (status(id)?.status === 'seen' && prev?.status !== 'seen') await unstamp(id);
-    else if (prev?.status === 'seen') markJust(id);
+    const cur = status(id), had = (x) => x && (x.status === 'seen' || x.wasSeen);
+    if (had(cur) && !had(prev)) await unstamp(id);
+    else if (had(prev) && !had(cur)) markJust(id);
     if (prev) { S.mine.set(String(id), { ...prev }); const { at, ...rest } = prev; await store.setMovie(id, rest); }
     else { S.mine.delete(String(id)); await store.removeMovie(id); }
     await refreshAll(); toast('Undone', 'check');
@@ -230,13 +231,16 @@ function servicesText(m) {
 function poster(m, opts = {}) {
   const st = status(m.id);
   const img = S.config.showPosters && m.poster;
-  const state = opts.stamp ? 'seen' : opts.noBadges || !st ? '' : st.status === 'queue' ? 'queued' : 'seen';
-  return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just === String(m.id) ? 'just' : ''}">
+  // A rewatch in your queue is both: it keeps its Survived stamp and rating and gets the blood drip too.
+  const queued = !opts.stamp && !opts.noBadges && st?.status === 'queue';
+  const stamped = opts.stamp || (!opts.noBadges && !!st && (st.status === 'seen' || !!st.wasSeen));
+  const state = [queued && 'queued', stamped && 'seen'].filter(Boolean).join(' ');
+  return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just?.id === String(m.id) ? 'just just-' + S.just.kind : ''}">
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
     ${opts.noBadges ? '' : (() => { const th = theaterStatus(m); const label = th === 'in' ? 'In Theaters' : th === 'soon' ? 'Coming Soon' : S.tierLabel.get(m.tier); return `<span class="badge-tier t-${th ? 'th-' + th : m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(label)}</span>`; })()}
-    ${state === 'queued' ? bloodDrip(m.id) : ''}
-    ${state === 'seen' ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st?.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
+    ${queued ? bloodDrip(m.id) : ''}
+    ${stamped ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st?.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
@@ -305,11 +309,11 @@ function card(m, opts) {
 // Quick actions on a poster: shown on hover/focus with a mouse, behind a + button on touch screens.
 function quickBar(m, name) {
   const st = status(m.id);
-  const q = st?.status === 'queue', seen = st?.status === 'seen';
+  const q = st?.status === 'queue', seen = st?.status === 'seen', rewatch = q && !!st?.wasSeen;
   return `<button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
     <div class="qa" role="group" aria-label="Quick actions for ${esc(name)}">
       <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon('bookmark', q ? 'filled' : '')}</button>
-      <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen}" title="${seen ? 'Seen. Click to unmark' : 'Mark as seen'}" aria-label="${seen ? 'Unmark as seen' : 'Mark as seen'}">${icon('eye')}</button>
+      <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen || rewatch}" title="${rewatch ? 'Watched the rewatch? Log it' : seen ? 'Seen. Click to unmark' : 'Mark as seen'}" aria-label="${rewatch ? 'Log your rewatch' : seen ? 'Unmark as seen' : 'Mark as seen'}">${icon('eye')}</button>
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
     </div>
     <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div>`;
@@ -1380,7 +1384,8 @@ function openDetail(id) {
   const m = S.byId.get(String(id)); if (!m) return;
   const dlg = $('#detail');
   const st = status(m.id);
-  const seen = st?.status === 'seen';
+  const seen = st?.status === 'seen' || !!st?.wasSeen; // a queued rewatch still shows your rating and watch date
+  const rewatch = st?.status === 'queue' && !!st?.wasSeen;
   const tr = trendLine(m), rc = reachLine(m);
   // One tile per service (channel and ad-tier versions folded together), your services first.
   const tiles = (ids, kind) => {
@@ -1420,7 +1425,7 @@ function openDetail(id) {
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
       </div>
-      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>
+      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
@@ -1508,7 +1513,8 @@ async function unstamp(id) {
     { transform: 'translate(-30%, 140%) rotate(24deg) scale(.82)', opacity: 0, offset: 1 },
   ], { duration: 620, easing: 'cubic-bezier(.45, 0, .7, .4)', fill: 'forwards' }).finished.catch(() => {})));
 }
-function markJust(id) { S.just = String(id); setTimeout(() => { if (S.just === String(id)) S.just = null; }, 1200); }
+// kind: 'q' plays the blood drip running down, 's' slams the Survived stamp on.
+function markJust(id, kind = 's') { const j = { id: String(id), kind }; S.just = j; setTimeout(() => { if (S.just === j) S.just = null; }, 1200); }
 
 // ---------- actions ----------
 async function setStatus(id, data) {
@@ -1613,8 +1619,7 @@ const actions = {
       toast('Removed from your queue', 'x', undoTo(el.dataset.id, prev));
       await sendOff(el.dataset.id, 'remove');
     } else {
-      if (st?.status === 'seen') await unstamp(el.dataset.id);
-      markJust(el.dataset.id);
+      markJust(el.dataset.id, 'q'); // a rewatch keeps its stamp and rating; only the queue drip is added
       await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
       const leaving = await willVanish(el.dataset.id);
       burst(null, 'pop', r); if (!leaving) flyTo(r, QUEUE_TARGETS, 'bookmark');
@@ -1633,6 +1638,13 @@ const actions = {
       S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id);
       toast('Removed from your Body Count', 'x', undoTo(el.dataset.id, prev));
       await sendOff(el.dataset.id, 'remove');
+      await refreshAll();
+      return;
+    }
+    if (st?.status === 'queue' && st.wasSeen) { // watched the queued rewatch: back to Body Count with a fresh watch date, rating kept
+      await setStatus(el.dataset.id, { status: 'seen', seenOn: today() });
+      toast('Rewatch logged and taken off your queue', 'skull', undoTo(el.dataset.id, prev));
+      await sendOff(el.dataset.id, 'seen');
       await refreshAll();
       return;
     }
