@@ -259,6 +259,7 @@ async function main() {
       poster: d.poster_path || null,
       bd: d.backdrop_path || null,
       yt: trailerFor(d),
+      col: d.belongs_to_collection?.id || null,
       va: d.vote_average ?? null,
       // scoring inputs
       pop: d.popularity ?? null,
@@ -304,6 +305,24 @@ async function main() {
     .sort((a, b) => b[1].m.length - a[1].m.length).map(([id, p]) => [id, p.n, p.m.length, p.p || 0]);
   await writeFile(resolve(ROOT, 'public/data/people-index.json'), JSON.stringify(index));
   console.log(`Wrote cast for ${rows.length} movies and ${people.size} people.`);
+
+  // Series: TMDB groups sequels, prequels and reboots into collections ("Halloween Collection").
+  // data/collections.json: collection id -> { n: name, p: [[movie id, title, year, poster], ...] in release order }.
+  // Parts that aren't horror or aren't on the site are kept too; the site links those to TMDB.
+  const colIds = [...new Set(rows.map((r) => r.col).filter(Boolean))];
+  const collections = {};
+  await pool(colIds, 8, async (cid) => {
+    try {
+      const c = await tmdb(`/collection/${cid}`, { language: 'en-US' });
+      const parts = (c.parts || []).filter((x) => !x.adult)
+        .sort((a, b) => (a.release_date || '9999').localeCompare(b.release_date || '9999'))
+        .map((x) => [x.id, x.title, x.release_date ? Number(x.release_date.slice(0, 4)) : null, x.poster_path || 0]);
+      if (parts.length > 1) collections[cid] = { n: c.name.replace(/\s+Collection$/i, ''), p: parts };
+    } catch (e) { console.warn('collection', cid, e.message); }
+  });
+  for (const r of rows) if (r.col && !collections[r.col]) r.col = null;
+  await writeFile(resolve(ROOT, 'public/data/collections.json'), JSON.stringify(collections));
+  console.log(`Series: ${Object.keys(collections).length} collections.`);
 
   // Match Kill Count videos ("Halloween (1978) KILL COUNT") to movies by title + year. Keep last night's matches if YouTube can't be reached.
   const vids = await deadMeatVideos();
