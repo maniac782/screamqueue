@@ -105,7 +105,10 @@ function deadMeatVideos() {
       });
   });
 }
-const normTitle = (t) => String(t).toLowerCase().replace(/&/g, 'and').replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]+/g, '');
+const ROMAN = { ii: 2, iii: 3, iv: 4, v: 5, vi: 6, vii: 7, viii: 8, ix: 9, x: 10 };
+const normTitle = (t) => String(t).toLowerCase().replace(/\[[^\]]*\]/g, ' ').replace(/&/g, 'and')
+  .replace(/\b(ii|iii|iv|vi|vii|viii|ix)\b/g, (r) => ROMAN[r]).replace(/\bpart (v|x)\b/g, (_, r) => `part ${ROMAN[r]}`)
+  .replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]+/g, '');
 
 const isoDaysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 // US release dates from TMDB: th = first theatrical (limited or wide), dig = first digital. Omitted when unknown.
@@ -307,16 +310,20 @@ async function main() {
   let kcMatched = 0;
   if (vids) {
     // Exact title + year first; then allow the year to be off by one, but never reuse a video already matched.
-    const kv = vids.map((v) => { const m = v.title.match(/^(.*?)\s*\((\d{4})\)\s*(?:kill count|body count)/i); return m && { id: v.id, k: normTitle(m[1]), y: +m[2], title: v.title }; }).filter(Boolean);
-    const exact = new Map(kv.map((v) => [`${v.k}|${v.y}`, v.id]));
+    // Newer "RECOUNT" videos replace the originals, so they win when both exist.
+    const kv = vids.map((v) => { const m = v.title.match(/^(.*?)\s*\((\d{4})\)\s*(?:kill count|body count)/i); return m && { id: v.id, k: normTitle(m[1]), y: +m[2], title: v.title, re: /recount/i.test(v.title) }; })
+      .filter(Boolean).sort((a, b) => b.re - a.re);
+    const exact = new Map();
+    for (const v of kv) if (!exact.has(`${v.k}|${v.y}`)) exact.set(`${v.k}|${v.y}`, v.id);
     const used = new Set();
     for (const r of rows) { const id = r.y && exact.get(`${normTitle(r.t)}|${r.y}`); if (id) { r.kc = id; used.add(id); kcMatched++; } }
     for (const r of rows) {
       if (r.kc || !r.y) continue;
-      const v = kv.find((x) => x.k === normTitle(r.t) && Math.abs(x.y - r.y) === 1 && !used.has(x.id));
+      const v = kv.find((x) => x.k === normTitle(r.t) && Math.abs(x.y - r.y) <= 2 && !used.has(x.id) && !exact.has(`${x.k}|${r.y}`));
       if (v) { r.kc = v.id; used.add(v.id); kcMatched++; }
     }
-    const unmatched = kv.filter((v) => !used.has(v.id)).map((v) => v.title);
+    const sameMovie = new Set(kv.filter((v) => used.has(v.id)).map((v) => `${v.k}|${v.y}`));
+    const unmatched = kv.filter((v) => !used.has(v.id) && !sameMovie.has(`${v.k}|${v.y}`)).map((v) => v.title);
     await writeFile(resolve(ROOT, 'public/data/killcount-unmatched.json'), JSON.stringify(unmatched, null, 0));
     console.log(`Kill Count: ${vids.length} Dead Meat videos, ${kv.length} Kill Counts, ${kcMatched} matched to movies.`);
   } else {
