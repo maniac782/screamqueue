@@ -171,7 +171,7 @@ async function main() {
   console.log(`Fetching details for ${ids.length} movies…`);
 
   const details = await pool(ids, 12, (id) =>
-    tmdb(`/movie/${id}`, { language: 'en-US', append_to_response: 'keywords,watch/providers,external_ids,release_dates,credits,videos' }));
+    tmdb(`/movie/${id}`, { language: 'en-US', append_to_response: 'keywords,watch/providers,external_ids,release_dates,credits,videos,recommendations' }));
 
   // Provider names for the "my services" picker
   const prov = await tmdb('/watch/providers/movie', { watch_region: REGION, language: 'en-US' });
@@ -260,6 +260,7 @@ async function main() {
       bd: d.backdrop_path || null,
       yt: trailerFor(d),
       col: d.belongs_to_collection?.id || null,
+      rec: (d.recommendations?.results || []).map((x) => x.id),
       va: d.vote_average ?? null,
       // scoring inputs
       pop: d.popularity ?? null,
@@ -305,6 +306,10 @@ async function main() {
     .sort((a, b) => b[1].m.length - a[1].m.length).map(([id, p]) => [id, p.n, p.m.length, p.p || 0]);
   await writeFile(resolve(ROOT, 'public/data/people-index.json'), JSON.stringify(index));
   console.log(`Wrote cast for ${rows.length} movies and ${people.size} people.`);
+
+  // "People who liked this also liked": TMDB's recommendations, kept only when they're on the site (top 12).
+  const onSite = new Set(rows.map((r) => r.id));
+  for (const r of rows) r.rec = r.rec.filter((id) => onSite.has(id)).slice(0, 12);
 
   // Series: TMDB groups sequels, prequels and reboots into collections ("Halloween Collection").
   // data/collections.json: collection id -> { n: name, p: [[movie id, title, year, poster], ...] in release order }.

@@ -357,7 +357,7 @@ function quickBar(m, name) {
 }
 
 let shelfN = 0;
-function shelf(title, desc, list, emptyText, more = '') {
+function shelf(title, desc, list, emptyText, more = '', subOf = null) {
   const id = 'rail' + (++shelfN);
   const plain = String(title).replace(/<[^>]+>/g, '');
   return `<section class="shelf" data-key="${esc(plain.split(':')[0].trim().toLowerCase())}">
@@ -365,7 +365,7 @@ function shelf(title, desc, list, emptyText, more = '') {
       ${more ? `<div class="shelf-nav">${more}</div>` : ''}</div>
     ${list.length ? `<div class="rail" data-start="1">
       <button class="rail-btn prev" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll ${esc(plain)} back" tabindex="-1">${icon('left')}</button>
-      <div class="track" id="${id}">${list.map(card).join('')}</div>
+      <div class="track" id="${id}">${list.map((m) => card(m, subOf ? { sub: subOf(m) } : undefined)).join('')}</div>
       <button class="rail-btn next" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll ${esc(plain)} forward" tabindex="-1">${icon('right')}</button>
     </div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
@@ -453,8 +453,118 @@ function queueBtn(m, cls = '') {
   return `<button class="btn ${cls}" data-act="queue" data-id="${m.id}" aria-pressed="${on}">${icon('bookmark', on ? 'filled' : '')}${on ? 'In your queue' : isSeen(m) ? 'Queue a rewatch' : 'Add to queue'}</button>`;
 }
 
+// ---------- recommendations ----------
+// Your taste, worked out from everything you've survived: how you rated each one (5 skulls pulls hard toward
+// similar movies, 1 skull pushes away, unrated counts a little), then each unseen movie is scored on
+//   - TMDB's "people who liked this also liked" lists for the movies you liked (the strongest signal)
+//   - subgenres you rate highly, directors and actors you keep liking, and the decades you lean toward
+//   - the next movies in a series you liked
+//   - a nudge for well-reviewed movies and your streaming services.
+// Each pick keeps its biggest reason, shown under the poster ("Because you liked Hereditary").
+const MIN_FOR_PICKS = 3;
+let recMemo = null;
+function weightOf(st) { return st.rating ? (st.rating - 2.75) / 2.25 : 0.35; }
+function tasteProfile() {
+  const seen = [...S.mine.entries()].filter(([, st]) => st.status === 'seen' || st.wasSeen).map(([id, st]) => ({ m: S.byId.get(String(id)), st })).filter((x) => x.m);
+  const T = { n: seen.length, sg: new Map(), dir: new Map(), cast: new Map(), dec: new Map(), col: new Map(), rec: new Map(), recWhy: new Map() };
+  const add = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
+  for (const { m, st } of seen) {
+    const w = weightOf(st);
+    m.sg.forEach((k) => add(T.sg, k, w));
+    m.dir.forEach((d) => add(T.dir, d, w));
+    m.cast.forEach((c) => add(T.cast, c, w));
+    if (m.y) add(T.dec, Math.floor(m.y / 10) * 10, w);
+    if (m.col) add(T.col, m.col, w);
+    if (w > 0) (m.rec || []).forEach((id, i) => {
+      const v = w * (1 - i / 14);
+      add(T.rec, String(id), v);
+      const best = T.recWhy.get(String(id));
+      if (!best || best.v < v) T.recWhy.set(String(id), { v, m });
+    });
+  }
+  return T;
+}
+function recommend() {
+  const key = `${S.mine.size}|${[...S.mine.values()].reduce((s, x) => s + (x.at || 0), 0)}|${S.movies.length}|${S.profile.services.join()}`;
+  if (recMemo?.key === key) return recMemo.out;
+  const T = tasteProfile();
+  const out = { n: T.n, list: [], by: new Map() };
+  if (T.n >= MIN_FOR_PICKS) {
+    const norm = Math.sqrt(T.n);
+    for (const m of S.movies) {
+      const st = status(m.id);
+      if (st || theaterStatus(m) === 'soon') continue; // seen, queued, or not out yet
+      const reasons = [];
+      const recV = (T.rec.get(String(m.id)) || 0) * 1.4;
+      if (recV) reasons.push([recV, `Because you liked ${T.recWhy.get(String(m.id)).m.t}`]);
+      let sgV = 0, sgTop = null;
+      for (const k of m.sg) { const v = (T.sg.get(k) || 0) / norm; sgV += v; if (!sgTop || v > sgTop[0]) sgTop = [v, k]; }
+      sgV = m.sg.length ? (sgV / Math.sqrt(m.sg.length)) * 0.9 : 0;
+      if (sgV > 0 && sgTop) reasons.push([sgV, `More ${String(S.sgLabel.get(sgTop[1]) || 'horror').toLowerCase()}`]);
+      const dirHit = m.dir.map((d) => [T.dir.get(d) || 0, d]).sort((a, b) => b[0] - a[0])[0];
+      const dirV = dirHit && dirHit[0] > 0 ? Math.min(dirHit[0], 2.5) * 0.7 : 0;
+      if (dirV) reasons.push([dirV * 1.5, `From ${dirHit[1]}`]);
+      const castHit = m.cast.map((c) => [T.cast.get(c) || 0, c]).sort((a, b) => b[0] - a[0])[0];
+      const castV = castHit && castHit[0] > 0 ? Math.min(castHit[0], 2) * 0.3 : 0;
+      if (castV) reasons.push([castV, `With ${castHit[1]}`]);
+      const colV = m.col && T.col.get(m.col) > 0 ? Math.min(T.col.get(m.col), 2) * 0.8 : 0;
+      if (colV) reasons.push([colV * 3, `Next in a series you like`]); // a series link is the clearest reason, so it wins the label
+      const decV = m.y ? ((T.dec.get(Math.floor(m.y / 10) * 10) || 0) / norm) * 0.25 : 0;
+      const q = m.imdb?.r ? (m.imdb.r - 6.2) / 1.6 : m.va ? (m.va - 6) / 1.6 : 0;
+      const t = tom(m); const qV = Math.max(-1, Math.min(1, t != null ? (q + (t - 60) / 30) / 2 : q)) * 0.35;
+      const svcV = onMine(m) ? 0.15 : 0;
+      // hard dislikes: a subgenre you've rated low weighs it down
+      const score = recV + sgV + dirV + castV + colV + decV + qV + svcV + m.reach / 1000;
+      if (score <= 0.4) continue;
+      reasons.sort((a, b) => b[0] - a[0]);
+      out.list.push({ m, score, why: reasons[0]?.[1] || 'Matches your taste' });
+    }
+    out.list.sort((a, b) => b.score - a.score);
+    out.list.forEach((x) => out.by.set(String(x.m.id), x));
+  }
+  recMemo = { key, out };
+  return out;
+}
+const recScore = (m) => recommend().by.get(String(m.id))?.score ?? -1;
+// The movie you most recently rated 4+ that has picks of its own, for a "Because you loved…" shelf.
+function lovedAnchor() {
+  const loved = [...S.mine.entries()].filter(([, st]) => (st.status === 'seen' || st.wasSeen) && st.rating >= 4).map(([id, st]) => ({ m: S.byId.get(String(id)), st })).filter((x) => x.m && x.m.rec?.length)
+    .sort((a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at);
+  for (const { m } of loved.slice(0, 6)) {
+    const list = m.rec.map((id) => S.byId.get(String(id))).filter((x) => x && !status(x.id));
+    if (list.length >= 4) return { m, list: list.slice(0, 18) };
+  }
+  return null;
+}
+// What your friends rated well that you haven't seen. Friends' lists load once per visit (their privacy rules apply).
+async function loadFriendMovies() {
+  if (S.friendMovies || !S.user || !store.moviesOf || !S.friends?.length) return;
+  S.friendMovies = new Map();
+  await Promise.all(S.friends.slice(0, 40).map(async (f) => { try { S.friendMovies.set(f.uid, { f, mv: await store.moviesOf(f.uid) }); } catch { /* private */ } }));
+  if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
+}
+function friendPicks() {
+  if (!S.friendMovies) return [];
+  const by = new Map();
+  for (const { f, mv } of S.friendMovies.values()) {
+    for (const [id, st] of mv) {
+      if (!(st.status === 'seen' || st.wasSeen) || !(st.rating >= 3.5)) continue;
+      const m = S.byId.get(String(id)); if (!m || status(m.id)) continue;
+      const x = by.get(m.id) || { m, who: [] }; x.who.push({ name: (f.name || 'A friend').split(' ')[0], r: st.rating }); by.set(m.id, x);
+    }
+  }
+  return [...by.values()].map((x) => ({ ...x, score: x.who.reduce((s, w) => s + (w.r - 3), 0) + (recommend().by.get(String(x.m.id))?.score || 0) * 0.3 }))
+    .sort((a, b) => b.score - a.score).slice(0, 18)
+    .map((x) => ({ m: x.m, sub: x.who.length === 1 ? `${x.who[0].name} gave it ${fmtRating(x.who[0].r)}` : `${x.who.length} friends loved it` }));
+}
+
 views.tonight = () => {
   shelfN = 0;
+  if (S.user && S.friends?.length && !S.friendMovies) loadFriendMovies();
+  const recs = S.user ? recommend() : null;
+  const forYou = recs?.list.slice(0, 18) || [];
+  const anchor = S.user ? lovedAnchor() : null;
+  const fPicks = S.user ? friendPicks() : [];
   const pool = S.movies.filter((m) => !isSeen(m));
   const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
@@ -488,6 +598,10 @@ views.tonight = () => {
   </section>` : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
+  ${!S.user ? '' : forYou.length >= 4 ? shelf('Picked for you', 'Based on everything in your Body Count and how you rated it.', forYou.map((x) => x.m), '', '<a class="btn small ghost" href="#/browse" data-act="foryou">See more</a>', (m) => recs.by.get(String(m.id))?.why)
+    : recs && recs.n < MIN_FOR_PICKS ? `<section class="shelf" data-key="picked for you"><div class="shelf-head"><div><h2>Picked for you</h2><p class="muted">Mark ${MIN_FOR_PICKS - recs.n} more movie${MIN_FOR_PICKS - recs.n === 1 ? '' : 's'} you've seen and rate them with skulls, and this shelf fills in with picks for your taste.</p></div><div class="shelf-nav"><a class="btn small" href="#/checklist">${icon('skull')}Check off ones you've seen</a></div></div></section>` : ''}
+  ${fPicks.length >= 2 ? shelf('Your friends liked these', 'Rated well by your friends, and you haven\'t seen them yet.', fPicks.map((x) => x.m), '', '<a class="btn small ghost" href="#/friends">Friends</a>', (m) => fPicks.find((x) => x.m.id === m.id)?.sub) : ''}
+  ${anchor ? shelf(`Because you loved ${esc(anchor.m.t)}`, 'People who liked it also liked these.', anchor.list, '') : ''}
   ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun, '<a class="btn small ghost" href="#/browse">See all</a>')}
   ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen and well liked. Easy to get a group on board.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services right now.' : firstRun)}
   ${inTheaters.length ? shelf('In theaters now', 'Playing in US theaters and not streaming yet.', inTheaters, '') : ''}
@@ -519,7 +633,8 @@ function filtered() {
     critics: (a, b) => (tom(b) ?? -1) - (tom(a) ?? -1) || b.reach - a.reach,
     newest: (a, b) => (b.date || '').localeCompare(a.date || ''),
     title: (a, b) => a.t.localeCompare(b.t),
-  }[f.sort];
+    foryou: (a, b) => (recScore(b) - recScore(a)) || b.buzz - a.buzz,
+  }[f.sort] || ((a, b) => b.buzz - a.buzz);
   return list.sort(by);
 }
 function renderResults() {
@@ -539,7 +654,7 @@ views.browse = () => {
   <div class="filters">
     <div class="toolbar">
       <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="Search titles or directors" value="${esc(f.q)}"></label>
-      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z']].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z'], ...(S.user && recommend().list.length ? [['foryou', 'Picked for you']] : [])].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
       ${S.hasTom ? `<select id="f-tom" data-bind="tom" aria-label="Critics score"><option value="">Any critics score</option>${[[60, 'Fresh (60%+)'], [75, '75% and up'], [90, '90% and up']].map(([v, l]) => `<option value="${v}" ${String(f.tom) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
@@ -1289,6 +1404,7 @@ function inviteLink() { return `${location.origin}${location.pathname}#/u/${enco
 let socialLoading = null;
 function loadSocial() { if (!socialLoading) socialLoading = loadSocialNow().finally(() => { socialLoading = null; }); return socialLoading; }
 async function loadSocialNow() {
+  S.friendMovies = null; // friends may have changed; their lists reload on the next Tonight visit
   if (!S.user || !store.getSocial) { S.social = null; S.friends = []; S.requests = { incoming: [], outgoing: [] }; return; }
   try {
     [S.social, S.friends, S.requests] = await Promise.all([store.getSocial(), store.listFriends(), store.listRequests()]);
@@ -1747,6 +1863,7 @@ const actions = {
   goback() { history.back(); },
   closeplayer: () => $('#player').close(),
   feedback() { if (!needUser()) return; openFeedback(); },
+  foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
   admtab(el) { S.adm.tab = el.dataset.k; S.adm.q = ''; route(true, true); },
   admreload() { S.adm.stale = true; route(true, true).then(() => toast('Reloaded', 'check')); },
   async admnopic(el) {
@@ -2460,7 +2577,7 @@ async function boot() {
   store.init(async (u) => {
     S.user = u;
     await loadMine();
-    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)/.test(location.hash)) route(true, true); }).catch(() => {});
+    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);
     first = false;
