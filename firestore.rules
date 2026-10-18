@@ -76,6 +76,8 @@ service cloud.firestore {
         && request.resource.data.privacy.profile in ['public', 'friends', 'private']
         && request.resource.data.privacy.reviews in ['public', 'friends']
         && (request.resource.data.handle == '' || getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.handle)).data.uid == me());
+      // Admins can take down an uploaded profile photo (nothing else).
+      allow update: if isAdmin() && changed().hasOnly(['av', 'photo']) && request.resource.data.av == '' && request.resource.data.photo == '';
     }
     // Unique @usernames: lowercase letters, numbers and _, 3 to 20 long.
     match /usernames/{handle} {
@@ -97,7 +99,7 @@ service cloud.firestore {
     }
     // Friends: both sides are written when a request is accepted; either person can end it.
     match /friends/{uid}/list/{fid} {
-      allow read: if signedIn() && (me() == uid || me() == fid);
+      allow read: if signedIn() && (me() == uid || me() == fid || isAdmin());
       allow create: if signedIn() && request.resource.data.keys().hasOnly(['name', 'handle', 'since']) && (
         (me() == uid && exists(/databases/$(database)/documents/requests/$(uid)/from/$(fid)))
         || (me() == fid && exists(/databases/$(database)/documents/requests/$(fid)/from/$(uid))));

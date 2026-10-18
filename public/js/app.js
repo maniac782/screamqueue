@@ -209,6 +209,43 @@ function castBlock(m) {
   loadCast(m.id).then((list) => { const el = document.querySelector(`#detail[data-id="${m.id}"] .cast-wrap`); if (el) el.innerHTML = castHTML(m, list); });
   return `<div class="cast-wrap">${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}</div>`;
 }
+// Sequels, prequels and remakes. TMDB's collections give the series (data/collections.json, loaded on first use);
+// "Other versions" are movies on the site with the same title from a different year (remakes and reboots).
+let COLLECTIONS = null, colLoading = null;
+function loadCollections() { return colLoading ||= fetch('data/collections.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})).then((c) => { COLLECTIONS = c; return c; }); }
+const titleKey = (t) => String(t || '').toLowerCase().replace(/^the\s+/, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+function seriesBlock(m) {
+  if (!COLLECTIONS && m.col) { loadCollections().then(() => { const el = document.querySelector(`#detail[data-id="${m.id}"] .series-wrap`); if (el) el.innerHTML = seriesHTML(m); }); }
+  return `<div class="series-wrap">${seriesHTML(m)}</div>`;
+}
+function seriesTile(id, title, year, posterPath, here) {
+  const m = S.byId.get(String(id));
+  const st = m && status(m.id);
+  const seen = st && (st.status === 'seen' || st.wasSeen);
+  const img = S.config.showPosters && (m?.poster || posterPath) ? `<img src="https://image.tmdb.org/t/p/w154${m?.poster || posterPath}" alt="" loading="lazy">` : '';
+  const pic = `<span class="sr-pic">${m ? art(m) : `<span class="sr-blank">${esc(title)}</span>`}${img}${seen ? `<i class="sr-seen" title="You survived this one">${icon('skull')}</i>` : st?.status === 'queue' ? `<i class="sr-q" title="In your queue">${icon('bookmark', 'filled')}</i>` : ''}</span>`;
+  const label = `<span class="sr-t">${esc(title)}</span><span class="sr-y">${here ? 'This one' : year || 'Coming'}${m ? '' : ' · on TMDB'}</span>`;
+  if (here) return `<span class="sr-tile here" aria-current="true">${pic}${label}</span>`;
+  return m ? `<button class="sr-tile" data-act="opensib" data-id="${m.id}" title="${esc(title)}${year ? ` (${year})` : ''}">${pic}${label}</button>`
+    : `<a class="sr-tile off" href="https://www.themoviedb.org/movie/${id}" target="_blank" rel="noopener" title="${esc(title)} isn't on ${esc(SITE_NAME)}. Opens TMDB">${pic}${label}</a>`;
+}
+function seriesHTML(m) {
+  let html = '';
+  const col = m.col && COLLECTIONS?.[m.col];
+  const inCol = new Set((col?.p || []).map(([id]) => String(id)));
+  if (col) {
+    const n = col.p.length;
+    html += `<div class="series"><h3>${esc(col.n)} series <span class="faint">· ${n} movies</span></h3>
+      <div class="sr-row">${col.p.map(([id, t, y, p]) => seriesTile(id, t, y, p, String(id) === String(m.id))).join('')}</div></div>`;
+  }
+  const k = titleKey(m.t);
+  const others = S.movies.filter((x) => x.id !== m.id && !inCol.has(String(x.id)) && titleKey(x.t) === k).sort((a, b) => (a.y || 0) - (b.y || 0));
+  if (others.length) {
+    html += `<div class="series"><h3>Other versions <span class="faint">· remakes and originals</span></h3>
+      <div class="sr-row">${others.map((x) => seriesTile(x.id, x.t, x.y, x.poster, false)).join('')}</div></div>`;
+  }
+  return html;
+}
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
 function scoreRow(m) {
   const parts = [];
@@ -857,13 +894,29 @@ S.afterAbout = () => { if (S.scrollCredits) { S.scrollCredits = false; requestAn
 // Admin
 views.admin = async () => {
   if (!S.user?.isAdmin) return `<div class="empty">${icon('shield')}<span>This page is for site admins.</span></div>`;
-  const [stats, fbs, cts] = await Promise.all([store.adminStats().catch(() => ({ users: '—' })), store.listInbox('feedback').catch(() => null), store.listInbox('contact').catch(() => null)]);
-  const inbox = { feedback: fbs, contact: cts };
+  const A = S.adm;
+  if (!A.data || A.stale) {
+    A.stale = false;
+    const [users, fbs, cts] = await Promise.all([store.adminUsers().catch((e) => { console.warn(e); return null; }), store.listInbox('feedback').catch(() => null), store.listInbox('contact').catch(() => null)]);
+    A.data = { users, feedback: fbs, contact: cts, at: Date.now() };
+  }
+  const { users, feedback, contact } = A.data;
+  const week = Date.now() - 7 * DAY;
+  const tiles = [['Users', users ? users.length : '—'], ['Active this week', users ? users.filter((u) => u.lastSeen > week).length : '—'], ['New this week', users ? users.filter((u) => u.created > week).length : '—'], ['Public profiles', users ? users.filter((u) => u.privacy === 'public').length : '—']];
+  const tabs = [['users', 'Users'], ['feedback', `Feedback${feedback?.length ? ` (${feedback.length})` : ''}`], ['contact', `Contact${contact?.length ? ` (${contact.length})` : ''}`], ['site', 'Site settings']];
+  const head = `<div class="adm-head"><div class="page-head"><h1>Admin</h1></div>
+  <div class="adm-stats">${tiles.map(([l, v]) => `<div class="adm-stat"><span>${l}</span><b>${v}</b></div>`).join('')}</div>
+  <div class="adm-bar"><div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="admtab" data-k="${k}" aria-selected="${A.tab === k}">${l}</button>`).join('')}</div>
+    ${A.tab === 'site' ? '' : `<label class="search adm-q"><span class="sr">Search</span>${icon('search')}<input type="search" id="adm-q" value="${esc(A.q)}" placeholder="${A.tab === 'users' ? 'Name, @username or email' : 'Message, name or page'}" autocomplete="off"></label>`}
+    <button class="btn small ghost" data-act="admreload" title="Loaded ${esc(new Date(A.data.at).toLocaleTimeString())}">Refresh</button></div></div>`;
+  if (A.tab === 'users') { S.after = renderAdminList; return `${head}<div class="adm-body"><div class="adm-sortrow"><label class="row" style="gap:8px">Sort by <select id="adm-sort">${ADM_SORTS.map(([k, l]) => `<option value="${k}" ${A.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><span class="faint" id="adm-n"></span></div><div id="adm-list"></div></div>`; }
+  if (A.tab === 'feedback' || A.tab === 'contact') { S.after = renderAdminList; return `${head}<div id="adm-list"></div>`; }
+  const stats = { users: users ? users.length : '—' };
   const c = S.config;
   const d = S.data;
   const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`).join('') || '<p class="muted">None.</p>';
   const fix = S.adminFix && S.byId.get(String(S.adminFix));
-  return `<div class="page-head"><h1>Admin</h1><p class="muted">Site-wide settings. Changes apply for everyone after you press Save.</p></div>
+  return `${head}<p class="muted" style="margin:0 0 16px">Site-wide settings. Changes apply for everyone after you press Save.</p>
   <div class="two-col">
   <div class="stack">
     <div class="panel stack"><h2>Data</h2>
@@ -887,23 +940,64 @@ views.admin = async () => {
     <div class="panel stack"><h2>Hidden from the site</h2><div class="list">${listOf(c.hidden || [], 'unhide')}</div>
       <label class="search"><span class="sr">Search a title to hide</span>${icon('search')}<input type="search" id="adm-hide-search" placeholder="Search to hide"></label><div id="adm-hide-results" class="list"></div></div>
     <button class="btn primary" data-act="savecfg">Save admin changes</button>
-  </div></div>
-  ${inboxHTML('feedback', inbox.feedback)}
-  ${inboxHTML('contact', inbox.contact)}`;
+  </div></div>`;
 };
+const DAY = 86400000;
+S.adm = { tab: 'users', q: '', sort: 'new', data: null };
+try { S.adm.sort = localStorage.getItem('sq-adm-sort') || 'new'; } catch { /* ignore */ }
+const ADM_SORTS = [['new', 'Newest first'], ['seen', 'Last seen'], ['name', 'Name (A–Z)'], ['count', 'Biggest Body Count'], ['friends', 'Most friends']];
+// "today 9:14 PM", "yesterday 8:02 PM", "4 days ago", then the date; the exact time shows on hover.
+function admWhen(t) {
+  if (!t) return '—';
+  const d = new Date(t), tm = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  const txt = d.toDateString() === new Date().toDateString() ? `today ${tm}` : d.toDateString() === new Date(Date.now() - DAY).toDateString() ? `yesterday ${tm}`
+    : Date.now() - t < 30 * DAY ? `${Math.floor((Date.now() - t) / DAY)} days ago` : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `<span title="${esc(d.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }))}">${esc(txt)}</span>`;
+}
+function browserOf(ua) {
+  ua = String(ua || '');
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  const br = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+  return br + (os ? ` on ${os}` : '');
+}
+function renderAdminList() {
+  const box = $('#adm-list'); if (!box || !S.adm.data) return;
+  const A = S.adm, q = A.q.trim().toLowerCase();
+  if (A.tab === 'users') {
+    const users = A.data.users;
+    if (!users) { box.innerHTML = '<p class="muted">Couldn\'t load users. If the database rules just changed, wait a minute and press Refresh.</p>'; return; }
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '');
+    const sorts = { new: (a, b) => (b.created || 0) - (a.created || 0) || byName(a, b), seen: (a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || byName(a, b), name: byName,
+      count: (a, b) => (b.seen ?? -1) - (a.seen ?? -1) || byName(a, b), friends: (a, b) => (b.friends ?? -1) - (a.friends ?? -1) || byName(a, b) };
+    const list = users.filter((u) => !q || [u.name, u.handle && '@' + u.handle, u.email].some((x) => String(x || '').toLowerCase().includes(q))).sort(sorts[A.sort] || sorts.new);
+    $('#adm-n').textContent = `${list.length} of ${users.length}`;
+    box.innerHTML = list.length ? `<div class="adm-list">${list.map((u) => {
+      const self = u.uid === S.user.uid;
+      return `<div class="adm-row">${renderAvatar(u.name, u, '')}
+        <div class="adm-main"><span class="row" style="gap:6px"><b>${esc(u.name || '(no name)')}</b>${u.handle ? `<span class="faint">@${esc(u.handle)}</span>` : ''}${self ? '<span class="tag">You</span>' : ''}${u.admin ? '<span class="tag">Admin</span>' : ''}<span class="tag">${esc({ public: 'Public', friends: 'Friends only', private: 'Private' }[u.privacy] || 'No profile yet')}</span></span>
+          <span class="adm-meta">Joined ${admWhen(u.created)} · last seen ${admWhen(u.lastSeen)} · ${u.seen ?? '—'} survived · ${u.queued ?? '—'} queued · ${u.friends ?? '—'} friend${u.friends === 1 ? '' : 's'}${u.services ? ` · ${u.services} service${u.services === 1 ? '' : 's'}` : ''}</span></div>
+        <div class="adm-acts"><a class="btn small ghost" href="#/u/${esc(u.handle || u.uid)}">${icon('eye')}Profile</a>${u.av === 'up' && !self ? `<button class="btn small ghost" data-act="admnopic" data-k="${esc(u.uid)}">Remove photo</button>` : ''}</div></div>`;
+    }).join('')}</div>` : '<p class="muted">No users match.</p>';
+    return;
+  }
+  const kind = A.tab, all = A.data[kind];
+  if (!all) { box.innerHTML = inboxHTML(kind, null); return; }
+  const list = all.filter((x) => !q || [x.msg, x.name, x.email, x.page].some((v) => String(v || '').toLowerCase().includes(q)));
+  box.innerHTML = inboxHTML(kind, list, all.length);
+}
 const FB_KINDS = { bug: 'Bug', idea: 'Idea', other: 'Other' };
 const CONTACT_TOPICS = { general: 'General', bug: 'Something\'s broken', data: 'Movie info is wrong', privacy: 'Privacy or my data' };
-function inboxHTML(kind, list) {
+function inboxHTML(kind, list, total = list?.length) {
   const fb = kind === 'feedback';
-  if (list == null) return `<section class="panel stack inbox"><h2>${fb ? 'Feedback' : 'Contact messages'}</h2><p class="muted">Couldn't load these. The database rules may still be publishing.</p></section>`;
-  return `<section class="panel stack inbox"><h2>${fb ? 'Feedback' : 'Contact messages'} <span class="faint">(${list.length})</span></h2>
+  if (list == null) return `<section class="panel stack inbox"><p class="muted">Couldn't load these. The database rules may still be publishing.</p></section>`;
+  return `<section class="panel stack inbox"><p class="muted" style="margin:0">${fb ? 'From the Send feedback form in the account menu' : 'From the Contact link at the bottom of every page'}, newest first.${list.length !== total ? ` Showing ${list.length} of ${total}.` : ''}</p>
     ${fb ? '' : '<p class="muted" style="font-size:.88rem">Contact messages aren\'t emailed to you yet (that needs the Blaze plan). Reply opens your email app.</p>'}
     ${list.length ? list.map((x) => `<article class="inbox-item">
       <div class="inbox-head"><span class="tag">${esc(fb ? FB_KINDS[x.kind] || 'Other' : CONTACT_TOPICS[x.topic] || 'General')}</span>
         ${fb ? `<a class="linkish" href="#/u/${esc(x.uid || '')}">${esc(x.name || 'A user')}</a>` : `<b>${esc(x.name || '')}</b> <a href="mailto:${esc(x.email)}">${esc(x.email)}</a>`}
-        <span class="faint">${esc(new Date(x.t).toLocaleString())}</span></div>
+        <span class="faint">${admWhen(x.t)}</span></div>
       <p class="inbox-msg">${esc(x.msg)}</p>
-      <p class="fine">${esc(x.page || '')} · ${esc(x.v || '')} · ${esc((x.ua || '').slice(0, 120))}</p>
+      <p class="fine">${esc(x.page || '')} · ${esc(browserOf(x.ua))}${x.v ? ` · v${esc(x.v)}` : ''}</p>
       <div class="row" style="gap:8px">${fb ? '' : `<a class="btn small" href="mailto:${esc(x.email)}?subject=${encodeURIComponent('Re: your message to ' + SITE_NAME)}">${icon('mail')}Reply</a>`}<button class="btn small ghost" data-act="inboxdone" data-k="${kind}" data-id="${esc(x.id)}">${icon('check')}Done</button></div>
     </article>`).join('') : '<p class="muted">Nothing here.</p>'}</section>`;
 }
@@ -1479,6 +1573,7 @@ function openDetail(id) {
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
       ${castBlock(m)}
+      ${seriesBlock(m)}
       ${killBlock(m)}
       ${reviewsBlock(m)}
       <div class="signals">
@@ -1591,6 +1686,7 @@ async function setStatus(id, data) {
 async function patchConfig(fn) { fn(S.config); applyConfig(); await route(true); }
 
 const actions = {
+  opensib(el) { openDetail(el.dataset.id); const sh = $('#detail .sheet'); if (sh) sh.scrollTo({ top: 0, behavior: canFx() ? 'smooth' : 'auto' }); },
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
@@ -1651,10 +1747,18 @@ const actions = {
   goback() { history.back(); },
   closeplayer: () => $('#player').close(),
   feedback() { if (!needUser()) return; openFeedback(); },
+  admtab(el) { S.adm.tab = el.dataset.k; S.adm.q = ''; route(true, true); },
+  admreload() { S.adm.stale = true; route(true, true).then(() => toast('Reloaded', 'check')); },
+  async admnopic(el) {
+    if (!confirm('Remove this person\'s uploaded profile photo? They go back to their initials.')) return;
+    await store.adminRemovePhoto(el.dataset.k);
+    const u = S.adm.data?.users?.find((x) => x.uid === el.dataset.k); if (u) { u.av = ''; u.photo = ''; }
+    S.cards.delete(el.dataset.k); renderAdminList(); toast('Photo removed', 'check');
+  },
   contact(el, e) { e?.preventDefault(); openContact(el?.dataset.k); },
   closeform: () => $('#formdlg').close(),
   async inboxdone(el) {
-    try { await store.clearInbox(el.dataset.k, el.dataset.id); el.closest('.inbox-item')?.remove(); toast('Marked as done', 'check'); }
+    try { await store.clearInbox(el.dataset.k, el.dataset.id); const d = S.adm.data; if (d?.[el.dataset.k]) d[el.dataset.k] = d[el.dataset.k].filter((x) => x.id !== el.dataset.id); toast('Marked as done', 'check'); route(true, true); }
     catch { toast('Couldn\'t clear that', 'x'); }
   },
   scroll(el) {
@@ -2111,6 +2215,8 @@ document.addEventListener('change', async (e) => {
 let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'adm-q') { S.adm.q = el.value; renderAdminList(); return; }
+  if (el.id === 'adm-sort') { S.adm.sort = el.value; try { localStorage.setItem('sq-adm-sort', el.value); } catch { /* ignore */ } renderAdminList(); return; }
   if (el.id === 'fr-q') { clearTimeout(frTimer); frTimer = setTimeout(renderFriendSearch, 250); return; }
   if (el.id === 'qs') { renderQuick(); return; }
   if (el.id === 'bc-q') { S.bcq = el.value; if ((S.bcTab || 'watched') !== 'watched') { S.bcTab = 'watched'; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#bc-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); } else renderBodyList(); return; }

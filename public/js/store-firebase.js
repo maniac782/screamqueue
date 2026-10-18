@@ -261,6 +261,20 @@ export const store = {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
   async clearInbox(kind, id) { await F.deleteDoc(F.doc(db, kind, id)); },
+  // Everyone on the site for the Admin page: account (joined, last seen), public card, and a few counts.
+  async adminUsers() {
+    const ms = (v) => (v == null ? 0 : typeof v === 'number' ? v : v.toMillis ? v.toMillis() : v.seconds ? v.seconds * 1000 : 0);
+    const [us, ps, ad] = await Promise.all([F.getDocs(F.collection(db, 'users')), F.getDocs(F.collection(db, 'profiles')), F.getDocs(F.collection(db, 'admins')).catch(() => null)]);
+    const cards = new Map(ps.docs.map((d) => [d.id, d.data()]));
+    const admins = new Set(ad ? ad.docs.map((d) => d.id) : []);
+    const count = (q) => F.getCountFromServer(q).then((c) => c.data().count).catch(() => null);
+    return Promise.all(us.docs.map(async (d) => {
+      const u = d.data(), p = cards.get(d.id) || {}, mv = F.collection(db, 'users', d.id, 'movies');
+      const [seen, queued, friends] = await Promise.all([count(F.query(mv, F.where('status', '==', 'seen'))), count(F.query(mv, F.where('status', '==', 'queue'))), count(F.collection(db, 'friends', d.id, 'list'))]);
+      return { uid: d.id, name: p.name || u.name || '', handle: p.handle || '', av: p.av || '', photo: p.photo || '', privacy: p.privacy?.profile || '', created: ms(u.createdAt), lastSeen: ms(u.lastSeen), services: (u.services || []).length, admin: admins.has(d.id), seen, queued, friends };
+    }));
+  },
+  async adminRemovePhoto(other) { await F.updateDoc(F.doc(db, 'profiles', other), { av: '', photo: '' }); },
   async adminStats() {
     const c = await F.getCountFromServer(F.collection(db, 'users'));
     return { users: c.data().count };

@@ -145,6 +145,14 @@ export const store = {
   async getConfig() { return structuredClone(load().config); },
   async saveConfig(patch) { Object.assign(load().config, patch); save(); },
   async adminStats() { return { users: 1 }; },
+  async adminUsers() {
+    const me = load(), sc = social(), mine = Object.values(me.movies || {});
+    const out = [{ uid: 'demo', name: me.profile.name, handle: sc.handle, av: sc.av || '', photo: sc.photo || '', privacy: sc.privacy.profile, created: Date.now() - DAY * 20, lastSeen: Date.now(), services: me.profile.services.length, admin: true,
+      seen: mine.filter((x) => x.status === 'seen').length, queued: mine.filter((x) => x.status === 'queue').length, friends: (me.friends || ['pal1', 'pal2']).length }];
+    Object.entries(DEMO_PEOPLE).forEach(([uid, p], i) => { const mv = Object.values(p.movies); out.push({ uid, name: p.name, handle: p.handle, av: p.av || '', photo: '', privacy: p.privacy.profile, created: Date.now() - DAY * (3 + i * 9), lastSeen: Date.now() - DAY * (i * 4 + 0.3), services: 2 + i, admin: false, seen: mv.filter((x) => x.status === 'seen').length, queued: mv.filter((x) => x.status === 'queue').length, friends: i < 2 ? 1 : 0 }); });
+    return out;
+  },
+  async adminRemovePhoto() {},
   async sendFeedback(d) { (load().feedback ||= []).unshift({ id: 'f' + Date.now(), ...d, uid: 'demo', t: Date.now() }); save(); },
   async sendContact(d) { (load().contact ||= []).unshift({ id: 'c' + Date.now(), ...d, t: Date.now() }); save(); },
   async listInbox(kind) { return structuredClone(load()[kind] || []); },
