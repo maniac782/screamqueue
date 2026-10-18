@@ -918,3 +918,7 @@ html, body { overscroll-behavior-y: none; }
   .sheet { position: relative; }
   dialog.detail::backdrop { opacity: calc(1 - var(--drag, 0)); }
 }
+
+/* account-menu items that are only needed on phones (they have a tab bar instead of the top nav) */
+.acct-menu .m-only-item { display: none; }
+@media (max-width: 860px) { .acct-menu .m-only-item { display: flex; } }

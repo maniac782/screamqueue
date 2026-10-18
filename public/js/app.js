@@ -313,7 +313,7 @@ views.tonight = () => {
       <h1>${esc(top.t)}</h1>
       <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}<span>${esc(servicesText(top))}</span></div>
       ${top.ov ? `<p class="ov">${esc(top.ov)}</p>` : ''}
-      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for me</a></div>
+      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
     </div>
   </section>` : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
@@ -410,7 +410,7 @@ function renderPick(animate) {
   const el = $('#pick-result'); if (!el) return;
   const m = S.p.current && S.byId.get(String(S.p.current));
   if (!m) {
-    el.innerHTML = `<div class="pick-card empty-pick"><div class="stack" style="justify-items:center;padding:28px">${icon('dice')}<p>${S.p.current === false ? 'Nothing fits all of those choices. Loosen a filter and try again.' : 'Choose a mood, then press Pick for me.'}</p></div></div>`;
+    el.innerHTML = `<div class="pick-card empty-pick"><div class="stack" style="justify-items:center;padding:28px">${icon('dice')}<p>${S.p.current === false ? 'Nothing fits all of those choices. Loosen a filter and try again.' : 'Choose a mood, then press Pick for Me.'}</p></div></div>`;
     return;
   }
   el.innerHTML = `<div class="pick-card ${animate ? 'spin' : ''}">
@@ -426,7 +426,7 @@ function renderPick(animate) {
 views.pick = () => {
   const p = S.p;
   S.after = () => renderPick(false);
-  return `<div class="page-head"><h1>Pick for me</h1><p class="muted">Set the mood and we'll pull one off the shelf. Movies you've seen are skipped.</p></div>
+  return `<div class="page-head"><h1>Pick for Me</h1><p class="muted">Set the mood and we'll pull one off the shelf. Movies you've seen are skipped.</p></div>
   <div class="pick-layout">
     <div class="panel filters">
       <div class="stack" style="gap:10px"><h3>Mood</h3><div class="seg">${MOODS.map(([k, l, d]) => `<button data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>
@@ -436,7 +436,7 @@ views.pick = () => {
         ${chip('pqueue', '', 'From my queue', p.queueOnly, S.user ? '' : 'disabled')}
         <select id="p-rt" data-bind="maxRt" aria-label="Maximum length" style="width:auto;min-height:36px;padding-block:6px;border-radius:999px"><option value="">Any length</option>${[90, 100, 110, 120].map((n) => `<option value="${n}" ${String(p.maxRt) === String(n) ? 'selected' : ''}>Under ${n} min</option>`).join('')}</select>
       </div></div>
-      <button class="btn primary" data-act="repick" style="justify-self:start">${icon('dice')}Pick for me</button>
+      <button class="btn primary" data-act="repick" style="justify-self:start">${icon('dice')}Pick for Me</button>
     </div>
     <div id="pick-result"></div>
   </div>`;
@@ -450,7 +450,7 @@ views.queue = () => {
   const seen = all.filter((x) => x.st.status === 'seen').sort((a, b) => b.st.at - a.st.at);
   const tab = S.qTab;
   const rows = tab === 'queue' ? q : seen;
-  return `<div class="page-head"><h1>My queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
+  return `<div class="page-head"><h1>My Queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
   <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
   ${tab === 'seen' ? '<p class="muted">Badges, milestones and your full watch log live in the <a href="#/bodycount">Body Count</a>.</p>' : ''}
   ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${icon(tab === 'queue' ? 'bookmark' : 'check')}<span>${tab === 'queue' ? 'Your queue is empty. Open any movie and press "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</span></div>`}`;
@@ -460,7 +460,7 @@ views.queue = () => {
 views.nights = async () => {
   if (!S.user) return signInPrompt('Sign in to start a movie night and vote with friends.');
   const list = (await store.listNights()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return `<div class="page-head"><h1>Movie nights</h1><p class="muted">Start a night and send friends the link. Everyone suggests movies and gets ${VOTES_PER_PERSON} votes.</p></div>
+  return `<div class="page-head"><h1>Movie Nights</h1><p class="muted">Start a night and send friends the link. Everyone suggests movies and gets ${VOTES_PER_PERSON} votes.</p></div>
   <div class="two-col">
     <div class="list">${list.length ? list.map((n) => `<a class="list-item" href="#/night/${n.id}">
       <div><div class="t">${esc(n.title)}</div><div class="muted" style="font-size:.88rem">${n.date ? esc(n.date) + ', ' : ''}${n.members.length} ${n.members.length === 1 ? 'person' : 'people'}, ${Object.keys(n.candidates || {}).length} suggestions${n.winner ? `. Watching ${esc(S.byId.get(String(n.winner))?.t || '')}` : ''}</div></div>
@@ -599,7 +599,7 @@ views.profile = (sub) => {
   return `<div class="profile-head"><span class="avatar xl" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span><div><h1>${esc(name)}</h1><p class="muted">${esc(S.user.email || '')}</p></div></div>
   <div class="profile-grid">
     <section class="panel stack" id="services" style="gap:16px">
-      <div class="shelf-head"><div><h2>Your streaming services</h2><p class="muted">Tap the ones you pay for or use. Shelves and Pick for me lean toward them. Saved as you go.</p></div></div>
+      <div class="shelf-head"><div><h2>Your streaming services</h2><p class="muted">Tap the ones you pay for or use. Shelves and Pick for Me lean toward them. Saved as you go.</p></div></div>
       <p class="count" id="svc-count"></p>
       <label class="search"><span class="sr">Find a service</span>${icon('search')}<input type="search" id="svc-q" placeholder="Find a service" value="${esc(S.svcq || '')}"></label>
       <div id="svc-list"></div>
@@ -648,7 +648,7 @@ views.signin = () => {
 };
 
 // About
-views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} works</h1></div>
+views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1></div>
   <div class="panel stack prose" style="max-width:760px;gap:18px">
     <p>Every night the site pulls the most popular, most talked-about and most-rated horror movies from TMDB, along with where they're streaming in the US.</p>
     <h3>Trending vs. widely seen</h3>
@@ -880,7 +880,7 @@ views.checklist = () => {
   const base = S.ckAll ? S.movies.slice().sort((a, b) => b.reach - a.reach) : essentialsList();
   const list = base.filter((m) => !q || m.t.toLowerCase().includes(q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
   const done = base.filter(everSeen).length;
-  return `<div class="page-head"><h1>What have you seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Body Count under "Before Scream Queue", so you don't need dates.</p></div>
+  return `<div class="page-head"><h1>What Have You Seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Body Count under "Before Scream Queue", so you don't need dates.</p></div>
   <div class="row" style="justify-content:space-between">
     <div class="tabs" role="tablist"><button role="tab" data-act="ckmode" data-k="ess" aria-selected="${!S.ckAll}">Horror Essentials</button><button role="tab" data-act="ckmode" data-k="all" aria-selected="${!!S.ckAll}">Everything</button></div>
     <span class="muted" id="ck-count">${done} of ${base.length} seen</span>
@@ -988,10 +988,11 @@ function refreshDetail() { const d = $('#detail'); if (d.open && d.dataset.id) o
 
 // ---------- little celebrations ----------
 const QUEUE_TARGETS = '.nav a[href="#/queue"], .tabbar a[href="#/queue"]';
-const COUNT_TARGETS = '.nav a[href="#/bodycount"], .acct-btn';
+const COUNT_TARGETS = '.nav a[href="#/bodycount"], .tabbar a[href="#/bodycount"], .acct-btn';
 const canFx = () => !reduceMotion() && !!Element.prototype.animate;
 const rectOf = (el) => (el?.getBoundingClientRect ? el.getBoundingClientRect() : null);
-const visible = (sel) => [...document.querySelectorAll(sel)].find((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden'; });
+// First visible match, trying each selector in the order listed (so the phone tab bar beats the avatar).
+const visible = (sel) => { for (const one of sel.split(',')) { const el = [...document.querySelectorAll(one)].find((x) => { const r = x.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(x).visibility !== 'hidden'; }); if (el) return el; } return null; };
 function fxLayer() {
   const host = $('#detail')?.open ? $('#detail') : document.body;
   const layer = document.createElement('div'); layer.className = 'fx-layer'; layer.setAttribute('aria-hidden', 'true');
@@ -1559,13 +1560,13 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for me', 'dice'], ['#/queue', 'My queue', 'bookmark'], ['#/bodycount', 'Body Count', 'trophy'], ['#/nights', 'Movie nights', 'users']];
-const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/nights'];
+const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/nights', 'Movie Nights', 'users']];
+const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
   const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
   $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}</a>`).join('');
-  $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie nights', 'Nights').replace('My queue', 'Queue').replace('Pick for me', 'Pick')}</span></a>`).join('');
+  $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie Nights', 'Nights').replace('My Queue', 'Queue').replace('Pick for Me', 'Pick')}</span></a>`).join('');
   const name = S.profile.name || S.user?.name || '';
   const av = (cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span>`;
   $('#who').innerHTML = S.user
@@ -1575,6 +1576,7 @@ function renderChrome() {
         <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
         <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
+        <a role="menuitem" class="m-only-item" href="#/nights">${icon('users')}Movie Nights</a>
         ${S.user.isAdmin ? `<a role="menuitem" href="#/admin">${icon('shield')}Admin</a>` : ''}
         ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
         <button role="menuitem" data-act="signout">${icon('x')}Sign out</button>
@@ -1618,7 +1620,7 @@ async function route(keepScroll, quiet) {
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
 }
 
 async function boot() {
