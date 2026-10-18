@@ -1132,8 +1132,13 @@ const actions = {
     let k = Number(el.dataset.k);
     const st = status(el.dataset.id);
     if ((st?.rating || 0) === k) k = 0; // tap your current rating again to clear it
-    await setStatus(el.dataset.id, st?.status === 'seen' || st?.wasSeen ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
-    if (el.closest('.qa-rate')) toast(k ? `Rated ${fmtRating(k)} of 5${st?.status === 'seen' || st?.wasSeen ? '' : '. Added to your Body Count'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
+    const already = st?.status === 'seen' || st?.wasSeen;
+    // Rating a movie you haven't marked seen counts as seeing it: same stamp, splatter and +1 as the Seen button.
+    const r = !already ? rectOf(el.closest('.card') || el.closest('.skulls') || el) : null;
+    if (!already) markJust(el.dataset.id);
+    await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
+    if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull'); }
+    if (el.closest('.qa-rate') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
     await refreshAll();
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
