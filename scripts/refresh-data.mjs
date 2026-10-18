@@ -91,11 +91,12 @@ async function pages(path, params, count) {
 
 // Dead Meat's "Kill Count" videos on YouTube, listed with yt-dlp (no API key needed). Returns [{ id, title }] or null.
 const DEAD_MEAT = 'https://www.youtube.com/@DeadMeatJames/videos';
+let kcError = null;
 function deadMeatVideos() {
   return new Promise((done) => {
-    execFile('yt-dlp', ['--flat-playlist', '--dump-single-json', '--no-warnings', '--ignore-errors', DEAD_MEAT],
+    execFile('python3', ['-m', 'yt_dlp', '--flat-playlist', '--dump-single-json', '--no-warnings', '--ignore-errors', DEAD_MEAT],
       { maxBuffer: 128 * 1024 * 1024, timeout: 240000 }, (err, out) => {
-        if (err && !out) { console.warn('Kill Count videos skipped:', String(err.message).slice(0, 200)); return done(null); }
+        if (err && !out) { kcError = String(err.message).replace(/\s+/g, ' ').slice(-300); console.warn('Kill Count videos skipped:', kcError); return done(null); }
         try { done((JSON.parse(out).entries || []).filter((e) => e?.id && e?.title).map((e) => ({ id: e.id, title: e.title }))); }
         catch { done(null); }
       });
@@ -325,7 +326,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     sample: false,
     region: REGION,
-    sources: { tmdb: true, trakt: !!TRAKT_ID, omdb: !!OMDB_KEY, killCount: vids ? vids.length : 'kept', killCountMatched: kcMatched },
+    sources: { tmdb: true, trakt: !!TRAKT_ID, omdb: !!OMDB_KEY, killCount: vids ? vids.length : 'kept', killCountMatched: kcMatched, ...(kcError ? { killCountError: kcError } : {}) },
     subgenres: SUBGENRES.map(({ key, label }) => ({ key, label })),
     tiers: TIERS.map(({ key, label }) => ({ key, label })),
     providers: providerList.filter((p, i) => i < 80 || usedProviders.has(p.id)),

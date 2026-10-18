@@ -1025,3 +1025,13 @@ button.person img, button.person .ini { transition: box-shadow .15s; }
 .kill-form label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: .9rem; }
 .kill-form input { width: 84px; min-height: 34px; padding: 4px 10px; }
 @media (max-width: 560px) { .killbox { grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 12px; } .kill-num { width: 72px; height: 72px; border-radius: 14px; } .kill-num b { font-size: 1.6rem; } }
+
+/* Queued blood drip and SURVIVED stamp scale with the poster (small/medium/large grids, phone rows, flying cards).
+   The poster is its own size container, so cqw here = 1% of the poster's width. */
+.poster { container-type: inline-size; }
+.poster .blood { width: 25cqw; height: 50cqw; right: 4cqw; }
+.poster .blood .drop { width: 3.2cqw; height: 4.2cqw; margin-left: -1.6cqw; }
+.poster .stamp { padding: 3cqw 6cqw 2.6cqw; gap: 1cqw; border-width: max(2px, 1.6cqw); outline-width: max(1px, .8cqw); outline-offset: max(2px, 1.6cqw); border-radius: 4cqw; }
+.poster .stamp b { font-size: 9.4cqw; }
+.poster .stamp small { font-size: 5.6cqw; gap: 1.4cqw; }
+.poster .stamp small .ic { width: 6.2cqw; height: 6.2cqw; }
