@@ -914,6 +914,7 @@ function renderQuick() {
   S.qsIdx = -1;
 }
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.querySelector('.rate-sheet')) { closeRateSheet(); return; }
   if (e.key === 'Escape') { const c = document.querySelector('.card.qa-on'); if (c) { const b = c.querySelector('.qa-rate:not([hidden]) .qa-x') || c.querySelector('.qa-plus'); c.classList.remove('qa-on', 'rating'); c.querySelector('.qa-rate').hidden = true; c.querySelector('.card-open')?.focus(); return; } }
   if (e.target.id !== 'qs') return;
   const rows = [...document.querySelectorAll('#qs-list .qs-row, #qs-list .qs-more')];
@@ -1087,9 +1088,11 @@ const actions = {
   },
   qarate(el) {
     if (!needUser()) return;
+    if (window.matchMedia('(hover: none)').matches) return openRateSheet(el.dataset.id);
     const c = el.closest('.card'); c.classList.add('rating', 'qa-on'); const r = c.querySelector('.qa-rate'); r.hidden = false;
     r.querySelector('button')?.focus();
   },
+  rsclose() { closeRateSheet(); },
   qaclose(el) { const c = el.closest('.card'); c.classList.remove('rating', 'qa-on'); c.querySelector('.qa-rate').hidden = true; },
   async queue(el) {
     if (!needUser()) return;
@@ -1138,7 +1141,8 @@ const actions = {
     if (!already) markJust(el.dataset.id);
     await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
     if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull'); }
-    if (el.closest('.qa-rate') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
+    if (el.closest('.rate-sheet')) closeRateSheet();
+    if (el.closest('.qa-rate, .rate-sheet') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
     await refreshAll();
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
@@ -1288,6 +1292,54 @@ document.addEventListener('input', (e) => {
 });
 
 // Rating preview: glow the skulls up to the half you're pointing at.
+// Phones: rating opens a sheet with big skulls you can tap or slide across.
+function openRateSheet(id) {
+  closeRateSheet();
+  const m = S.byId.get(String(id)) || { id, t: status(id)?.title || 'This movie', y: status(id)?.y };
+  const r = status(id)?.rating || 0;
+  const el = document.createElement('div');
+  el.className = 'rate-sheet';
+  el.innerHTML = `<div class="rs-back" data-act="rsclose"></div>
+    <div class="rs-panel" role="dialog" aria-modal="true" aria-label="Rate ${esc(m.t)}">
+      <div class="rs-grab"></div>
+      <h3>${esc(m.t)}${m.y ? ` <span class="faint">(${m.y})</span>` : ''}</h3>
+      <p class="muted">Tap a skull, or slide your finger across. Left half of a skull is a half.</p>
+      ${skullPicker(m, r).replace('class="skulls"', 'class="skulls big"')}
+      <button class="btn ghost" data-act="rsclose">Cancel</button>
+    </div>`;
+  document.body.append(el);
+  requestAnimationFrame(() => el.classList.add('on'));
+}
+function closeRateSheet() { document.querySelectorAll('.rate-sheet').forEach((x) => x.remove()); }
+// Work out a half-step rating from a finger position across a row of skulls.
+function ratingAt(group, x) {
+  const sks = [...group.querySelectorAll('.sk')];
+  for (let i = 0; i < sks.length; i++) { const b = sks[i].getBoundingClientRect(); if (x < b.right) return x < b.left + b.width / 2 ? Math.max(0.5, i + 0.5) : i + 1; }
+  return sks.length;
+}
+const drag = { g: null, k: null, moved: false, x0: 0 };
+document.addEventListener('pointerdown', (e) => {
+  const g = e.target.closest?.('.skulls'); if (!g || e.pointerType === 'mouse') return;
+  Object.assign(drag, { g, k: ratingAt(g, e.clientX), moved: false, x0: e.clientX });
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag.g) return;
+  if (Math.abs(e.clientX - drag.x0) > 6) drag.moved = true;
+  if (!drag.moved) return;
+  drag.k = ratingAt(drag.g, e.clientX); previewRating(drag.g, drag.k);
+});
+document.addEventListener('pointerup', (e) => {
+  const { g, k, moved } = drag; drag.g = null;
+  if (!g || !moved) return; // a plain tap goes through the normal button click
+  drag.skipClick = Date.now();
+  previewRating(g, null);
+  g.querySelector(`button[data-act="rate"][data-k="${k}"]`)?.click();
+});
+document.addEventListener('pointercancel', () => { if (drag.g) previewRating(drag.g, null); drag.g = null; });
+document.addEventListener('click', (e) => {
+  if (drag.skipClick && Date.now() - drag.skipClick < 400 && e.isTrusted && e.target.closest?.('.skulls')) { e.stopPropagation(); e.preventDefault(); drag.skipClick = 0; }
+}, true);
+
 function previewRating(group, k) {
   group.classList.toggle('pv', k != null);
   group.querySelectorAll('.sk').forEach((sk, i) => {

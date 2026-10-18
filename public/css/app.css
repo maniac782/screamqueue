@@ -864,3 +864,25 @@ html, body { overscroll-behavior-y: none; }
   .sgp-tab:not([aria-selected="true"]) > span { display: none; }
   .sgp-tab { padding: 0 11px; }
 }
+
+/* rating on phones: slide-up sheet with big skulls */
+.skulls { touch-action: pan-y; }
+.rate-sheet { position: fixed; inset: 0; z-index: 70; }
+.rs-back { position: absolute; inset: 0; background: rgba(0,0,0,.55); opacity: 0; transition: opacity .25s; }
+.rs-panel { position: absolute; left: 0; right: 0; bottom: 0; display: grid; gap: 12px; justify-items: center; text-align: center;
+  padding: 10px 20px calc(22px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-radius: 22px 22px 0 0;
+  box-shadow: 0 -20px 50px -20px rgba(0,0,0,.7); transform: translateY(100%); transition: transform .32s var(--spring); }
+.rate-sheet.on .rs-back { opacity: 1; } .rate-sheet.on .rs-panel { transform: none; }
+.rs-grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line-2); }
+.rs-panel h3 { font-size: 1.15rem; }
+.rs-panel p { font-size: .85rem; margin-top: -6px; }
+.skulls.big { padding: 8px 10px; gap: 4px; border-radius: 16px; touch-action: none; }
+.skulls.big .sk { width: 54px; height: 54px; border-radius: 12px; }
+.skulls.big .sk .ic { width: 40px; height: 40px; }
+.skulls.big .sk-val { font-size: 1.2rem; min-width: 3ch; }
+@media (max-width: 400px) { .skulls.big .sk { width: 48px; height: 50px; } .skulls.big .sk .ic { width: 36px; height: 36px; } }
+@media (max-width: 700px) {
+  dialog .skulls .sk { width: 44px; height: 42px; }
+  dialog .skulls .sk .ic { width: 30px; height: 30px; }
+}
+@media (prefers-reduced-motion: reduce) { .rs-panel, .rs-back { transition: none; } }
