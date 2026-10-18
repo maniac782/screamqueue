@@ -1286,19 +1286,26 @@ function morphKids(o, n, skip) {
   const olds = [...o.childNodes];
   const keyed = new Map(); const loose = [];
   for (const c of olds) { const k = keyOf(c); if (k && !keyed.has(k)) keyed.set(k, c); else if (!k) loose.push(c); }
+  // 1) pair every new child with an old one (by movie id / data-key, else by position and tag)
   const used = new Set();
-  let cursor = o.firstChild;
-  for (const nc of [...n.childNodes]) {
+  const pairs = [...n.childNodes].map((nc) => {
     const k = keyOf(nc);
-    let match = k ? keyed.get(k) : loose.find((c) => !used.has(c) && c.nodeType === nc.nodeType && c.nodeName === nc.nodeName);
-    if (match && used.has(match)) match = null;
-    let node = nc;
-    const atCursor = match && match === cursor;
-    if (match) { used.add(match); node = morph(match, nc, skip); }
-    if (atCursor || node === cursor) cursor = node.nextSibling;
-    else o.insertBefore(node, cursor);
+    let m = k ? keyed.get(k) : loose.find((c) => !used.has(c) && c.nodeType === nc.nodeType && c.nodeName === nc.nodeName);
+    if (m && used.has(m)) m = null;
+    if (m) used.add(m);
+    return [nc, m];
+  });
+  // 2) drop old children that have no partner, so the survivors don't have to move
+  for (const c of olds) if (!used.has(c)) c.remove();
+  // 3) walk in order: patch partners in place, insert new ones, only move a node when it's out of order
+  let cursor = o.firstChild;
+  for (const [nc, m] of pairs) {
+    if (m) {
+      if (m !== cursor) o.insertBefore(m, cursor); else cursor = cursor.nextSibling;
+      const node = morph(m, nc, skip);
+      if (node !== m && cursor === m) cursor = node.nextSibling;
+    } else o.insertBefore(nc, cursor);
   }
-  for (const c of olds) if (!used.has(c) && c.parentNode === o) c.remove();
 }
 function morph(o, n, skip) {
   if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { o.replaceWith(n); return n; }
@@ -1332,6 +1339,9 @@ async function flip(fn) {
     const b = before.get(k); if (!b) continue;
     const dx = b.r.left - r.left, dy = b.r.top - r.top;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    // Scroll snapping fights transformed cards (the row jumps), so switch it off while the row closes up.
+    const t = c.closest('.track');
+    if (t && !t.dataset.flip) { t.dataset.flip = '1'; const keep = t.scrollLeft; t.style.scrollSnapType = 'none'; t.scrollLeft = keep; setTimeout(() => { t.style.scrollSnapType = ''; delete t.dataset.flip; }, 480); }
     c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
   }
 }
@@ -1379,7 +1389,7 @@ async function sendOff(id, kind) {
       { transform: `translate(${dx}px, ${dy}px) scale(.08) rotate(8deg)`, opacity: 0.3 },
     ], { duration: 760, easing: 'cubic-bezier(.5,0,.25,1)', fill: 'forwards' });
     a.finished.then(() => { ghost.remove(); ping(target); }).catch(() => ghost.remove());
-    anims.push(new Promise((res) => setTimeout(res, 380)));
+    anims.push(new Promise((res) => setTimeout(res, 140)));
   }
   await Promise.all(anims);
   return true;
@@ -1561,7 +1571,7 @@ async function route(keepScroll, quiet) {
     $('#main').classList.toggle('quiet', !!quiet);
     if (quiet) setHTML($('#main'), html, ['results', 'bc-results']); else $('#main').innerHTML = html;
     after?.();
-    if (rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
+    if (!quiet && rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
