@@ -89,6 +89,14 @@ async function pages(path, params, count) {
 }
 
 const isoDaysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+// US release dates from TMDB: th = first theatrical (limited or wide), dig = first digital. Omitted when unknown.
+function usDates(releaseDates, region = 'US') {
+  const list = releaseDates?.results?.find((x) => x.iso_3166_1 === region)?.release_dates || [];
+  const first = (types) => list.filter((r) => types.includes(r.type) && r.release_date).map((r) => r.release_date.slice(0, 10)).sort()[0];
+  const out = {}; const th = first([2, 3]); const dig = first([4]);
+  if (th) out.th = th; if (dig) out.dig = dig;
+  return out;
+}
 
 async function main() {
   let previous = { movies: [] };
@@ -102,8 +110,12 @@ async function main() {
   const dayRank = new Map(daily.map((m, i) => [m.id, i + 1]));
 
   const base = { with_genres: GENRE.horror, include_adult: 'false', language: 'en-US', region: REGION };
+  // US theatrical releases: what's playing now and what's coming in the next six months
+  const theatrical = { ...base, with_release_type: '2|3' };
   const lists = [
     weekly, daily,
+    await pages('/discover/movie', { ...theatrical, sort_by: 'popularity.desc', 'release_date.gte': isoDaysAgo(70), 'release_date.lte': isoDaysAgo(0) }, 3),
+    await pages('/discover/movie', { ...theatrical, sort_by: 'popularity.desc', 'release_date.gte': isoDaysAgo(-1), 'release_date.lte': isoDaysAgo(-180) }, 3),
     await pages('/discover/movie', { ...base, sort_by: 'popularity.desc', 'vote_count.gte': 20 }, 25),
     // The full back catalog: every horror movie with at least a few dozen ratings (not limited to a release region).
     await pages('/discover/movie', { with_genres: GENRE.horror, include_adult: 'false', language: 'en-US', sort_by: 'vote_count.desc', 'vote_count.gte': 25 }, 250),
@@ -211,6 +223,7 @@ async function main() {
       rt: d.runtime || null,
       ov: d.overview || '',
       cert: usCertification(d.release_dates, REGION),
+      ...usDates(d.release_dates, REGION),
       dir: (d.credits?.crew || []).filter((c) => c.job === 'Director').map((c) => c.name).slice(0, 2),
       cast: (d.credits?.cast || []).slice(0, 4).map((c) => c.name),
       castFull: (d.credits?.cast || []).slice(0, 12).map((c) => ({ i: c.id, n: c.name, c: c.character || '', p: c.profile_path || null })),

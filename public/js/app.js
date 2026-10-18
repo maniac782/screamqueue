@@ -104,6 +104,29 @@ function shortLine(m) {
   if (m.flags.includes('quiet')) return 'Just released, under the radar';
   return reachLine(m).b;
 }
+// Release status from US dates (th = theatrical, dig = digital). 'soon' = coming to theaters,
+// 'in' = opened in theaters in the last 60 days and not streaming or on digital yet.
+const longDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+function theaterStatus(m) {
+  const t = today();
+  if (m.th && m.th > t) return 'soon';
+  if (m.th && (Date.parse(t) - Date.parse(m.th)) / 86400000 <= 60 && !(m.dig && m.dig <= t) && !m.pv?.length && !m.fr?.length) return 'in';
+  return null;
+}
+function releaseLine(m) {
+  const t = today(); const th = theaterStatus(m);
+  const dig = m.dig ? (m.dig > t ? `Coming to digital ${longDate(m.dig)}` : `On digital since ${longDate(m.dig)}`) : '';
+  if (th === 'soon') return { pill: 'Coming to theaters', cls: 'soon', text: `Opens in US theaters ${longDate(m.th)}`, sub: m.dig && m.dig > t ? dig : '' };
+  if (th === 'in') return { pill: 'In theaters', cls: 'in', text: `Opened in US theaters ${longDate(m.th)}`, sub: dig };
+  const d = m.th || m.date;
+  if (!d) return null;
+  if (d > t) return { pill: 'Coming soon', cls: 'soon', text: `Releases ${longDate(d)}`, sub: '' };
+  return { pill: '', cls: '', text: `${m.th ? 'Released in US theaters' : 'Released'} ${longDate(d)}`, sub: m.dig && m.dig > m.th ? dig : '' };
+}
+function releaseHTML(m) {
+  const r = releaseLine(m); if (!r) return '';
+  return `<div class="release">${r.pill ? `<span class="rel-pill ${r.cls}">${icon(r.cls === 'in' ? 'play' : 'clock')}${r.pill}</span>` : icon('clock')}<span>${esc(r.text)}${r.sub ? `<small>${esc(r.sub)}</small>` : ''}</span></div>`;
+}
 function rating(m) { const r = m.imdb?.r ?? (m.va ? Number(m.va.toFixed(1)) : null); return r ? `${icon('star')}${r}` : ''; }
 // Critics score from Rotten Tomatoes (via OMDb). Fresh is 60% and up. Icons are drawn for this site, not RT's logos.
 const tom = (m) => m.imdb?.tom ?? null;
@@ -179,7 +202,7 @@ function poster(m, opts = {}) {
   return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just === String(m.id) ? 'just' : ''}">
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
-    ${opts.noBadges ? '' : `<span class="badge-tier t-${m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(S.tierLabel.get(m.tier))}</span>`}
+    ${opts.noBadges ? '' : (() => { const th = theaterStatus(m); const label = th === 'in' ? 'In Theaters' : th === 'soon' ? 'Coming Soon' : S.tierLabel.get(m.tier); return `<span class="badge-tier t-${th ? 'th-' + th : m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(label)}</span>`; })()}
     ${state === 'queued' ? bloodDrip(m.id) : ''}
     ${state === 'seen' ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st?.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
@@ -359,6 +382,8 @@ views.tonight = () => {
   const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
   const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 18);
   const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const inTheaters = pool.filter((m) => theaterStatus(m) === 'in').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon').sort((a, b) => a.th.localeCompare(b.th)).slice(0, 18);
   const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach).slice(0, 18);
   const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a))).slice(0, 18);
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
@@ -382,6 +407,8 @@ views.tonight = () => {
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
   ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun, '<a class="btn small ghost" href="#/browse">See all</a>')}
   ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen and well liked. Easy to get a group on board.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services right now.' : firstRun)}
+  ${inTheaters.length ? shelf('In theaters now', 'Playing in US theaters and not streaming yet.', inTheaters, '') : ''}
+  ${comingSoon.length ? shelf('Coming to theaters', 'Horror opening in US theaters soon, earliest first.', comingSoon, '') : ''}
   ${shelf('New and catching on', 'Out in the last four months and already getting attention.', newBuzz, firstRun)}
   ${shelf('New and under the radar', 'Recently released, but few people have found them yet.', quiet, firstRun)}
   ${shelf('Cult picks', 'Smaller audiences with loyal fans.', cult, firstRun)}
@@ -1060,6 +1087,7 @@ function openDetail(id) {
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
     </div></div>
     <div class="sheet-body">
+      ${releaseHTML(m)}
       <div class="row" style="gap:10px">${trailerBtn(m)}</div>
       ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
