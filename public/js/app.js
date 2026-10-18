@@ -183,7 +183,7 @@ function quickBar(m, name) {
   const q = st?.status === 'queue', seen = st?.status === 'seen';
   return `<button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
     <div class="qa" role="group" aria-label="Quick actions for ${esc(name)}">
-      <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon(q ? 'check' : 'bookmark')}</button>
+      <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon('bookmark', q ? 'filled' : '')}</button>
       <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen}" title="${seen ? 'Seen' : 'Mark as seen'}" aria-label="${seen ? 'Seen' : 'Mark as seen'}">${icon('eye')}</button>
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
     </div>
@@ -283,7 +283,7 @@ const views = {};
 function queueBtn(m, cls = '') {
   const st = status(m.id);
   const on = st?.status === 'queue';
-  return `<button class="btn ${cls}" data-act="queue" data-id="${m.id}" aria-pressed="${on}">${icon(on ? 'check' : 'bookmark')}${on ? 'In your queue' : isSeen(m) ? 'Queue a rewatch' : 'Add to queue'}</button>`;
+  return `<button class="btn ${cls}" data-act="queue" data-id="${m.id}" aria-pressed="${on}">${icon('bookmark', on ? 'filled' : '')}${on ? 'In your queue' : isSeen(m) ? 'Queue a rewatch' : 'Add to queue'}</button>`;
 }
 
 views.tonight = () => {

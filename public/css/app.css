@@ -304,7 +304,9 @@ button.card { all: unset; box-sizing: border-box; cursor: pointer; display: grid
 .qa-b:hover { background: rgba(30, 30, 36, .92); border-color: rgba(255,255,255,.4); transform: scale(1.08); }
 .qa-b:active, .qa-plus:active { transform: scale(.9); }
 .qa-b:focus-visible, .qa-plus:focus-visible, .qa-x:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.qa-b[aria-pressed="true"] { background: var(--accent); border-color: transparent; }
+.ic.filled path { fill: currentColor; }
+.qa-b[aria-pressed="true"][data-act="queue"] { color: #ff2e4d; border-color: rgba(255, 46, 77, .75); box-shadow: 0 0 0 1px rgba(255, 46, 77, .35), 0 0 14px -2px rgba(255, 46, 77, .65); }
+.qa-b[aria-pressed="true"][data-act="queue"] .ic { filter: drop-shadow(0 0 4px rgba(255, 46, 77, .8)); }
 .qa-b[aria-pressed="true"][data-act="seen"] { background: #fff; color: #111; }
 .qa-plus { display: none; position: absolute; z-index: 6; right: 6px; top: calc(150cqw - 42px); width: 36px; height: 36px; transition: transform .25s var(--spring), background .15s; }
 .qa-plus .ic { width: 20px; height: 20px; }
