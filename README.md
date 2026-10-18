@@ -36,7 +36,7 @@ API keys live only in GitHub Actions secrets. The site never sees them.
 3. **Deploys.** In the repo folder run `firebase init hosting:github` and let it create the `FIREBASE_SERVICE_ACCOUNT_SCREAMQUEUE` secret. Keep the existing workflow files when it asks. Every push to `main` then deploys to `screamqueue.web.app`.
 4. **TMDB key (required).** Make a free account at themoviedb.org → Settings → API → request a developer key. Copy the **API Read Access Token** into the repo's Settings → Secrets and variables → Actions as `TMDB_READ_TOKEN`.
 5. **Optional keys** (same place):
-   - `OMDB_API_KEY` — free key from omdbapi.com. Adds IMDb ratings and vote counts to Reach.
+   - `OMDB_API_KEY` — free key from omdbapi.com. Adds Rotten Tomatoes critics scores, IMDb ratings and Metacritic. The free tier allows 1,000 calls a day, so the first full fill takes about 5 nights.
    - `TRAKT_CLIENT_ID` — Trakt now requires a VIP account to create API apps. Adds live watcher counts.
 6. **First data pull.** Actions → "Refresh movie data" → Run workflow. After that it runs every morning around 5am Eastern and redeploys when the data changes.
 7. **Make yourself admin.** Sign in once, copy your user UID from Authentication → Users, then in Firestore create collection `admins` with a document whose ID is that UID (no fields needed).

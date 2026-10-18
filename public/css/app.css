@@ -922,3 +922,18 @@ html, body { overscroll-behavior-y: none; }
 /* account-menu items that are only needed on phones (they have a tab bar instead of the top nav) */
 .acct-menu .m-only-item { display: none; }
 @media (max-width: 860px) { .acct-menu .m-only-item { display: flex; } }
+
+/* critics / audience scores */
+.tomato { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.ic.tom { width: 1.15em; height: 1.15em; }
+.scores { display: flex; flex-wrap: wrap; gap: 10px; }
+.score { display: flex; align-items: center; gap: 10px; padding: 8px 14px 8px 8px; border-radius: 14px; background: var(--bg-2); border: 1px solid var(--line); }
+.score .ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--raised); flex: none; }
+.score .ico .ic { width: 24px; height: 24px; }
+.score .ico.imdb { color: #f5c518; }
+.score .ico.mc { font-weight: 800; font-size: .9rem; color: #fff; }
+.score .ico.mc.hi { background: #2f9e52; } .score .ico.mc.mid { background: #d9a400; color: #111; } .score .ico.mc.lo { background: #d63b3b; }
+.score b { display: block; font-family: var(--font-display); font-size: 1.15rem; line-height: 1.1; }
+.score b i { font-style: normal; font-size: .75rem; color: var(--faint); font-weight: 600; margin-left: 1px; }
+.score small { display: block; font-size: .74rem; color: var(--muted); }
+@media (max-width: 560px) { .score { padding: 6px 10px 6px 6px; gap: 8px; } .score .ico { width: 30px; height: 30px; } .score small { font-size: .68rem; } }

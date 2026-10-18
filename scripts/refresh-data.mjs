@@ -6,7 +6,7 @@
 // Env:
 //   TMDB_READ_TOKEN  (TMDB "API Read Access Token")  or  TMDB_API_KEY
 //   TRAKT_CLIENT_ID  (optional; Trakt API keys now need a Trakt VIP account)
-//   OMDB_API_KEY     (optional; adds IMDb rating + vote count)
+//   OMDB_API_KEY     (optional; adds IMDb rating + votes, Rotten Tomatoes critics score, Metacritic)
 //   REGION           (default US)
 //   MAX_MOVIES       (default 5000)
 
@@ -23,8 +23,9 @@ const TMDB_TOKEN = process.env.TMDB_READ_TOKEN;
 const TMDB_KEY = process.env.TMDB_API_KEY;
 const TRAKT_ID = process.env.TRAKT_CLIENT_ID;
 const OMDB_KEY = process.env.OMDB_API_KEY;
-const OMDB_MAX_CALLS = 900;          // free OMDb tier is 1,000/day
-const OMDB_STALE_DAYS = 7;
+const OMDB_MAX_CALLS = Number(process.env.OMDB_MAX_CALLS || 950); // free OMDb tier is 1,000/day
+const OMDB_STALE_DAYS_NEW = 7;       // movies from this year or last: scores still moving
+const OMDB_STALE_DAYS_OLD = 45;      // older movies barely change
 
 if (!TMDB_TOKEN && !TMDB_KEY) {
   console.error('Missing TMDB_READ_TOKEN or TMDB_API_KEY. Add one as a GitHub Actions secret.');
@@ -144,20 +145,46 @@ async function main() {
     .sort((a, b) => (a.display_priorities?.[REGION] ?? 999) - (b.display_priorities?.[REGION] ?? 999))
     .map((p) => ({ id: p.provider_id, name: p.provider_name, logo: p.logo_path || null, pr: p.display_priorities?.[REGION] ?? p.display_priority ?? 999 }));
 
-  // OMDb (IMDb rating/votes), cached between runs
+  // OMDb: IMDb rating/votes, Rotten Tomatoes critics score and Metacritic, cached between runs.
+  // The free key allows ~1,000 calls a day, so each night we fill movies that have no scores yet
+  // (most popular first), then refresh the stalest ones. A full first pass takes about 5 nights.
+  const thisYear = new Date().getFullYear();
+  const keep = (imdbId, prev) => ({ id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, tom: prev?.tom ?? null, mc: prev?.mc ?? null, at: prev?.at ?? null });
+  const omdb = new Map();
   let omdbCalls = 0;
-  async function imdbFor(d) {
+  if (OMDB_KEY) {
+    const need = [];
+    for (const d of details) {
+      if (!d || !d.genres?.some((g) => g.id === GENRE.horror)) continue;
+      const imdbId = d.external_ids?.imdb_id || d.imdb_id; if (!imdbId) continue;
+      const prev = prevById.get(d.id)?.imdb;
+      const y = d.release_date ? Number(d.release_date.slice(0, 4)) : thisYear;
+      const age = prev?.at ? (Date.now() - Date.parse(prev.at)) / 86400000 : Infinity;
+      const stale = y >= thisYear - 1 ? OMDB_STALE_DAYS_NEW : OMDB_STALE_DAYS_OLD;
+      if (age < stale && prev?.tom !== undefined) continue;
+      need.push({ d, imdbId, prev, missing: !prev?.at || prev?.tom === undefined, age, pop: d.popularity || 0 });
+    }
+    need.sort((a, b) => (b.missing - a.missing) || (a.missing ? b.pop - a.pop : b.age - a.age));
+    let limited = false;
+    await pool(need.slice(0, OMDB_MAX_CALLS), 6, async ({ d, imdbId, prev }) => {
+      if (limited) return;
+      omdbCalls++;
+      try {
+        const o = await getJson(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`);
+        if (o.Response === 'False') { if (/limit/i.test(o.Error || '')) limited = true; return; }
+        const r = parseFloat(o.imdbRating); const v = parseInt(String(o.imdbVotes).replace(/,/g, ''), 10);
+        const rtv = (o.Ratings || []).find((x) => x.Source === 'Rotten Tomatoes')?.Value;
+        const tom = rtv ? parseInt(rtv, 10) : NaN;
+        const mc = parseInt(o.Metascore, 10);
+        omdb.set(d.id, { id: imdbId, r: Number.isFinite(r) ? r : null, v: Number.isFinite(v) ? v : null, tom: Number.isFinite(tom) ? tom : null, mc: Number.isFinite(mc) ? mc : null, at: new Date().toISOString() });
+      } catch (e) { if (/401/.test(String(e.message))) limited = true; }
+    });
+    console.log(`OMDb: ${need.length} movies wanted scores, made ${omdbCalls} calls${limited ? ' (stopped at the daily limit)' : ''}.`);
+  }
+  function imdbFor(d) {
     const imdbId = d.external_ids?.imdb_id || d.imdb_id;
     if (!imdbId) return null;
-    const prev = prevById.get(d.id)?.imdb;
-    const fresh = prev?.at && (Date.now() - Date.parse(prev.at)) / 86400000 < OMDB_STALE_DAYS;
-    if (!OMDB_KEY || fresh || omdbCalls >= OMDB_MAX_CALLS) return { id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, at: prev?.at ?? null };
-    omdbCalls++;
-    try {
-      const o = await getJson(`https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_KEY}`);
-      const r = parseFloat(o.imdbRating); const v = parseInt(String(o.imdbVotes).replace(/,/g, ''), 10);
-      return { id: imdbId, r: Number.isFinite(r) ? r : null, v: Number.isFinite(v) ? v : null, at: new Date().toISOString() };
-    } catch { return { id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, at: prev?.at ?? null }; }
+    return omdb.get(d.id) || keep(imdbId, prevById.get(d.id)?.imdb);
   }
 
   const rows = [];
@@ -167,7 +194,7 @@ async function main() {
     const genreIds = d.genres.map((g) => g.id);
     const kwNames = (d.keywords?.keywords || []).map((k) => k.name);
     const wp = d['watch/providers']?.results?.[REGION] || {};
-    const imdb = await imdbFor(d);
+    const imdb = imdbFor(d);
     rows.push({
       id: d.id,
       t: d.title,

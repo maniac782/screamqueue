@@ -19,7 +19,7 @@ const S = {
   sgLabel: new Map(),
   tierLabel: new Map(),
   config: { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' },
-  f: { q: '', sg: new Set(), tier: new Set(), mine: false, hideSeen: false, decade: '', sort: 'buzz', provider: '', limit: 60 },
+  f: { q: '', sg: new Set(), tier: new Set(), mine: false, hideSeen: false, decade: '', sort: 'buzz', provider: '', tom: '', limit: 60 },
   p: { sg: new Set(), mix: 'crowd', mine: true, queueOnly: false, maxRt: '', recent: [], current: null },
   qTab: 'queue',
   stopNight: null,
@@ -105,6 +105,20 @@ function shortLine(m) {
   return reachLine(m).b;
 }
 function rating(m) { const r = m.imdb?.r ?? (m.va ? Number(m.va.toFixed(1)) : null); return r ? `${icon('star')}${r}` : ''; }
+// Critics score from Rotten Tomatoes (via OMDb). Fresh is 60% and up. Icons are drawn for this site, not RT's logos.
+const tom = (m) => m.imdb?.tom ?? null;
+const TOMATO = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.4c4.9 0 8.6 3 8.6 7.1S16.9 20.8 12 20.8 3.4 17.6 3.4 13.5 7.1 6.4 12 6.4z" fill="#f2332a"/><path d="M12 6.8 9.4 4.2l2.6 1.1 1.2-2.1.6 2.4 2.6-.4-2 2.1" fill="#3aa64c"/><ellipse cx="8.6" cy="11.4" rx="1.8" ry="1.1" fill="#fff" opacity=".45"/></svg>';
+const SPLAT = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2l1.6 3.4 3.4-2-.6 3.8 3.9.4-2.9 2.6 3 2.4-3.9.6.8 3.8-3.5-1.8-1.8 3.4-1.6-3.5-3.5 1.7.9-3.8-3.9-.7 3.1-2.3-2.8-2.7 3.9-.3-.5-3.8 3.3 2.1z" fill="#2f9e52"/></svg>';
+function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
+function scoreRow(m) {
+  const parts = [];
+  const t = tom(m);
+  if (t != null) parts.push(`<div class="score"><span class="ico">${t >= 60 ? TOMATO : SPLAT}</span><span><b>${t}%</b><small>Critics on Rotten Tomatoes</small></span></div>`);
+  if (m.imdb?.r) parts.push(`<div class="score"><span class="ico imdb">${icon('star')}</span><span><b>${m.imdb.r}<i>/10</i></b><small>IMDb${m.imdb.v ? `, ${fmt(m.imdb.v)} ratings` : ''}</small></span></div>`);
+  if (m.imdb?.mc != null) parts.push(`<div class="score"><span class="ico mc ${m.imdb.mc >= 61 ? 'hi' : m.imdb.mc >= 40 ? 'mid' : 'lo'}">${m.imdb.mc}</span><span><b>${m.imdb.mc}<i>/100</i></b><small>Metacritic</small></span></div>`);
+  if (!parts.length && m.va) parts.push(`<div class="score"><span class="ico imdb">${icon('star')}</span><span><b>${m.va.toFixed(1)}<i>/10</i></b><small>TMDB users</small></span></div>`);
+  return parts.length ? `<div class="scores">${parts.join('')}</div>` : '';
+}
 
 function servicesText(m) {
   const names = [...m.pv, ...m.fr].map((p) => S.provName.get(p)).filter(Boolean);
@@ -263,6 +277,7 @@ async function loadData() {
   S.data = await res.json();
   S.provName = new Map(S.data.providers.map((p) => [p.id, p.name]));
   S.sgLabel = new Map(S.data.subgenres.map((s) => [s.key, s.label]));
+  S.hasTom = S.data.movies.some((m) => m.imdb?.tom != null);
   S.tierLabel = new Map(S.data.tiers.map((t) => [t.key, t.label]));
   applyConfig();
 }
@@ -299,6 +314,8 @@ views.tonight = () => {
   const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
   const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 18);
   const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach).slice(0, 18);
+  const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a))).slice(0, 18);
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
   const firstRun = 'This shelf fills in after the next nightly data refresh.';
   return `
@@ -311,7 +328,7 @@ views.tonight = () => {
     <div class="hero-body">
       <span class="eyebrow">${icon(featured[0] ? 'star' : 'flame')}${featured[0] ? 'Featured tonight' : esc(trendLine(top).b)}</span>
       <h1>${esc(top.t)}</h1>
-      <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}<span>${esc(servicesText(top))}</span></div>
+      <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}${tomBadge(top)}<span>${esc(servicesText(top))}</span></div>
       ${top.ov ? `<p class="ov">${esc(top.ov)}</p>` : ''}
       <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
     </div>
@@ -323,7 +340,9 @@ views.tonight = () => {
   ${shelf('New and catching on', 'Out in the last four months and already getting attention.', newBuzz, firstRun)}
   ${shelf('New and under the radar', 'Recently released, but few people have found them yet.', quiet, firstRun)}
   ${shelf('Cult picks', 'Smaller audiences with loyal fans.', cult, firstRun)}
-  ${shelf('On Shudder now', 'The busiest titles on Shudder this week.', shudder, firstRun)}`;
+  ${shelf('On Shudder now', 'The busiest titles on Shudder this week.', shudder, firstRun)}
+  ${critics.length >= 6 ? shelf('Critics loved these', '90% or better with critics on Rotten Tomatoes.', critics, '') : ''}
+  ${divisive.length >= 6 ? shelf('Critics hated it, fans didn\'t', 'Rotten with critics, but well rated by viewers on IMDb.', divisive, '') : ''}`;
 };
 
 // Browse
@@ -336,11 +355,13 @@ function filtered() {
     (!f.mine || onMine(m)) &&
     (!f.provider || m.pv.includes(Number(f.provider)) || m.fr.includes(Number(f.provider))) &&
     (!f.hideSeen || !isSeen(m)) &&
-    (!f.decade || (m.y && Math.floor(m.y / 10) * 10 === Number(f.decade))));
+    (!f.decade || (m.y && Math.floor(m.y / 10) * 10 === Number(f.decade))) &&
+    (!f.tom || (tom(m) ?? -1) >= Number(f.tom)));
   const by = {
     buzz: (a, b) => b.buzz - a.buzz,
     reach: (a, b) => b.reach - a.reach,
     rating: (a, b) => (b.imdb?.r ?? b.va ?? 0) - (a.imdb?.r ?? a.va ?? 0),
+    critics: (a, b) => (tom(b) ?? -1) - (tom(a) ?? -1) || b.reach - a.reach,
     newest: (a, b) => (b.date || '').localeCompare(a.date || ''),
     title: (a, b) => a.t.localeCompare(b.t),
   }[f.sort];
@@ -358,13 +379,14 @@ views.browse = () => {
   const decades = [...new Set(S.movies.map((m) => m.y && Math.floor(m.y / 10) * 10).filter(Boolean))].sort((a, b) => b - a);
   const provs = S.data.providers.filter((p) => S.movies.some((m) => m.pv.includes(p.id) || m.fr.includes(p.id)));
   S.after = renderResults;
-  const any = f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine;
+  const any = f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine || f.tom;
   return `<div class="page-head"><h1>Browse</h1><p class="muted">Pick a few subgenres to narrow it down. Every filter you add has to match.</p></div>
   <div class="filters">
     <div class="toolbar">
       <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="Search titles or directors" value="${esc(f.q)}"></label>
-      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ['newest', 'Newest'], ['title', 'Title A to Z']].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z']].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
+      ${S.hasTom ? `<select id="f-tom" data-bind="tom" aria-label="Critics score"><option value="">Any critics score</option>${[[60, 'Fresh (60%+)'], [75, '75% and up'], [90, '90% and up']].map(([v, l]) => `<option value="${v}" ${String(f.tom) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     </div>
     <div class="filter-row"><span>Subgenre</span>${sgPicker('fsg', f.sg)}</div>
@@ -416,7 +438,7 @@ function renderPick(animate) {
   el.innerHTML = `<div class="pick-card ${animate ? 'spin' : ''}">
     ${wideArt(m)}<div class="shade"></div>
     <div class="body">
-      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}<span>${esc(servicesText(m))}</span></div>
+      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}${tomBadge(m)}<span>${esc(servicesText(m))}</span></div>
       <h2>${esc(m.t)}</h2>
       ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
       <div class="row">${m.sg.slice(0, 4).map(sgTag).join('')}</div>
@@ -959,9 +981,10 @@ function openDetail(id) {
       ${S.config.showPosters && m.poster ? `<img class="sheet-poster" src="https://image.tmdb.org/t/p/w342${m.poster}" alt="${esc(m.t)} poster">` : ''}
       <div class="stack" style="gap:8px;min-width:0">
       <h2>${esc(m.t)}</h2>
-      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}</div>
+      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
     </div></div>
     <div class="sheet-body">
+      ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
       ${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}
@@ -1156,7 +1179,7 @@ const actions = {
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
   sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.fam.fsg = familyOf(el.dataset.k).key; S.f.hideSeen = false; location.hash = '#/browse'; },
-  qsall() { const q = $('#qs')?.value.trim() || ''; Object.assign(S.f, { q, sg: new Set(), tier: new Set(), decade: '', provider: '', mine: false, limit: 60 }); location.hash = '#/browse'; },
+  qsall() { const q = $('#qs')?.value.trim() || ''; Object.assign(S.f, { q, sg: new Set(), tier: new Set(), decade: '', provider: '', mine: false, tom: '', limit: 60 }); location.hash = '#/browse'; },
   bctab(el) { S.bcTab = el.dataset.k; route(true, true); },
   ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
   async ck(el) {
@@ -1174,7 +1197,7 @@ const actions = {
   ftier(el) { toggle(S.f.tier, el.dataset.k); el.setAttribute('aria-pressed', S.f.tier.has(el.dataset.k)); renderResults(); },
   fmine(el) { S.f.mine = !S.f.mine; el.setAttribute('aria-pressed', S.f.mine); renderResults(); },
   fseen(el) { S.f.hideSeen = !S.f.hideSeen; el.setAttribute('aria-pressed', S.f.hideSeen); renderResults(); },
-  fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', limit: 60 }); route(true); },
+  fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', tom: '', limit: 60 }); route(true); },
   pmix(el) { S.p.mix = el.dataset.k; document.querySelectorAll('[data-act="pmix"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.p.mix)); },
   psg(el) { toggle(S.p.sg, el.dataset.k); redrawPicker('psg', S.p.sg); },
   pmine(el) { S.p.mine = !S.p.mine; el.setAttribute('aria-pressed', S.p.mine); },
