@@ -953,7 +953,7 @@ function openDetail(id) {
     + (m.rent ? `<div class="wtw-group"><span class="wtw-h">Rent or buy</span><div class="wtw-grid">${m.wl ? `<a class="wtw rent" href="${esc(m.wl)}" target="_blank" rel="noopener"><span class="ph">${icon('play')}</span><span class="nm"><b>See rental prices</b><small>Apple TV, Prime Video, Fandango and more</small></span>${icon('right', 'go')}</a>` : '<span class="muted">Available to rent or buy.</span>'}</div></div>` : '');
   const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
   const fxKeep = [...dlg.querySelectorAll('.fx-layer')];
-  dlg.innerHTML = `<div class="sheet">
+  dlg.innerHTML = `<div class="sheet"><span class="grab" aria-hidden="true"></span>
     <div class="sheet-hero">${wideArt(m)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
     <div class="sheet-title ${S.config.showPosters && m.poster ? 'with-poster' : ''}">
       ${S.config.showPosters && m.poster ? `<img class="sheet-poster" src="https://image.tmdb.org/t/p/w342${m.poster}" alt="${esc(m.t)} poster">` : ''}
@@ -1404,6 +1404,48 @@ document.addEventListener('click', async (e) => {
   try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.', 'x'); }
 });
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
+// Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
+// scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
+(() => {
+  const dlg = $('#detail'); if (!dlg) return;
+  let y0 = 0, x0 = 0, dy = 0, t0 = 0, mode = null, sheet = null;
+  const phone = () => window.matchMedia('(max-width: 700px)').matches;
+  dlg.addEventListener('touchstart', (e) => {
+    if (!phone() || e.touches.length !== 1 || e.target.closest('.skulls, input, select, textarea, .wtw-grid')) { mode = 'off'; return; }
+    sheet = dlg.querySelector('.sheet');
+    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; t0 = performance.now(); mode = null;
+  }, { passive: true });
+  dlg.addEventListener('touchmove', (e) => {
+    if (mode === 'off' || mode === 'scroll') return;
+    const d = e.touches[0].clientY - y0, dx = e.touches[0].clientX - x0;
+    if (mode === null) {
+      if (Math.abs(d) < 6 && Math.abs(dx) < 6) return;
+      mode = d > 0 && Math.abs(d) > Math.abs(dx) && (sheet?.scrollTop || 0) <= 0 ? 'drag' : 'scroll';
+      if (mode !== 'drag') return;
+      dlg.style.transition = 'none';
+    }
+    e.preventDefault();
+    dy = Math.max(0, d);
+    dlg.style.transform = `translateY(${dy}px)`;
+    dlg.style.setProperty('--drag', String(Math.min(1, dy / 400)));
+  }, { passive: false });
+  const end = () => {
+    if (mode !== 'drag') { mode = null; return; }
+    mode = null;
+    const v = dy / Math.max(1, performance.now() - t0); // px per ms
+    dlg.style.transition = 'transform .28s cubic-bezier(.2,.8,.2,1)';
+    if (dy > 110 || v > 0.6) {
+      dlg.style.transform = 'translateY(100%)';
+      setTimeout(() => { dlg.close(); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); }, 260);
+    } else {
+      dlg.style.transform = '';
+      dlg.style.removeProperty('--drag');
+      setTimeout(() => { dlg.style.transition = ''; }, 300);
+    }
+  };
+  dlg.addEventListener('touchend', end);
+  dlg.addEventListener('touchcancel', end);
+})();
 document.addEventListener('click', (e) => { if (!e.target.closest('.card.qa-on')) document.querySelectorAll('.card.qa-on').forEach((x) => { x.classList.remove('qa-on', 'rating'); x.querySelector('.qa-rate').hidden = true; x.querySelector('.qa-plus')?.setAttribute('aria-expanded', 'false'); }); }, true);
 
 document.addEventListener('input', (e) => {

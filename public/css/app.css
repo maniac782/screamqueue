@@ -910,3 +910,11 @@ html, body { overscroll-behavior-y: none; }
   .qa { bottom: calc(100% - 150cqw + 36px); right: 3px; }
   .qa-b { width: 32px; height: 32px; }
 }
+
+/* phones: grab handle on the details sheet (drag it down to close) */
+.sheet .grab { display: none; }
+@media (max-width: 700px) {
+  .sheet .grab { display: block; position: absolute; z-index: 6; top: 8px; left: 50%; width: 40px; height: 5px; margin-left: -20px; border-radius: 3px; background: rgba(255,255,255,.7); box-shadow: 0 1px 6px rgba(0,0,0,.5); }
+  .sheet { position: relative; }
+  dialog.detail::backdrop { opacity: calc(1 - var(--drag, 0)); }
+}
