@@ -1102,12 +1102,15 @@ const actions = {
     if (st?.status === 'queue') {
       if (st.wasSeen) await setStatus(el.dataset.id, { status: 'seen' }); else { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); }
       toast('Removed from your queue', 'x', undoTo(el.dataset.id, prev));
+      await sendOff(el.dataset.id, 'remove');
     } else {
       if (st?.status === 'seen') await unstamp(el.dataset.id);
       markJust(el.dataset.id);
       await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
-      burst(null, 'pop', r); flyTo(r, QUEUE_TARGETS, 'bookmark');
+      const leaving = await willVanish(el.dataset.id);
+      burst(null, 'pop', r); if (!leaving) flyTo(r, QUEUE_TARGETS, 'bookmark');
       toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark', undoTo(el.dataset.id, prev));
+      if (leaving) await sendOff(el.dataset.id, 'queue');
     }
     await refreshAll();
     if (!st || st.status !== 'queue') ping($('#detail').open ? $('#detail [data-act="queue"]') : null);
@@ -1120,14 +1123,17 @@ const actions = {
       await unstamp(el.dataset.id);
       S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id);
       toast('Removed from your Body Count', 'x', undoTo(el.dataset.id, prev));
+      await sendOff(el.dataset.id, 'remove');
       await refreshAll();
       return;
     }
     const r = rectOf(el);
     markJust(el.dataset.id);
     await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today() });
-    burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull');
+    const leaving = await willVanish(el.dataset.id);
+    burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull');
     toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev));
+    if (leaving) await sendOff(el.dataset.id, 'seen');
     await refreshAll();
     const sk = $('#detail').open && $('#detail .skulls'); if (sk && canFx()) sk.animate([{ opacity: 0, transform: 'translateY(8px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.4,.64,1)' });
   },
@@ -1140,9 +1146,11 @@ const actions = {
     const r = !already ? rectOf(el.closest('.card') || el.closest('.skulls') || el) : null;
     if (!already) markJust(el.dataset.id);
     await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
-    if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull'); }
+    const leaving = !already && await willVanish(el.dataset.id);
+    if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull'); }
     if (el.closest('.rate-sheet')) closeRateSheet();
     if (el.closest('.qa-rate, .rate-sheet') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
+    if (leaving) await sendOff(el.dataset.id, 'seen');
     await refreshAll();
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
@@ -1259,8 +1267,82 @@ function authError(e) {
 async function refreshAll() {
   refreshDetail();
   if (location.hash.startsWith('#/night/')) return;
-  if (location.hash.startsWith('#/bodycount') && $('#bc-results')) { renderBodyList(); renderChrome(); return; }
-  await route(true, true);
+  await flip(async () => {
+    if (location.hash.startsWith('#/bodycount') && $('#bc-results')) { renderBodyList(); renderChrome(); return; }
+    await route(true, true);
+  });
+}
+
+// ---------- cards leaving a screen ----------
+// Remember where every card sits, re-render, then slide the survivors from their old spots (FLIP),
+// so a row closes up smoothly instead of jumping.
+function cardKeys() {
+  const out = new Map();
+  document.querySelectorAll('#main .track, #main .grid, #main #bc-results').forEach((box, bi) => {
+    box.querySelectorAll('.card[data-id]').forEach((c) => { const r = c.getBoundingClientRect(); if (r.bottom > -200 && r.top < innerHeight + 200) out.set(bi + ':' + c.dataset.id, { c, r }); });
+  });
+  return out;
+}
+async function flip(fn) {
+  if (!canFx()) return fn();
+  const before = cardKeys();
+  await fn();
+  const after = cardKeys();
+  for (const [k, { c, r }] of after) {
+    const b = before.get(k); if (!b) continue;
+    const dx = b.r.left - r.left, dy = b.r.top - r.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    c.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.2,.8,.2,1)' });
+  }
+}
+// After a status change, will this movie's card drop off the current screen?
+async function willVanish(id) {
+  id = String(id);
+  const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
+  if (!document.querySelector(`#main .card[data-id="${id}"]`)) return false;
+  if (name === 'browse') return !filtered().slice(0, S.f.limit).some((m) => String(m.id) === id);
+  if (name === 'bodycount' || name === 'trophies') return !everSeen({ id });
+  if (!name || name === 'tonight' || name === 'queue') {
+    const keep = S.after; const n = shelfN;
+    const html = await views[name || 'tonight'](arg);
+    S.after = keep; shelfN = n;
+    return !html.includes(`<div class="card" data-id="${id}">`);
+  }
+  return false;
+}
+// Send a card off screen: 'seen' stamps it and flies it to Body Count, 'queue' flies it to My queue,
+// 'remove' just shrinks it away. Returns true if the card was animated out.
+async function sendOff(id, kind) {
+  if (!canFx() || $('#detail')?.open || !(await willVanish(id))) return false;
+  const cards = [...document.querySelectorAll(`#main .card[data-id="${id}"]`)];
+  const m = S.byId.get(String(id));
+  cards.forEach((c) => { c.classList.remove('qa-on', 'rating'); c.querySelector('.qa-rate')?.setAttribute('hidden', ''); c.classList.add('leaving'); });
+  if (kind === 'seen' && m) {
+    for (const c of cards) { const p = c.querySelector('.poster'); if (p) p.outerHTML = poster(m); }
+    await new Promise((r) => setTimeout(r, 850));
+  }
+  const target = kind === 'remove' ? null : visible(kind === 'seen' ? COUNT_TARGETS : QUEUE_TARGETS);
+  const anims = [];
+  for (const c of cards) {
+    const p = c.querySelector('.poster'); if (!p) continue;
+    const r = p.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) { c.style.opacity = '0'; continue; }
+    if (!target) { anims.push(c.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.8)' }], { duration: 320, easing: 'ease-in', fill: 'forwards' }).finished); continue; }
+    const t = target.getBoundingClientRect();
+    const ghost = p.cloneNode(true); ghost.classList.add('ghost-fly');
+    Object.assign(ghost.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    document.body.append(ghost); c.style.opacity = '0';
+    const dx = t.left + t.width / 2 - (r.left + r.width / 2), dy = t.top + t.height / 2 - (r.top + r.height / 2);
+    const a = ghost.animate([
+      { transform: 'none', opacity: 1 },
+      { transform: `translate(${dx * 0.35}px, ${dy * 0.35 - 60}px) scale(.62) rotate(-6deg)`, opacity: 1, offset: 0.45 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.08) rotate(8deg)`, opacity: 0.3 },
+    ], { duration: 760, easing: 'cubic-bezier(.5,0,.25,1)', fill: 'forwards' });
+    a.finished.then(() => { ghost.remove(); ping(target); }).catch(() => ghost.remove());
+    anims.push(new Promise((res) => setTimeout(res, 380)));
+  }
+  await Promise.all(anims);
+  return true;
 }
 
 document.addEventListener('click', async (e) => {
@@ -1436,7 +1518,7 @@ async function route(keepScroll, quiet) {
   const after = S.after; S.after = null;
   const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
   const swap = () => {
-    $('#main').innerHTML = html; after?.();
+    $('#main').classList.toggle('quiet', !!quiet); $('#main').innerHTML = html; after?.();
     if (rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
