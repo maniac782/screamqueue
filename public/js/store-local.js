@@ -47,7 +47,7 @@ const DEMO_PEOPLE = {
 };
 function social() {
   const m = load();
-  m.social ||= { handle: '', privacy: { profile: 'friends', reviews: 'public' }, friends: ['pal1', 'pal2'], incoming: ['pal3'], outgoing: [] };
+  m.social ||= { handle: (m.profile?.name || 'fan').toLowerCase().replace(/[^a-z0-9_]+/g, '').slice(0, 16) || 'fan', privacy: { profile: 'friends', reviews: 'public' }, friends: ['pal1', 'pal2'], incoming: ['pal3'], outgoing: [] };
   return m.social;
 }
 function reviews() {

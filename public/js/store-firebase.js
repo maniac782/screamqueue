@@ -94,14 +94,29 @@ export const store = {
   me() { return current; },
   async getSocial() {
     const snap = await F.getDoc(F.doc(db, 'profiles', uid())).catch(() => null);
-    const d = snap?.data();
-    // Everyone gets a profile card on first visit so friends can find them by name, even before picking a username.
-    if (snap && !snap.exists()) {
-      await F.setDoc(F.doc(db, 'profiles', uid()), { name: current?.name || '', nameLower: (current?.name || '').toLowerCase(), handle: '', privacy: { profile: 'friends', reviews: 'public' }, at: Date.now() }).catch((e) => console.warn('profile card', e));
+    let d = snap?.data();
+    // Everyone gets a profile card on first visit so friends can find them, with a username taken from
+    // their display name (dani, dani2, ...) until they pick their own.
+    if (snap && (!snap.exists() || !d?.handle)) {
+      const nm = d?.name || current?.name || '';
+      const handle = await this.claimDefaultHandle(nm).catch(() => '');
+      d = { name: nm, nameLower: nm.toLowerCase(), handle, privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) }, at: Date.now() };
+      await F.setDoc(F.doc(db, 'profiles', uid()), d).catch((e) => console.warn('profile card', e));
     } else if (d && d.name !== current?.name && current?.name) {
       F.updateDoc(F.doc(db, 'profiles', uid()), { name: current.name, nameLower: current.name.toLowerCase() }).catch(() => {});
     }
     return { handle: d?.handle || '', privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) } };
+  },
+  async claimDefaultHandle(name) {
+    let base = String(name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9_]+/g, '').slice(0, 16);
+    if (base.length < 3) base = (base + 'fan').slice(0, 16);
+    for (let i = 0; i < 12; i++) {
+      const h = i === 0 ? base : `${base}${i < 9 ? i + 1 : Math.floor(Math.random() * 9000 + 1000)}`;
+      const ref = F.doc(db, 'usernames', h);
+      const ok = await F.runTransaction(db, async (tx) => { const s = await tx.get(ref); if (s.exists()) return s.data().uid === uid(); tx.set(ref, { uid: uid() }); return true; }).catch(() => false);
+      if (ok) return h;
+    }
+    return '';
   },
   async saveSocial({ handle, privacy, name }, reviewedIds = []) {
     const prev = await this.getSocial();
