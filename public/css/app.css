@@ -1177,3 +1177,5 @@ dialog.formdlg[open] { animation: sheetIn .3s var(--ease); }
 @media (max-width: 640px) { .adm-row { grid-template-columns: auto 1fr; } .adm-acts { grid-column: 1 / -1; justify-content: flex-start; } }
 .adm-head { display: grid; gap: 18px; }
 .adm-head .adm-stats, .adm-head .adm-bar { margin: 0; }
+.pick-why { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 700; color: #ff6b7d; }
+.pick-why .ic { width: 15px; height: 15px; }

@@ -493,7 +493,7 @@ function recommend() {
     const norm = Math.sqrt(T.n);
     for (const m of S.movies) {
       const st = status(m.id);
-      if (st || theaterStatus(m) === 'soon') continue; // seen, queued, or not out yet
+      if ((st && st.status !== 'queue') || st?.wasSeen || theaterStatus(m) === 'soon') continue; // seen, or not out yet (queued ones are scored for Pick for Me)
       const reasons = [];
       const recV = (T.rec.get(String(m.id)) || 0) * 1.4;
       if (recV) reasons.push([recV, `Because you liked ${T.recWhy.get(String(m.id)).m.t}`]);
@@ -517,10 +517,11 @@ function recommend() {
       const score = recV + sgV + dirV + castV + colV + decV + qV + svcV + m.reach / 1000;
       if (score <= 0.4) continue;
       reasons.sort((a, b) => b[0] - a[0]);
-      out.list.push({ m, score, why: reasons[0]?.[1] || 'Matches your taste' });
+      out.list.push({ m, score, why: reasons[0]?.[1] || 'Matches your taste', queued: !!st });
     }
     out.list.sort((a, b) => b.score - a.score);
     out.list.forEach((x) => out.by.set(String(x.m.id), x));
+    out.list = out.list.filter((x) => !x.queued); // shelves show new finds; your queue is already yours
   }
   recMemo = { key, out };
   return out;
@@ -672,6 +673,7 @@ views.browse = () => {
 
 // Pick for me
 const MOODS = [
+  ['taste', 'My taste', 'Based on your Body Count'],
   ['crowd', 'Crowd pleaser', 'Popular and well liked'],
   ['different', 'Something different', 'Known, but off the main path'],
   ['deep', 'Deep cut', 'Cult and obscure picks'],
@@ -679,8 +681,13 @@ const MOODS = [
 ];
 function pickOne() {
   const p = S.p;
-  const tiers = { crowd: ['favorite', 'known', 'fresh'], different: ['known', 'cult', 'fresh'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep', 'fresh'] }[p.mix];
-  let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || p.mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
+  const taste = tasteReady() ? recommend() : null;
+  const mix = p.mix === 'taste' && !taste ? 'crowd' : p.mix;
+  const tiers = { taste: ['favorite', 'known', 'cult', 'deep', 'fresh'], crowd: ['favorite', 'known', 'fresh'], different: ['known', 'cult', 'fresh'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep', 'fresh'] }[mix];
+  // "My taste" draws from your best-matching movies only (top 80 that fit the filters, or every queued one).
+  const top = mix === 'taste' ? new Set(taste.by.size ? [...taste.by.values()].filter((x) => (!p.sg.size || x.m.sg.some((k) => p.sg.has(k))) && (!p.mine || onMine(x.m))).sort((a, b) => b.score - a.score).slice(0, 80).map((x) => String(x.m.id)) : []) : null;
+  let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
+    (!top || top.has(String(m.id)) || (p.queueOnly && status(m.id)?.status === 'queue')) &&
     (!p.sg.size || m.sg.some((k) => p.sg.has(k))) &&
     (!p.mine || onMine(m)) &&
     (!p.queueOnly || status(m.id)?.status === 'queue'));
@@ -688,7 +695,10 @@ function pickOne() {
   if (fresh.length) pool = fresh;
   if (!pool.length) return null;
   const weight = (m) => {
-    let w = { crowd: 10 + m.buzz + m.reach, different: 20 + m.buzz + (m.va || 6) * 6, deep: 30 + (100 - m.reach) + m.buzz / 2, any: 20 + m.buzz }[p.mix];
+    const ts = taste?.by.get(String(m.id))?.score;
+    let w = { taste: 100 * Math.max(0.05, ts ?? 0) ** 2, crowd: 10 + m.buzz + m.reach, different: 20 + m.buzz + (m.va || 6) * 6, deep: 30 + (100 - m.reach) + m.buzz / 2, any: 20 + m.buzz }[mix];
+    // Every mood leans toward your taste once there's enough to go on: good matches come up more, poor ones less.
+    if (taste && mix !== 'taste') w *= ts == null ? 0.5 : Math.min(3, Math.max(0.25, 0.6 + ts * 0.6));
     if (status(m.id)?.status === 'queue') w *= 1.4;
     return Math.max(1, w);
   };
@@ -697,6 +707,7 @@ function pickOne() {
   for (const m of pool) { r -= weight(m); if (r <= 0) return m; }
   return pool[pool.length - 1];
 }
+const tasteReady = () => !!S.user && recommend().n >= MIN_FOR_PICKS;
 function renderPick(animate) {
   const el = $('#pick-result'); if (!el) return;
   const m = S.p.current && S.byId.get(String(S.p.current));
@@ -709,6 +720,7 @@ function renderPick(animate) {
     <div class="body">
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}${tomBadge(m)}<span>${esc(servicesText(m))}</span></div>
       <h2>${esc(m.t)}</h2>
+      ${(() => { const why = tasteReady() && recommend().by.get(String(m.id))?.why; return why ? `<p class="pick-why">${icon('skull')}${esc(why)}</p>` : ''; })()}
       ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
       <div class="row">${m.sg.slice(0, 4).map(sgTag).join('')}</div>
       <div class="row"><button class="btn primary" data-act="repick">${icon('dice')}Pick another</button>${queueBtn(m)}<button class="btn" data-act="open" data-id="${m.id}">Details</button></div>
@@ -716,11 +728,16 @@ function renderPick(animate) {
 }
 views.pick = () => {
   const p = S.p;
+  const ready = tasteReady();
+  if (!p.mixTouched) p.mix = ready ? 'taste' : 'crowd';
+  if (p.mix === 'taste' && !ready) p.mix = 'crowd';
   S.after = () => renderPick(false);
-  return `<div class="page-head"><h1>Pick for Me</h1><p class="muted">Set the mood and we'll pull one off the shelf. Movies you've seen are skipped.</p></div>
+  return `<div class="page-head"><h1>Pick for Me</h1><p class="muted">Set the mood and we'll pull one off the shelf. Movies you've seen are skipped${ready ? ', and picks lean toward your taste' : ''}.</p></div>
   <div class="pick-layout">
     <div class="panel filters">
-      <div class="stack" style="gap:10px"><h3>Mood</h3><div class="seg">${MOODS.map(([k, l, d]) => `<button data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>
+      <div class="stack" style="gap:10px"><h3>Mood</h3><div class="seg">${MOODS.map(([k, l, d]) => k === 'taste' && !ready
+        ? `<button data-act="pmix" data-k="taste" aria-pressed="false" disabled title="${S.user ? `Mark ${MIN_FOR_PICKS - recommend().n} more seen movie${MIN_FOR_PICKS - recommend().n === 1 ? '' : 's'} to unlock this` : 'Sign in and mark a few movies you\'ve seen to unlock this'}"><b>${l}</b><span>${S.user ? `Mark ${MIN_FOR_PICKS - recommend().n} more seen to unlock` : 'Sign in to unlock'}</span></button>`
+        : `<button data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div>${ready && p.mix !== 'taste' ? '<p class="fine" style="margin:0">Every mood still leans toward what you like.</p>' : ''}</div>
       <div class="stack" style="gap:10px"><h3>Any of these subgenres</h3>${sgPicker('psg', p.sg)}</div>
       <div class="stack" style="gap:10px"><h3>Limits</h3><div class="chips">
         ${chip('pmine', '', 'On my services', p.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
@@ -1983,7 +2000,7 @@ const actions = {
   fmine(el) { S.f.mine = !S.f.mine; el.setAttribute('aria-pressed', S.f.mine); renderResults(); },
   fseen(el) { S.f.hideSeen = !S.f.hideSeen; el.setAttribute('aria-pressed', S.f.hideSeen); renderResults(); },
   fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', tom: '', limit: 60 }); route(true); },
-  pmix(el) { S.p.mix = el.dataset.k; document.querySelectorAll('[data-act="pmix"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.p.mix)); },
+  pmix(el) { S.p.mix = el.dataset.k; S.p.mixTouched = true; document.querySelectorAll('[data-act="pmix"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.p.mix)); },
   psg(el) { toggle(S.p.sg, el.dataset.k); redrawPicker('psg', S.p.sg); },
   pmine(el) { S.p.mine = !S.p.mine; el.setAttribute('aria-pressed', S.p.mine); },
   pqueue(el) { S.p.queueOnly = !S.p.queueOnly; el.setAttribute('aria-pressed', S.p.queueOnly); },
