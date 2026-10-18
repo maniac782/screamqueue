@@ -768,10 +768,14 @@ const shortDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', 
 // A seen movie as a poster card; works even when the movie has left the nightly list.
 function watchedCard(x) {
   const m = x.m || { id: x.id, t: x.t, y: x.y, sg: x.sg, rt: x.rt, tier: x.tier || 'known', poster: x.st.poster, flags: [], pv: [], fr: [] };
-  return `<button class="card watched" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(x.t)}, seen">
+  const name = `${x.t}${x.y ? ` (${x.y})` : ''}`;
+  return `<div class="card watched" data-id="${x.id}">
+    <button class="card-open" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(name)}, seen">
     ${poster(m, { noBadges: true })}
     <span class="meta"><span class="mt">${esc(x.t)}${x.y ? ` <span class="yr">(${x.y})</span>` : ''}</span><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}</span></span>
-  </button>`;
+  </button>
+    ${quickBar(m, name)}
+  </div>`;
 }
 function renderBodyList() {
   const el = $('#bc-results'); if (!el) return;
