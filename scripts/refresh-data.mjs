@@ -306,14 +306,19 @@ async function main() {
   const vids = await deadMeatVideos();
   let kcMatched = 0;
   if (vids) {
-    const byKey = new Map();
-    for (const v of vids) {
-      const m = v.title.match(/^(.*?)\s*\((\d{4})\)\s*kill count/i); if (!m) continue;
-      const k = normTitle(m[1]);
-      for (const y of [+m[2], +m[2] - 1, +m[2] + 1]) if (!byKey.has(`${k}|${y}`)) byKey.set(`${k}|${y}`, v.id);
+    // Exact title + year first; then allow the year to be off by one, but never reuse a video already matched.
+    const kv = vids.map((v) => { const m = v.title.match(/^(.*?)\s*\((\d{4})\)\s*(?:kill count|body count)/i); return m && { id: v.id, k: normTitle(m[1]), y: +m[2], title: v.title }; }).filter(Boolean);
+    const exact = new Map(kv.map((v) => [`${v.k}|${v.y}`, v.id]));
+    const used = new Set();
+    for (const r of rows) { const id = r.y && exact.get(`${normTitle(r.t)}|${r.y}`); if (id) { r.kc = id; used.add(id); kcMatched++; } }
+    for (const r of rows) {
+      if (r.kc || !r.y) continue;
+      const v = kv.find((x) => x.k === normTitle(r.t) && Math.abs(x.y - r.y) === 1 && !used.has(x.id));
+      if (v) { r.kc = v.id; used.add(v.id); kcMatched++; }
     }
-    for (const r of rows) { const id = r.y && byKey.get(`${normTitle(r.t)}|${r.y}`); if (id) { r.kc = id; kcMatched++; } }
-    console.log(`Kill Count: ${vids.length} Dead Meat videos, ${kcMatched} matched to movies.`);
+    const unmatched = kv.filter((v) => !used.has(v.id)).map((v) => v.title);
+    await writeFile(resolve(ROOT, 'public/data/killcount-unmatched.json'), JSON.stringify(unmatched, null, 0));
+    console.log(`Kill Count: ${vids.length} Dead Meat videos, ${kv.length} Kill Counts, ${kcMatched} matched to movies.`);
   } else {
     for (const r of rows) { const prev = prevById.get(r.id)?.kc; if (prev) { r.kc = prev; kcMatched++; } }
   }
