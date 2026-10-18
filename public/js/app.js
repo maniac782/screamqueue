@@ -349,9 +349,9 @@ function filtered() {
 function renderResults() {
   const list = filtered();
   const el = $('#results'); if (!el) return;
-  el.innerHTML = `<p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>
+  setHTML(el, `<p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>
     ${list.length ? `<div class="grid">${list.slice(0, S.f.limit).map(card).join('')}</div>` : `<div class="empty">${icon('search')}<span>Nothing matches all of those filters. Try removing a subgenre.</span></div>`}
-    ${list.length > S.f.limit ? '<div class="row" style="justify-content:center"><button class="btn" data-act="more">Show more</button></div>' : ''}`;
+    ${list.length > S.f.limit ? '<div class="row" style="justify-content:center"><button class="btn" data-act="more">Show more</button></div>' : ''}`);
 }
 views.browse = () => {
   const f = S.f;
@@ -807,7 +807,7 @@ function renderBodyList() {
   } else {
     html = `<div class="grid">${seen.map(watchedCard).join('')}</div>`;
   }
-  el.innerHTML = html;
+  setHTML(el, html);
 }
 
 views.bodycount = () => {
@@ -1273,6 +1273,20 @@ async function refreshAll() {
   });
 }
 
+// Re-render a region but keep any card (or hero) whose markup didn't change, so its poster image
+// isn't torn down and reloaded. Swapping everything made phones flash after every tap.
+let reusePool = null; // during a full re-render, old cards from the whole page so nested regions (Browse results) can reuse them too
+function collectReusable(root, into = new Map()) {
+  root.querySelectorAll('.card[data-id], .hero').forEach((n) => { const k = n.outerHTML; if (!into.has(k)) into.set(k, []); into.get(k).push(n); });
+  return into;
+}
+function setHTML(host, html) {
+  const old = reusePool || collectReusable(host);
+  const tpl = document.createElement('template'); tpl.innerHTML = html;
+  if (old.size) [...tpl.content.querySelectorAll('.card[data-id], .hero')].forEach((n) => { if (!n.isConnected && !tpl.content.contains(n)) return; const o = old.get(n.outerHTML)?.shift(); if (o) n.replaceWith(o); });
+  host.replaceChildren(tpl.content);
+}
+
 // ---------- cards leaving a screen ----------
 // Remember where every card sits, re-render, then slide the survivors from their old spots (FLIP),
 // so a row closes up smoothly instead of jumping.
@@ -1518,7 +1532,9 @@ async function route(keepScroll, quiet) {
   const after = S.after; S.after = null;
   const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
   const swap = () => {
-    $('#main').classList.toggle('quiet', !!quiet); $('#main').innerHTML = html; after?.();
+    $('#main').classList.toggle('quiet', !!quiet);
+    if (quiet) { reusePool = collectReusable($('#main')); setHTML($('#main'), html); } else $('#main').innerHTML = html;
+    try { after?.(); } finally { reusePool = null; }
     if (rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
