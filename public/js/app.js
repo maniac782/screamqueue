@@ -956,7 +956,9 @@ views.person = async (id) => {
   const seen = credits.filter((x) => everSeen(x.m)).length;
   const directed = credits.filter((x) => x.role === 'Director').length;
   const known = [...credits].sort((a, b) => b.m.reach - a.m.reach).slice(0, 3).map((x) => x.m.t);
-  return `<div class="person-head">
+  const back = S.trail?.[S.trail.length - 1];
+  const backLabel = back ? (back.movie ? S.byId.get(String(back.movie))?.t : null) || ({ '#/': 'Tonight', '#/browse': 'Browse', '#/queue': 'My Queue', '#/bodycount': 'Body Count', '#/pick': 'Pick for Me' }[back.hash.split('?')[0]] || (back.hash.startsWith('#/person/') ? 'previous person' : 'previous page')) : null;
+  return `${back ? `<button class="back-link" data-act="goback">${icon('left')}Back to ${esc(backLabel)}</button>` : ''}<div class="person-head">
       <span class="person-face">${face(p.p, p.n, 'w300')}</span>
       <div class="stack" style="gap:6px;min-width:0"><h1>${esc(p.n)}</h1>
         <p class="muted">${credits.length} horror movie${credits.length === 1 ? '' : 's'} on ${esc(SITE_NAME)}${directed ? `, ${directed} as director` : ''}.${S.user && credits.length ? ` You've seen ${seen} of them.` : ''}</p>
@@ -1177,7 +1179,15 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
-  person(el) { const d = $('#detail'); if (d.open) d.close(); location.hash = `#/person/${el.dataset.k}`; },
+  person(el) {
+    // Remember where we came from (page, scroll spot, and the movie that was open) so Back can return there.
+    const d = $('#detail');
+    const movie = d.open ? d.dataset.id : null;
+    S.trail = [...(S.trail || []), { hash: location.hash || '#/', y: window.scrollY, movie, rails: [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) }].slice(-20);
+    if (d.open) d.close();
+    location.hash = `#/person/${el.dataset.k}`;
+  },
+  goback() { history.back(); },
   closeplayer: () => $('#player').close(),
   scroll(el) {
     const t = document.getElementById(el.dataset.target); if (!t) return;
@@ -1725,6 +1735,10 @@ async function route(keepScroll, quiet) {
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
+  if (S.restore) {
+    const r = S.restore; S.restore = null;
+    requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
+  }
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast' }[name] || '') : ''}`;
 }
 
@@ -1744,7 +1758,13 @@ async function boot() {
     else await route(!first, !first);
     first = false;
   });
-  window.addEventListener('hashchange', () => route());
+  window.addEventListener('hashchange', () => {
+    // Coming back from a person page (our Back button, the browser's, or a swipe): restore the spot and reopen the movie.
+    const top = S.trail?.[S.trail.length - 1];
+    if (top && (location.hash || '#/') === top.hash) { S.trail.pop(); S.restore = top; }
+    else if (!location.hash.startsWith('#/person/')) S.trail = [];
+    route();
+  });
   window.addEventListener('keydown', (e) => { if (e.key === '/' && !/input|textarea|select/i.test(document.activeElement?.tagName || '')) { const q = $('#f-q'); if (q) { e.preventDefault(); q.focus(); } } });
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !globalThis.SQ_STORE) {
     navigator.serviceWorker.register('sw.js?v=' + VERSION).then((r) => r.update()).catch(() => {});

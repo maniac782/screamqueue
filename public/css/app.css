@@ -978,3 +978,8 @@ button.person img, button.person .ini { transition: box-shadow .15s; }
 
 .qs-face img, .qs-face .ini { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; display: grid; place-items: center; font-weight: 800; color: #fff; font-size: .9rem; }
 .qs-face .ini { background: linear-gradient(140deg, hsl(var(--ah) 55% 45%), hsl(calc(var(--ah) + 40) 55% 28%)); }
+
+.back-link { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 18px; padding: 6px 12px 6px 8px; border-radius: 999px; font-weight: 700; font-size: .92rem; color: var(--muted); background: var(--raised); border: 1px solid var(--line); }
+.back-link:hover { color: var(--fg); }
+.back-link:focus-visible { outline: 2px solid var(--accent); }
+.back-link .ic { width: 18px; height: 18px; }
