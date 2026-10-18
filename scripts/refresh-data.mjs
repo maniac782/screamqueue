@@ -10,7 +10,7 @@
 //   REGION           (default US)
 //   MAX_MOVIES       (default 5000)
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBGENRES, TIERS, GENRE, tagSubgenres, scoreMovies, usCertification } from './lib.mjs';
@@ -213,6 +213,7 @@ async function main() {
       cert: usCertification(d.release_dates, REGION),
       dir: (d.credits?.crew || []).filter((c) => c.job === 'Director').map((c) => c.name).slice(0, 2),
       cast: (d.credits?.cast || []).slice(0, 4).map((c) => c.name),
+      castFull: (d.credits?.cast || []).slice(0, 12).map((c) => ({ n: c.name, c: c.character || '', p: c.profile_path || null })),
       g: d.genres.map((g) => g.name),
       sg: tagSubgenres(kwNames, genreIds),
       pv: (wp.flatrate || []).map((p) => p.provider_id),
@@ -234,6 +235,14 @@ async function main() {
       imdb,
     });
   }
+
+  // Full cast lists (with photos) go in 100 small shard files, loaded only when someone opens a movie.
+  const CAST_DIR = resolve(ROOT, 'public/data/cast');
+  const shards = Array.from({ length: 100 }, () => ({}));
+  for (const r of rows) { if (r.castFull.length) shards[r.id % 100][r.id] = r.castFull; delete r.castFull; }
+  await rm(CAST_DIR, { recursive: true, force: true });
+  await mkdir(CAST_DIR, { recursive: true });
+  await Promise.all(shards.map((sh, i) => writeFile(resolve(CAST_DIR, `${i}.json`), JSON.stringify(sh))));
 
   const scored = scoreMovies(rows).map(({ pop, votes, imdbVotes, traktWatchers, traktPlays, ...m }) => ({
     ...m,

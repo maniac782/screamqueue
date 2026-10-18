@@ -940,3 +940,28 @@ html, body { overscroll-behavior-y: none; }
 
 .btn.trailer .ic { color: #ff3b54; }
 .btn.trailer.glass .ic { color: #fff; }
+
+/* trailer pop-up */
+dialog.player { padding: 0; border: 0; background: transparent; width: min(960px, 94vw); max-width: 94vw; overflow: visible; color: #fff; }
+dialog.player::backdrop { background: rgba(0, 0, 0, .82); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+dialog.player[open] { animation: sheetIn .3s var(--ease); }
+.player-box { display: grid; gap: 10px; }
+.player-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.player-head b { font-family: var(--font-display); font-size: 1.1rem; }
+.player-head .faint { color: rgba(255,255,255,.6); }
+.player-head .icon-btn { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); color: #fff; }
+.frame { position: relative; aspect-ratio: 16 / 9; border-radius: 14px; overflow: hidden; background: #000; box-shadow: 0 30px 80px -20px rgba(0,0,0,.9); }
+.frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.player-yt { justify-self: end; display: inline-flex; align-items: center; gap: 6px; color: rgba(255,255,255,.75); font-size: .85rem; text-decoration: none; }
+.player-yt:hover { color: #fff; }
+.player-yt .ic { width: 14px; height: 14px; }
+@media (max-width: 700px) { dialog.player { width: 100vw; max-width: 100vw; } .player-box { padding: 0 10px; } .frame { border-radius: 10px; } }
+
+/* cast row in movie details */
+.cast-row { display: grid; grid-auto-flow: column; grid-auto-columns: 92px; gap: 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; scroll-snap-type: x proximity; }
+.cast-row::-webkit-scrollbar { display: none; }
+.person { display: grid; justify-items: center; gap: 3px; text-align: center; scroll-snap-align: start; min-width: 0; }
+.person img, .person .ini { width: 76px; height: 76px; border-radius: 50%; object-fit: cover; background: var(--raised); box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 4px; }
+.person .ini { display: grid; place-items: center; font-weight: 800; font-size: 1.3rem; color: #fff; background: linear-gradient(140deg, hsl(var(--ah) 55% 45%), hsl(calc(var(--ah) + 40) 55% 28%)); }
+.person b { font-size: .8rem; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.person small { font-size: .72rem; line-height: 1.2; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

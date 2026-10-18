@@ -33,13 +33,13 @@ jobs:
       - name: Commit updated data
         id: commit
         run: |
-          if git diff --quiet -- public/data/movies.json; then
+          if [ -z "$(git status --porcelain -- public/data)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/data/movies.json
+          git add -A public/data
           git commit -m "Nightly movie data refresh"
           git push
           echo "changed=true" >> "$GITHUB_OUTPUT"

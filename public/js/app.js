@@ -111,7 +111,39 @@ const TOMATO = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path
 const SPLAT = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2l1.6 3.4 3.4-2-.6 3.8 3.9.4-2.9 2.6 3 2.4-3.9.6.8 3.8-3.5-1.8-1.8 3.4-1.6-3.5-3.5 1.7.9-3.8-3.9-.7 3.1-2.3-2.8-2.7 3.9-.3-.5-3.8 3.3 2.1z" fill="#2f9e52"/></svg>';
 // Trailer on YouTube (opens the YouTube app on phones). Falls back to a YouTube search when TMDB has none.
 function trailerUrl(m) { return m.yt ? `https://www.youtube.com/watch?v=${encodeURIComponent(m.yt)}` : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${m.t} ${m.y || ''} trailer`)}`; }
-function trailerBtn(m, cls = '') { return `<a class="btn trailer ${cls}" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('play')}${m.yt ? 'Watch trailer' : 'Find the trailer'}</a>`; }
+function trailerBtn(m, cls = '') {
+  return m.yt ? `<button class="btn trailer ${cls}" data-act="trailer" data-id="${m.id}">${icon('play')}Watch trailer</button>`
+    : `<a class="btn trailer ${cls}" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('play')}Find the trailer</a>`;
+}
+// Trailer plays in a pop-up over the page (YouTube's privacy-enhanced player). Closing it removes the player so the sound stops.
+function openTrailer(id) {
+  const m = S.byId.get(String(id)); if (!m?.yt) return;
+  const dlg = $('#player');
+  dlg.innerHTML = `<div class="player-box">
+    <div class="player-head"><b>${esc(m.t)}${m.y ? ` <span class="faint">(${m.y})</span>` : ''}</b><button class="icon-btn" data-act="closeplayer" aria-label="Close trailer">${icon('x')}</button></div>
+    <div class="frame"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(m.yt)}?autoplay=1&playsinline=1&rel=0&modestbranding=1" title="${esc(m.t)} trailer" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
+    <a class="player-yt" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('link')}Open on YouTube</a>
+  </div>`;
+  try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); }
+}
+// Cast photos and characters live in small shard files (data/cast/N.json), fetched when a movie is opened.
+const castCache = new Map(); const castShards = new Map();
+function loadCast(id) {
+  const k = Number(id) % 100;
+  if (!castShards.has(k)) castShards.set(k, fetch(`data/cast/${k}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  return castShards.get(k).then((sh) => { castCache.set(String(id), sh[id] || []); return castCache.get(String(id)); });
+}
+function castHTML(m, list) {
+  if (!list.length) return m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : '';
+  const photo = (p, n) => p && S.config.showPosters ? `<img src="https://image.tmdb.org/t/p/w185${p}" alt="" loading="lazy">` : `<span class="ini" style="--ah:${avatarHue(n)}">${esc(n.split(/\s+/).map((w) => w[0]).slice(0, 2).join(''))}</span>`;
+  return `<div class="stack" style="gap:10px"><h3>Cast</h3><div class="cast-row">${list.map((c) => `<div class="person">${photo(c.p, c.n)}<b>${esc(c.n)}</b>${c.c ? `<small>${esc(c.c)}</small>` : ''}</div>`).join('')}</div></div>`;
+}
+function castBlock(m) {
+  const have = castCache.get(String(m.id));
+  if (have) return `<div class="cast-wrap">${castHTML(m, have)}</div>`;
+  loadCast(m.id).then((list) => { const el = document.querySelector(`#detail[data-id="${m.id}"] .cast-wrap`); if (el) el.innerHTML = castHTML(m, list); });
+  return `<div class="cast-wrap">${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}</div>`;
+}
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
 function scoreRow(m) {
   const parts = [];
@@ -991,7 +1023,7 @@ function openDetail(id) {
       ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
-      ${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}
+      ${castBlock(m)}
       <div class="signals">
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
@@ -1103,6 +1135,8 @@ async function patchConfig(fn) { fn(S.config); applyConfig(); await route(true);
 const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
+  trailer: (el) => openTrailer(el.dataset.id),
+  closeplayer: () => $('#player').close(),
   scroll(el) {
     const t = document.getElementById(el.dataset.target); if (!t) return;
     const c = t.firstElementChild; const step = c ? c.getBoundingClientRect().width + parseFloat(getComputedStyle(t).columnGap || 0) : t.clientWidth;
@@ -1432,6 +1466,8 @@ document.addEventListener('click', async (e) => {
   try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.', 'x'); }
 });
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
+$('#player')?.addEventListener('click', (e) => { if (e.target.id === 'player') e.target.close(); });
+$('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
 // Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
 // scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
 (() => {
