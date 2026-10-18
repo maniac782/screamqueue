@@ -131,12 +131,21 @@ const castCache = new Map(); const castShards = new Map();
 function loadCast(id) {
   const k = Number(id) % 100;
   if (!castShards.has(k)) castShards.set(k, fetch(`data/cast/${k}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
-  return castShards.get(k).then((sh) => { castCache.set(String(id), sh[id] || []); return castCache.get(String(id)); });
+  return castShards.get(k).then((sh) => {
+    const e = sh[id];
+    castCache.set(String(id), Array.isArray(e) ? { c: e, d: [] } : e || { c: [], d: [] });
+    return castCache.get(String(id));
+  });
 }
-function castHTML(m, list) {
+const initials = (n) => n.split(/\s+/).map((w) => w[0]).slice(0, 2).join('');
+function face(p, n, size = 'w185') { return p && S.config.showPosters ? `<img src="https://image.tmdb.org/t/p/${size}${p}" alt="" loading="lazy">` : `<span class="ini" style="--ah:${avatarHue(n)}">${esc(initials(n))}</span>`; }
+function castHTML(m, cr) {
+  const list = [...(cr.d || []).map((d) => ({ ...d, c: 'Director' })), ...(cr.c || [])];
   if (!list.length) return m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : '';
-  const photo = (p, n) => p && S.config.showPosters ? `<img src="https://image.tmdb.org/t/p/w185${p}" alt="" loading="lazy">` : `<span class="ini" style="--ah:${avatarHue(n)}">${esc(n.split(/\s+/).map((w) => w[0]).slice(0, 2).join(''))}</span>`;
-  return `<div class="stack" style="gap:10px"><h3>Cast</h3><div class="cast-row">${list.map((c) => `<div class="person">${photo(c.p, c.n)}<b>${esc(c.n)}</b>${c.c ? `<small>${esc(c.c)}</small>` : ''}</div>`).join('')}</div></div>`;
+  return `<div class="stack" style="gap:10px"><h3>Cast &amp; director</h3><div class="cast-row">${list.map((c) => {
+    const inner = `${face(c.p, c.n)}<b>${esc(c.n)}</b>${c.c ? `<small>${esc(c.c)}</small>` : ''}`;
+    return c.i ? `<button class="person" data-act="person" data-k="${c.i}" aria-label="${esc(c.n)}: more horror movies">${inner}</button>` : `<div class="person">${inner}</div>`;
+  }).join('')}</div></div>`;
 }
 function castBlock(m) {
   const have = castCache.get(String(m.id));
@@ -217,8 +226,9 @@ function serviceLogos(m, max = 3) {
     : `<span class="svc-logo txt" title="${esc(g.label)}">${esc(g.label.slice(0, 2))}</span>`).join('')
     + (list.length > max ? `<span class="svc-more">+${list.length - max}</span>` : '');
 }
-function card(m) {
-  const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
+function card(m, opts) {
+  const sub = typeof opts === 'object' && opts?.sub;
+  const sg = sub || m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
   const name = `${m.t}${m.y ? ` (${m.y})` : ''}`;
   return `<div class="card" data-id="${m.id}">
     <button class="card-open" data-act="open" data-id="${m.id}" aria-label="${esc(name)}">
@@ -931,6 +941,31 @@ function badgesSection(seen, counts) {
   ${shelf(`Horror Essentials: ${ess.length - ess.filter((m) => !everSeen(m)).length} of ${ess.length}`, `The ${ESSENTIALS} most widely seen horror movies on the site. Here's what's next for you.`, essNext, 'You have seen every one of them.', `<a class="btn small" href="#/checklist">${icon('check')}Check off what you've seen</a>`)}`;
 }
 
+// A person's horror movies on the site, built from the nightly cast data (data/people/N.json).
+const peopleShards = new Map();
+async function loadPerson(id) {
+  const k = Number(id) % 100;
+  if (!peopleShards.has(k)) peopleShards.set(k, fetch(`data/people/${k}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  return (await peopleShards.get(k))[id] || null;
+}
+views.person = async (id) => {
+  const p = await loadPerson(id);
+  if (!p) return `<div class="empty">${icon('users')}<span>We don't have that person yet. Cast lists fill in with the nightly data refresh.</span></div>`;
+  const credits = p.m.map(([mid, role]) => ({ m: S.byId.get(String(mid)), role })).filter((x) => x.m)
+    .sort((a, b) => (b.m.date || '').localeCompare(a.m.date || ''));
+  const seen = credits.filter((x) => everSeen(x.m)).length;
+  const directed = credits.filter((x) => x.role === 'Director').length;
+  const known = [...credits].sort((a, b) => b.m.reach - a.m.reach).slice(0, 3).map((x) => x.m.t);
+  return `<div class="person-head">
+      <span class="person-face">${face(p.p, p.n, 'w300')}</span>
+      <div class="stack" style="gap:6px;min-width:0"><h1>${esc(p.n)}</h1>
+        <p class="muted">${credits.length} horror movie${credits.length === 1 ? '' : 's'} on ${esc(SITE_NAME)}${directed ? `, ${directed} as director` : ''}.${S.user && credits.length ? ` You've seen ${seen} of them.` : ''}</p>
+        ${known.length ? `<p class="faint">Known for ${esc(known.join(', '))}</p>` : ''}
+        <div class="row"><a class="btn small ghost" href="https://www.themoviedb.org/person/${encodeURIComponent(id)}" target="_blank" rel="noopener">${icon('link')}Full filmography on TMDB</a></div>
+      </div></div>
+    ${credits.length ? `<div class="grid">${credits.map((x) => card(x.m, { sub: x.role === 'Director' ? 'Director' : x.role ? `as ${x.role}` : '' })).join('')}</div>` : ''}`;
+};
+
 views.checklist = () => {
   if (!S.user) return signInPrompt('Sign in to check off the movies you have seen.');
   const q = (S.ckq || '').toLowerCase();
@@ -959,13 +994,19 @@ function renderQuick() {
   const q = inp.value.trim();
   if (!q) { box.hidden = true; inp.setAttribute('aria-expanded', 'false'); return; }
   const { sg, list, total } = quickMatches(q);
+  // People (cast and directors), from a small index loaded the first time someone searches.
+  if (!S.peopleIdx) { S.peopleIdx = []; fetch('data/people-index.json').then((r) => (r.ok ? r.json() : [])).then((x) => { S.peopleIdx = x; if (x.length && $('#qs')?.value.trim()) renderQuick(); }).catch(() => {}); }
+  const ql = q.toLowerCase();
+  const ppl = ql.length >= 3 ? S.peopleIdx.filter(([, n]) => n.toLowerCase().split(/\s+/).some((w) => w.startsWith(ql)) || n.toLowerCase().startsWith(ql)).slice(0, 3) : [];
+  const pplRows = ppl.map(([id, n, c, ph]) => `<button class="qs-row qs-person" data-act="person" data-k="${id}"><span class="qs-face">${face(ph || null, n, 'w92')}</span><span class="nm"><b>${esc(n)}</b><small>${c} horror movie${c === 1 ? '' : 's'}</small></span></button>`).join('');
   const rows = list.map((m, i) => {
     const st = status(m.id);
     const tag = st?.status === 'queue' ? `<span class="qs-tag q">${icon('bookmark')}Queued</span>` : everSeen(m) ? `<span class="qs-tag s">${icon('skull')}Survived</span>` : '';
     return `<button class="qs-row" role="option" data-act="open" data-id="${m.id}" data-i="${i}">${thumb(m)}<span class="nm"><b>${esc(m.t)}</b><small>${[m.y, m.dir[0], servicesText(m)].filter(Boolean).map(esc).join(' · ')}</small></span>${tag}</button>`;
   }).join('');
   box.innerHTML = `${sg ? `<button class="qs-row qs-sg" data-act="sgbrowse" data-k="${sg.key}" style="--h:${hue(sg.key)}"><span class="sgdot">${sgIcon(sg.key)}</span><span class="nm"><b>Browse ${esc(sg.label)}</b><small>Subgenre</small></span></button>` : ''}
-    ${rows || '<p class="qs-empty">No horror movie on the site matches that.</p>'}
+    ${pplRows}
+    ${rows || (pplRows ? '' : '<p class="qs-empty">No horror movie on the site matches that.</p>')}
     ${total > list.length ? `<button class="qs-more" data-act="qsall">See all ${total} results</button>` : ''}`;
   box.hidden = false; inp.setAttribute('aria-expanded', 'true');
   S.qsIdx = -1;
@@ -1136,6 +1177,7 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
+  person(el) { const d = $('#detail'); if (d.open) d.close(); location.hash = `#/person/${el.dataset.k}`; },
   closeplayer: () => $('#player').close(),
   scroll(el) {
     const t = document.getElementById(el.dataset.target); if (!t) return;
@@ -1683,7 +1725,7 @@ async function route(keepScroll, quiet) {
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast' }[name] || '') : ''}`;
 }
 
 async function boot() {

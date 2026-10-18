@@ -213,7 +213,8 @@ async function main() {
       cert: usCertification(d.release_dates, REGION),
       dir: (d.credits?.crew || []).filter((c) => c.job === 'Director').map((c) => c.name).slice(0, 2),
       cast: (d.credits?.cast || []).slice(0, 4).map((c) => c.name),
-      castFull: (d.credits?.cast || []).slice(0, 12).map((c) => ({ n: c.name, c: c.character || '', p: c.profile_path || null })),
+      castFull: (d.credits?.cast || []).slice(0, 12).map((c) => ({ i: c.id, n: c.name, c: c.character || '', p: c.profile_path || null })),
+      dirFull: (d.credits?.crew || []).filter((c) => c.job === 'Director').slice(0, 2).map((c) => ({ i: c.id, n: c.name, p: c.profile_path || null })),
       g: d.genres.map((g) => g.name),
       sg: tagSubgenres(kwNames, genreIds),
       pv: (wp.flatrate || []).map((p) => p.provider_id),
@@ -236,13 +237,38 @@ async function main() {
     });
   }
 
-  // Full cast lists (with photos) go in 100 small shard files, loaded only when someone opens a movie.
+  // Cast and directors go in 100 small shard files per kind, loaded only when someone opens a movie or a person:
+  //   data/cast/N.json   movie id -> { c: [cast], d: [directors] }
+  //   data/people/N.json person id -> { n: name, p: photo, m: [[movie id, character or "Director"], ...] }
   const CAST_DIR = resolve(ROOT, 'public/data/cast');
-  const shards = Array.from({ length: 100 }, () => ({}));
-  for (const r of rows) { if (r.castFull.length) shards[r.id % 100][r.id] = r.castFull; delete r.castFull; }
-  await rm(CAST_DIR, { recursive: true, force: true });
-  await mkdir(CAST_DIR, { recursive: true });
-  await Promise.all(shards.map((sh, i) => writeFile(resolve(CAST_DIR, `${i}.json`), JSON.stringify(sh))));
+  const PEOPLE_DIR = resolve(ROOT, 'public/data/people');
+  const castShards = Array.from({ length: 100 }, () => ({}));
+  const people = new Map();
+  const credit = (who, movieId, role) => {
+    if (!who.i) return;
+    const p = people.get(who.i) || { n: who.n, p: who.p || null, m: [] };
+    if (!p.p && who.p) p.p = who.p;
+    if (!p.m.some(([id]) => id === movieId)) p.m.push([movieId, role]);
+    people.set(who.i, p);
+  };
+  for (const r of rows) {
+    if (r.castFull.length || r.dirFull.length) castShards[r.id % 100][r.id] = { c: r.castFull, d: r.dirFull };
+    for (const c of r.castFull) credit(c, r.id, c.c || '');
+    for (const d of r.dirFull) credit(d, r.id, 'Director');
+    delete r.castFull; delete r.dirFull;
+  }
+  const peopleShards = Array.from({ length: 100 }, () => ({}));
+  for (const [id, p] of people) peopleShards[id % 100][id] = p;
+  for (const [dir, list] of [[CAST_DIR, castShards], [PEOPLE_DIR, peopleShards]]) {
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+    await Promise.all(list.map((sh, i) => writeFile(resolve(dir, `${i}.json`), JSON.stringify(sh))));
+  }
+  // Small name index for search: anyone in 2+ movies here, or any director. [id, name, movie count, photo]
+  const index = [...people].filter(([, p]) => p.m.length >= 2 || p.m.some(([, r]) => r === 'Director'))
+    .sort((a, b) => b[1].m.length - a[1].m.length).map(([id, p]) => [id, p.n, p.m.length, p.p || 0]);
+  await writeFile(resolve(ROOT, 'public/data/people-index.json'), JSON.stringify(index));
+  console.log(`Wrote cast for ${rows.length} movies and ${people.size} people.`);
 
   const scored = scoreMovies(rows).map(({ pop, votes, imdbVotes, traktWatchers, traktPlays, ...m }) => ({
     ...m,
