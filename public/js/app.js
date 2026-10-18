@@ -52,6 +52,8 @@ function toast(msg, ic = 'check', undo = null) {
 // Put a movie back the way it was before a queue/seen tap.
 function undoTo(id, prev) {
   return async () => {
+    if (status(id)?.status === 'seen' && prev?.status !== 'seen') await unstamp(id);
+    else if (prev?.status === 'seen') markJust(id);
     if (prev) { S.mine.set(String(id), { ...prev }); const { at, ...rest } = prev; await store.setMovie(id, rest); }
     else { S.mine.delete(String(id)); await store.removeMovie(id); }
     await refreshAll(); toast('Undone', 'check');
@@ -1039,6 +1041,16 @@ function flyTo(from, sel, ic) {
     { transform: `translate(calc(-50% + ${x1 - x0}px), calc(-50% + ${y1 - y0}px)) scale(.45)`, opacity: 0.2 },
   ], { duration: 780, easing: 'cubic-bezier(.5,0,.3,1)', fill: 'forwards' }).finished.then(() => ping(target)).catch(() => {});
 }
+// The SURVIVED stamp peels off and drops away before a movie stops showing as seen.
+async function unstamp(id) {
+  const els = [...document.querySelectorAll(`[data-id="${id}"] .stamp`)];
+  if (!els.length || !canFx()) return;
+  await Promise.all(els.map((el) => el.animate([
+    { transform: 'translate(-50%, -50%) rotate(-14deg) scale(1)', opacity: 1, offset: 0 },
+    { transform: 'translate(-50%, -62%) rotate(-4deg) scale(1.16)', opacity: 1, offset: 0.28 },
+    { transform: 'translate(-30%, 140%) rotate(24deg) scale(.82)', opacity: 0, offset: 1 },
+  ], { duration: 620, easing: 'cubic-bezier(.45, 0, .7, .4)', fill: 'forwards' }).finished.catch(() => {})));
+}
 function markJust(id) { S.just = String(id); setTimeout(() => { if (S.just === String(id)) S.just = null; }, 1200); }
 
 // ---------- actions ----------
@@ -1084,6 +1096,7 @@ const actions = {
       if (st.wasSeen) await setStatus(el.dataset.id, { status: 'seen' }); else { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); }
       toast('Removed from your queue', 'x', undoTo(el.dataset.id, prev));
     } else {
+      if (st?.status === 'seen') await unstamp(el.dataset.id);
       markJust(el.dataset.id);
       await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
       burst(null, 'pop', r); flyTo(r, QUEUE_TARGETS, 'bookmark');
@@ -1126,7 +1139,7 @@ const actions = {
     const base = S.ckAll ? S.movies : essentialsList();
     const c = $('#ck-count'); if (c) c.textContent = `${base.filter(everSeen).length} of ${base.length} seen`;
   },
-  async forget(el) { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); refreshAll(); },
+  async forget(el) { if (status(el.dataset.id)?.status === 'seen') await unstamp(el.dataset.id); S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); refreshAll(); },
   more() { S.f.limit += 60; renderResults(); },
   fsg(el) { toggle(S.f.sg, el.dataset.k); redrawPicker('fsg', S.f.sg); S.f.limit = 60; renderResults(); },
   sgfam(el) { S.fam[el.dataset.picker] = el.dataset.k; redrawPicker(el.dataset.picker, el.dataset.picker === 'psg' ? S.p.sg : S.f.sg); document.querySelector(`.sgp[data-picker="${el.dataset.picker}"] [data-k="${el.dataset.k}"]`)?.focus(); },
