@@ -1095,7 +1095,7 @@ views.friends = async () => {
         ${incoming.map((r) => `<div class="person-row">${av(r.name)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div><div class="row" style="gap:6px">${friendBtn(r.uid, 'incoming')}</div></div>`).join('')}</section>` : ''}
       <section class="panel stack" style="gap:12px">
         <h2>Find people</h2>
-        <label class="search"><span class="sr">Search by username</span>${icon('search')}<input type="search" id="fr-q" placeholder="Search by @username" autocomplete="off"></label>
+        <label class="search"><span class="sr">Search by username</span>${icon('search')}<input type="search" id="fr-q" placeholder="Search by name or @username" autocomplete="off"></label>
         <div id="fr-results" class="stack" style="gap:8px"></div>
         <div class="stack" style="gap:8px"><b>Or send your invite link</b>
           <div class="row" style="gap:8px"><input type="text" id="invite-me" readonly value="${esc(inviteLink())}" aria-label="Your invite link" style="flex:1;min-width:0"><button class="btn" data-act="copy" data-target="invite-me">${icon('link')}Copy</button></div>
@@ -1125,7 +1125,7 @@ async function renderFriendSearch() {
   if (!q || q.replace(/^@/, '').length < 2) { box.innerHTML = ''; return; }
   const found = await store.findUser(q).catch(() => []);
   if ($('#fr-q')?.value.trim() !== q) return;
-  box.innerHTML = found.length ? found.map((p) => `<div class="person-row">${av(p.name)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Someone')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No one with that username yet.</p>';
+  box.innerHTML = found.length ? found.map((p) => `<div class="person-row">${av(p.name)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Someone')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No one by that name or username yet. They may need to sign in once, or send them your invite link.</p>';
 }
 
 // Someone's page: their Body Count, ratings, reviews and queue (if their privacy setting lets you), plus a comparison with yours

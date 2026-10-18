@@ -45,7 +45,7 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['name', 'handle', 'privacy', 'at'])
+        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'handle', 'privacy', 'at'])
         && request.resource.data.privacy.profile in ['public', 'friends', 'private']
         && request.resource.data.privacy.reviews in ['public', 'friends']
         && (request.resource.data.handle == '' || getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.handle)).data.uid == me());

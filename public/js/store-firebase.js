@@ -93,7 +93,14 @@ export const store = {
   // reviews/{movieId}/by/{uid}                        { uid, name, handle, text, spoiler, vis, rating, at }
   me() { return current; },
   async getSocial() {
-    const d = (await F.getDoc(F.doc(db, 'profiles', uid())).catch(() => null))?.data();
+    const snap = await F.getDoc(F.doc(db, 'profiles', uid())).catch(() => null);
+    const d = snap?.data();
+    // Everyone gets a profile card on first visit so friends can find them by name, even before picking a username.
+    if (snap && !snap.exists()) {
+      await F.setDoc(F.doc(db, 'profiles', uid()), { name: current?.name || '', nameLower: (current?.name || '').toLowerCase(), handle: '', privacy: { profile: 'friends', reviews: 'public' }, at: Date.now() }).catch((e) => console.warn('profile card', e));
+    } else if (d && d.name !== current?.name && current?.name) {
+      F.updateDoc(F.doc(db, 'profiles', uid()), { name: current.name, nameLower: current.name.toLowerCase() }).catch(() => {});
+    }
     return { handle: d?.handle || '', privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) } };
   },
   async saveSocial({ handle, privacy, name }, reviewedIds = []) {
@@ -106,17 +113,22 @@ export const store = {
       batch.set(F.doc(db, 'usernames', h), { uid: uid() });
       if (prev.handle) batch.delete(F.doc(db, 'usernames', prev.handle));
     }
-    batch.set(F.doc(db, 'profiles', uid()), { name: name || current?.name || '', handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() });
+    const nm = name || current?.name || '';
+    batch.set(F.doc(db, 'profiles', uid()), { name: nm, nameLower: nm.toLowerCase(), handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() });
     await batch.commit();
     if (privacy?.reviews && privacy.reviews !== prev.privacy.reviews) {
       // keep existing reviews in step with the new setting
       await Promise.all(reviewedIds.map((mid) => F.updateDoc(F.doc(db, 'reviews', String(mid), 'by', uid()), { vis: privacy.reviews }).catch(() => {})));
     }
   },
+  // Look people up by @username or by the start of their name.
   async findUser(q) {
     q = String(q || '').trim().replace(/^@/, '').toLowerCase(); if (q.length < 2) return [];
-    const snap = await F.getDocs(F.query(F.collection(db, 'profiles'), F.orderBy('handle'), F.startAt(q), F.endAt(q + '\uf8ff'), F.limit(8)));
-    return snap.docs.filter((d) => d.id !== uid()).map((d) => ({ uid: d.id, ...d.data() }));
+    const by = (field) => F.getDocs(F.query(F.collection(db, 'profiles'), F.orderBy(field), F.startAt(q), F.endAt(q + '\uf8ff'), F.limit(8))).catch((e) => { console.warn('findUser', field, e); return null; });
+    const [a, b] = await Promise.all([by('handle'), by('nameLower')]);
+    const out = new Map();
+    for (const snap of [a, b]) for (const d of snap?.docs || []) if (d.id !== uid()) out.set(d.id, { uid: d.id, ...d.data() });
+    return [...out.values()];
   },
   async getProfileCard(idOrHandle) {
     let id = idOrHandle;

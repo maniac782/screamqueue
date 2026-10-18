@@ -108,7 +108,7 @@ export const store = {
     if (handle && Object.values(DEMO_PEOPLE).some((p) => p.handle === handle)) throw new Error(`@${handle} is taken. Try another.`);
     if (handle) so.handle = handle; if (privacy) Object.assign(so.privacy, privacy); save();
   },
-  async findUser(q) { q = String(q || '').replace(/^@/, '').toLowerCase(); return Object.entries(DEMO_PEOPLE).filter(([, p]) => p.handle.startsWith(q)).map(([uid, p]) => ({ uid, name: p.name, handle: p.handle, privacy: p.privacy })); },
+  async findUser(q) { q = String(q || '').replace(/^@/, '').toLowerCase(); return Object.entries(DEMO_PEOPLE).filter(([, p]) => p.handle.startsWith(q) || p.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || p.name.toLowerCase().startsWith(q)).map(([uid, p]) => ({ uid, name: p.name, handle: p.handle, privacy: p.privacy })); },
   async getProfileCard(id) { const e = Object.entries(DEMO_PEOPLE).find(([uid, p]) => uid === id || p.handle === id); if (e) return { uid: e[0], ...e[1] }; if (id === 'demo' || id === social().handle) return { uid: 'demo', name: load().profile.name, handle: social().handle, privacy: social().privacy }; return null; },
   async friendState(o) { const so = social(); return so.friends.includes(o) ? 'friends' : so.incoming.includes(o) ? 'incoming' : so.outgoing.includes(o) ? 'outgoing' : 'none'; },
   async sendRequest(o) { const so = social(); if (!so.outgoing.includes(o)) so.outgoing.push(o); save(); },
