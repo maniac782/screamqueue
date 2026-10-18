@@ -747,6 +747,7 @@ views.profile = (sub) => {
         <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
         <button class="btn primary" type="submit" style="justify-self:start">Save profile</button>
       </form>
+      ${store.getSocial && S.social ? avatarPicker() : ''}
       ${store.getSocial ? `<form class="panel stack" data-form="social" style="gap:14px">
         <h2>Friends &amp; privacy</h2>
         <label class="field">Username (so friends can find you)<span class="handle-in"><span>@</span><input type="text" name="handle" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" value="${esc(S.social?.handle || '')}" placeholder="pick one" autocomplete="off"></span></label>
@@ -800,7 +801,13 @@ views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1>
     <p class="muted">New Release covers the last four months, since brand-new movies haven't had time to collect ratings. The rest go from the most-watched horror movies down to ones few people have found. The labels compare horror movies with each other, not with all movies.</p>
     <h3>Subgenres</h3><p class="muted">Tagged from TMDB keywords like "slasher", "demonic possession" or "found footage", plus overlaps like horror comedy and sci-fi horror. A movie can have several. The site admin can correct them.</p>
     <h3>The artwork</h3><p class="muted">Each movie gets its own generated artwork in the colors of its main subgenre, so the shelves stay readable without studio posters.</p>
+    <h3 id="credits">Profile picture credits</h3>
+    <p class="muted">The classic horror profile pictures are public-domain film stills from Wikimedia Commons.</p>
+    <ul class="credits">${AVATARS.map((a) => `<li><img src="avatars/${a.id}.jpg" alt=""><span><b>${esc(a.name)}</b>, ${esc(a.film)} (${a.year}). <a href="${esc(a.source)}" target="_blank" rel="noopener">${esc(a.file)}</a>, ${esc(a.license)}, via Wikimedia Commons.</span></li>`).join('')}</ul>
   </div>`;
+const aboutView = views.about;
+views.about = () => { S.after = S.afterAbout; return aboutView(); };
+S.afterAbout = () => { if (S.scrollCredits) { S.scrollCredits = false; requestAnimationFrame(() => $('#credits')?.scrollIntoView({ block: 'start' })); } };
 
 // Admin
 views.admin = async () => {
@@ -1045,7 +1052,72 @@ views.person = async (id) => {
 
 // ---------- social: friends, profiles, reviews ----------
 const PRIVACY = { public: 'Anyone signed in', friends: 'Friends only', private: 'Only me' };
-const av = (name, cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name || '?')}">${esc(((name || '?')[0] || '?').toUpperCase())}</span>`;
+// ---------- profile pictures ----------
+// A person's picture is av = 'pd:<id>' (classic public-domain horror portrait), 'ic:<icon>' (drawn icon),
+// 'up' (their uploaded photo), or '' (initials). Other people's choices are looked up from their profile card.
+let AVATARS = [];
+fetch('avatars/avatars.json').then((r) => (r.ok ? r.json() : [])).then((x) => { AVATARS = x; }).catch(() => {});
+const AV_ICONS = ['ghost', 'demonic', 'vampire', 'werewolf', 'zombie', 'slasher', 'creature', 'cosmic', 'occult', 'classic', 'body', 'folk'];
+S.cards = new Map();
+function renderAvatar(name, c, cls = '') {
+  const a = c?.av || '';
+  const ah = `--ah:${avatarHue(name || '?')}`;
+  if (a === 'up' && c.photo) return `<span class="avatar pic ${cls}"><img src="${esc(c.photo)}" alt=""></span>`;
+  if (a.startsWith('pd:')) return `<span class="avatar pic ${cls}"><img src="avatars/${esc(a.slice(3))}.jpg" alt=""></span>`;
+  if (a.startsWith('ic:')) return `<span class="avatar ic ${cls}" style="${ah}">${sgIcon(a.slice(3))}</span>`;
+  return `<span class="avatar ${cls}" style="${ah}">${esc(((name || '?')[0] || '?').toUpperCase())}</span>`;
+}
+function myCard() { return { name: S.profile.name || S.user?.name || '', av: S.social?.av || '', photo: S.social?.photo || '' }; }
+// Someone's avatar. Unknown people show initials first and are filled in once their card loads.
+function av(name, cls = '', uid = '') {
+  if (uid && uid === S.user?.uid) return renderAvatar(name, myCard(), cls);
+  const c = uid && S.cards.get(uid);
+  if (c || !uid) return renderAvatar(name, c, cls);
+  return `<span data-av-uid="${esc(uid)}" data-av-name="${esc(name || '')}" data-av-cls="${esc(cls)}">${renderAvatar(name, null, cls)}</span>`;
+}
+let avTimer = 0;
+async function hydrateAvatars() {
+  const els = [...document.querySelectorAll('[data-av-uid]')]; if (!els.length || !store.getProfileCard) return;
+  const need = [...new Set(els.map((e) => e.dataset.avUid))].filter((u) => !S.cards.has(u)).slice(0, 40);
+  await Promise.all(need.map(async (u) => { S.cards.set(u, (await store.getProfileCard(u).catch(() => null)) || {}); }));
+  for (const e of document.querySelectorAll('[data-av-uid]')) {
+    const c = S.cards.get(e.dataset.avUid); if (!c) continue;
+    e.outerHTML = renderAvatar(e.dataset.avName, c, e.dataset.avCls);
+  }
+}
+new MutationObserver(() => { clearTimeout(avTimer); avTimer = setTimeout(hydrateAvatars, 60); }).observe(document.body, { childList: true, subtree: true });
+// Shrink an uploaded picture to a 160px square JPEG (small enough to keep in the profile card).
+function squarePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(); const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const n = 160; const cv = document.createElement('canvas'); cv.width = cv.height = n;
+      const s = Math.min(img.width, img.height);
+      cv.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, n, n);
+      URL.revokeObjectURL(url);
+      let q = 0.85, out = cv.toDataURL('image/jpeg', q);
+      while (out.length > 80000 && q > 0.4) { q -= 0.1; out = cv.toDataURL('image/jpeg', q); }
+      resolve(out);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file is not a picture we can read.')); };
+    img.src = url;
+  });
+}
+function avatarPicker() {
+  const cur = S.social?.av || '';
+  const opt = (k, inner, title) => `<button type="button" class="av-opt" data-act="setav" data-k="${esc(k)}" aria-pressed="${cur === k}" title="${esc(title)}" aria-label="${esc(title)}">${inner}</button>`;
+  return `<section class="panel stack" id="avpick" style="gap:14px">
+    <h2>Profile picture</h2>
+    <div class="av-now">${renderAvatar(S.profile.name || S.user?.name, myCard(), 'xl')}
+      <div class="stack" style="gap:8px"><label class="btn small">${icon('plus')}Upload a photo<input type="file" id="av-file" accept="image/*" hidden></label>
+      ${cur ? `<button type="button" class="btn small ghost" data-act="setav" data-k="">Use my initials</button>` : ''}</div></div>
+    <h3>Classic horror icons</h3>
+    <div class="av-grid">${AVATARS.map((a) => opt(`pd:${a.id}`, `<img src="avatars/${a.id}.jpg" alt="" loading="lazy">`, `${a.name}, ${a.film} (${a.year})`)).join('')}</div>
+    <p class="fine">Public-domain film stills from Wikimedia Commons. <a href="#/about" data-act="credits">Picture credits</a></p>
+    <h3>Icons</h3>
+    <div class="av-grid">${AV_ICONS.map((k) => opt(`ic:${k}`, `<span class="avatar ic" style="--ah:${(SG_HUE[k] || [350])[0]}">${sgIcon(k)}</span>`, `${S.sgLabel.get(k) || k} icon`)).join('')}</div>
+  </section>`;
+}
 const handleOf = (p) => (p?.handle ? `@${p.handle}` : '');
 function inviteLink() { return `${location.origin}${location.pathname}#/u/${encodeURIComponent(S.social?.handle || S.user?.uid || '')}`; }
 async function loadSocial() {
@@ -1053,6 +1125,7 @@ async function loadSocial() {
   if (!S.user || !store.getSocial) return;
   try {
     [S.social, S.friends, S.requests] = await Promise.all([store.getSocial(), store.listFriends(), store.listRequests()]);
+    await Promise.all(S.friends.filter((f) => !S.cards.has(f.uid)).map(async (f) => { S.cards.set(f.uid, (await store.getProfileCard(f.uid).catch(() => null)) || {}); }));
   } catch (e) { console.warn('social', e); S.social ||= { handle: '', privacy: { profile: 'friends', reviews: 'public' } }; }
 }
 const friendIds = () => (S.friends || []).map((f) => f.uid);
@@ -1085,14 +1158,14 @@ views.friends = async () => {
   const line = ({ f, x }) => {
     const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
     const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
-    return `<div class="feed-item">${av(f.name)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
+    return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
   return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p></div>
   <div class="friends-grid">
     <div class="stack" style="gap:24px">
       ${incoming.length ? `<section class="panel stack" style="gap:12px"><h2>Friend requests <span class="pill-n">${incoming.length}</span></h2>
-        ${incoming.map((r) => `<div class="person-row">${av(r.name)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div><div class="row" style="gap:6px">${friendBtn(r.uid, 'incoming')}</div></div>`).join('')}</section>` : ''}
+        ${incoming.map((r) => `<div class="person-row">${av(r.name, '', r.uid)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div><div class="row" style="gap:6px">${friendBtn(r.uid, 'incoming')}</div></div>`).join('')}</section>` : ''}
       <section class="panel stack" style="gap:12px">
         <h2>Find people</h2>
         <label class="search"><span class="sr">Search by username</span>${icon('search')}<input type="search" id="fr-q" placeholder="Search by name or @username" autocomplete="off"></label>
@@ -1104,8 +1177,8 @@ views.friends = async () => {
       </section>
       <section class="panel stack" style="gap:12px">
         <h2>Your friends${S.friends.length ? ` <span class="faint">${S.friends.length}</span>` : ''}</h2>
-        ${S.friends.length ? S.friends.map((f) => `<a class="person-row link" href="#/u/${esc(f.handle || f.uid)}">${av(f.name)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${esc(handleOf(f))}</small></div>${icon('right')}</a>`).join('') : '<p class="muted">No friends yet. Search for someone above, or send them your invite link.</p>'}
-        ${outgoing.length ? `<h3 class="muted" style="margin-top:6px">Waiting on</h3>${outgoing.map((r) => `<div class="person-row">${av(r.name)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div>${friendBtn(r.uid, 'outgoing')}</div>`).join('')}` : ''}
+        ${S.friends.length ? S.friends.map((f) => `<a class="person-row link" href="#/u/${esc(f.handle || f.uid)}">${av(f.name, '', f.uid)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${esc(handleOf(f))}</small></div>${icon('right')}</a>`).join('') : '<p class="muted">No friends yet. Search for someone above, or send them your invite link.</p>'}
+        ${outgoing.length ? `<h3 class="muted" style="margin-top:6px">Waiting on</h3>${outgoing.map((r) => `<div class="person-row">${av(r.name, '', r.uid)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div>${friendBtn(r.uid, 'outgoing')}</div>`).join('')}` : ''}
       </section>
     </div>
     <section class="panel stack" style="gap:6px"><h2>What your friends are watching</h2>
@@ -1125,7 +1198,7 @@ async function renderFriendSearch() {
   if (!q || q.replace(/^@/, '').length < 2) { box.innerHTML = ''; return; }
   const found = await store.findUser(q).catch(() => []);
   if ($('#fr-q')?.value.trim() !== q) return;
-  box.innerHTML = found.length ? found.map((p) => `<div class="person-row">${av(p.name)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Someone')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No one by that name or username yet. They may need to sign in once, or send them your invite link.</p>';
+  box.innerHTML = found.length ? found.map((p) => `<div class="person-row">${renderAvatar(p.name, p)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Someone')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No one by that name or username yet. They may need to sign in once, or send them your invite link.</p>';
 }
 
 // Someone's page: their Body Count, ratings, reviews and queue (if their privacy setting lets you), plus a comparison with yours
@@ -1140,7 +1213,7 @@ views.u = async (key) => {
   let movies = null;
   try { movies = isMe ? S.mine : await store.moviesOf(pc.uid); } catch { movies = null; }
   const priv = pc.privacy?.profile || 'friends';
-  const head = `<div class="profile-head">${av(pc.name, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
+  const head = `<div class="profile-head">${pc.uid === S.user.uid ? renderAvatar(pc.name, myCard(), 'xl') : renderAvatar(pc.name, pc, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
     <div class="row" style="gap:8px">${isMe ? `<a class="btn small" href="#/profile">${icon('gear')}Edit profile &amp; privacy</a>` : friendBtn(pc.uid, state)}</div></div></div>`;
   if (!movies) return `${head}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
   const list = [...movies.entries()].map(([id, st]) => ({ id, st, m: S.byId.get(String(id)) }));
@@ -1212,15 +1285,15 @@ function reviewsHTML(m, c) {
       <div class="row" style="gap:10px;justify-content:space-between"><label class="row" style="gap:8px"><input type="checkbox" name="spoiler" ${mine?.spoiler ? 'checked' : ''}> Contains spoilers</label>
       <span class="row" style="gap:8px"><button class="btn small ghost" type="button" data-act="reviewcancel" data-id="${m.id}">Cancel</button><button class="btn small primary" type="submit">${mine ? 'Save review' : 'Post review'}</button></span></div>
       <p class="fine">Visible to ${esc((PRIVACY[S.social?.privacy?.reviews || 'public'] || '').toLowerCase())}. Change this in <a href="#/profile">Profile</a>.</p></form>`;
-  else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
+  else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name, '', S.user.uid)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
   else if (seen) me = `<button class="btn small" data-act="reviewwrite" data-id="${m.id}">${icon('plus')}Write a review</button>`;
   else me = '<p class="fine">Mark it as seen to write a review.</p>';
   const fs = c?.friendsSeen || [];
   return `<div class="stack" style="gap:12px">
-    ${fs.length ? `<div class="friends-seen"><span class="fs-avs">${fs.slice(0, 6).map(({ f }) => av(f.name, 'sm')).join('')}</span><span>${fs.length === 1 ? `<b>${esc(fs[0].f.name)}</b> has seen this` : `<b>${fs.length} friends</b> have seen this`}${fs.some((x) => x.st.rating) ? `: ${fs.filter((x) => x.st.rating).slice(0, 3).map((x) => `${esc(x.f.name.split(' ')[0])} ${skullRow(x.st.rating)}`).join(', ')}` : ''}</span></div>` : ''}
+    ${fs.length ? `<div class="friends-seen"><span class="fs-avs">${fs.slice(0, 6).map(({ f }) => av(f.name, 'sm', f.uid)).join('')}</span><span>${fs.length === 1 ? `<b>${esc(fs[0].f.name)}</b> has seen this` : `<b>${fs.length} friends</b> have seen this`}${fs.some((x) => x.st.rating) ? `: ${fs.filter((x) => x.st.rating).slice(0, 3).map((x) => `${esc(x.f.name.split(' ')[0])} ${skullRow(x.st.rating)}`).join(', ')}` : ''}</span></div>` : ''}
     <h3>Reviews${others.length || mine ? ` <span class="faint">${others.length + (mine ? 1 : 0)}</span>` : ''}</h3>
     ${me}
-    ${c == null ? '<p class="muted">Loading reviews…</p>' : others.length ? others.slice(0, 20).map((r) => `<div class="review"><div class="rv-head">${av(r.name)}<a class="linkish" href="#/u/${esc(r.handle || r.uid)}" data-act="gouser"><b>${esc(r.name || 'A fan')}</b></a>${fset.has(r.uid) ? '<span class="tag">Friend</span>' : ''}${r.rating ? skullRow(r.rating) : ''}<span class="faint">${esc(timeAgo(r.at))}</span>${S.user?.isAdmin ? `<button class="linkish danger" data-act="reviewmod" data-id="${m.id}" data-k="${r.uid}">Remove</button>` : ''}</div>${reviewText(r, `${m.id}-${r.uid}`)}</div>`).join('') : (mine ? '' : '<p class="muted">No reviews yet.</p>')}
+    ${c == null ? '<p class="muted">Loading reviews…</p>' : others.length ? others.slice(0, 20).map((r) => `<div class="review"><div class="rv-head">${av(r.name, '', r.uid)}<a class="linkish" href="#/u/${esc(r.handle || r.uid)}" data-act="gouser"><b>${esc(r.name || 'A fan')}</b></a>${fset.has(r.uid) ? '<span class="tag">Friend</span>' : ''}${r.rating ? skullRow(r.rating) : ''}<span class="faint">${esc(timeAgo(r.at))}</span>${S.user?.isAdmin ? `<button class="linkish danger" data-act="reviewmod" data-id="${m.id}" data-k="${r.uid}">Remove</button>` : ''}</div>${reviewText(r, `${m.id}-${r.uid}`)}</div>`).join('') : (mine ? '' : '<p class="muted">No reviews yet.</p>')}
   </div>`;
 }
 function rerenderReviews(id) { const m = S.byId.get(String(id)); const el = $('#detail .reviews-wrap'); if (m && el) el.innerHTML = reviewsHTML(m, reviewCache.get(String(id))); }
@@ -1453,6 +1526,11 @@ const actions = {
     if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.innerHTML = `${icon('x')}Unfriend?`; el.classList.add('danger'); setTimeout(() => { if (el.isConnected) { el.dataset.confirm = ''; el.innerHTML = `${icon('check')}Friends`; el.classList.remove('danger'); } }, 3000); return; }
     await store.unfriend(el.dataset.k); await loadSocial(); toast('Removed from friends', 'x'); await afterFriendChange();
   },
+  async setav(el) {
+    try { await store.setAvatar(el.dataset.k); S.social = { ...S.social, av: el.dataset.k, photo: '' }; toast('Profile picture updated', 'check'); renderChrome(); route(true, true); }
+    catch (e) { console.error(e); toast('Could not save that picture. Try again.', 'x'); }
+  },
+  credits() { S.scrollCredits = true; location.hash = '#/about'; },
   gouser(el) { const d = $('#detail'); if (d.open) d.close(); location.hash = el.getAttribute('href'); },
   utab(el) { S.uTab = el.dataset.k; route(true, true); },
   spoiler(el) { (S.spoilersShown ||= new Set()).add(el.dataset.k); const box = el.previousElementSibling; if (box) box.classList.remove('blur'); el.remove(); },
@@ -1865,6 +1943,14 @@ $('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
 })();
 document.addEventListener('click', (e) => { if (!e.target.closest('.card.qa-on')) document.querySelectorAll('.card.qa-on').forEach((x) => { x.classList.remove('qa-on', 'rating'); x.querySelector('.qa-rate').hidden = true; x.querySelector('.qa-plus')?.setAttribute('aria-expanded', 'false'); }); }, true);
 
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'av-file' || !e.target.files?.[0]) return;
+  try {
+    const photo = await squarePhoto(e.target.files[0]);
+    await store.setAvatar('up', photo); S.social = { ...S.social, av: 'up', photo };
+    toast('Profile picture updated', 'check'); renderChrome(); route(true, true);
+  } catch (err) { console.error(err); toast(err?.message || 'Could not use that picture.', 'x'); }
+});
 let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
@@ -2019,17 +2105,19 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/nights', 'Movie Nights', 'users']];
+const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/friends', 'Friends', 'users'], ['#/nights', 'Movie Nights', 'clock']];
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
   const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
-  $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}</a>`).join('');
+  const nReqs = S.requests?.incoming.length || 0;
+  $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}${h === '#/friends' && nReqs ? `<b class="nav-n">${nReqs}</b>` : ''}</a>`).join('');
   $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie Nights', 'Nights').replace('My Queue', 'Queue').replace('Pick for Me', 'Pick')}</span></a>`).join('');
   const name = S.profile.name || S.user?.name || '';
-  const av = (cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span>`;
+  const av = (cls = '') => renderAvatar(name, myCard(), cls);
+  const nReq = S.requests?.incoming.length || 0;
   $('#who').innerHTML = S.user
-    ? `<div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
+    ? `<a class="icon-btn m-friends" href="#/friends" aria-label="Friends${nReq ? `, ${nReq} new request${nReq === 1 ? '' : 's'}` : ''}">${icon('users')}${nReq ? `<b class="nav-n">${nReq}</b>` : ''}</a><div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
       <div class="acct-menu" role="menu" ${S.menuOpen ? '' : 'hidden'}>
         <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
         <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>

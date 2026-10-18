@@ -34,12 +34,12 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch 
 
 const DAY = 86400000;
 const DEMO_PEOPLE = {
-  pal1: { name: 'Sample friend A', handle: 'finalgirl', privacy: { profile: 'friends', reviews: 'public' }, movies: {
+  pal1: { name: 'Sample friend A', handle: 'finalgirl', av: 'pd:orlok', privacy: { profile: 'friends', reviews: 'public' }, movies: {
     '493922': { status: 'seen', rating: 4.5, seenOn: '2026-10-01', at: Date.now() - DAY * 2, rv: true },
     '1078605': { status: 'seen', rating: 3, seenOn: '2026-10-10', at: Date.now() - DAY },
     '17577': { status: 'queue', at: Date.now() - DAY * 3 },
     '948': { status: 'seen', rating: 5, seenOn: '2026-09-20', at: Date.now() - DAY * 6 } } },
-  pal2: { name: 'Sample friend B', handle: 'ghostface_fan', privacy: { profile: 'public', reviews: 'public' }, movies: {
+  pal2: { name: 'Sample friend B', handle: 'ghostface_fan', av: 'ic:ghost', privacy: { profile: 'public', reviews: 'public' }, movies: {
     '493922': { status: 'seen', rating: 3.5, seenOn: '2026-08-12', at: Date.now() - DAY * 9, rv: true },
     '4232': { status: 'seen', rating: 5, seenOn: '2026-10-14', at: Date.now() - DAY * 4 },
     '1008042': { status: 'queue', at: Date.now() - DAY * 5 } } },
@@ -102,14 +102,15 @@ export const store = {
 
   // ---------- social (demo): two sample friends and one pending request ----------
   me() { return user(); },
-  async getSocial() { const so = social(); return { handle: so.handle, privacy: { ...so.privacy } }; },
+  async getSocial() { const so = social(); return { handle: so.handle, av: so.av || '', photo: so.photo || '', privacy: { ...so.privacy } }; },
+  async setAvatar(av, photo = '') { const so = social(); so.av = av; so.photo = av === 'up' ? photo : ''; save(); },
   async saveSocial({ handle, privacy }) {
     const so = social();
     if (handle && Object.values(DEMO_PEOPLE).some((p) => p.handle === handle)) throw new Error(`@${handle} is taken. Try another.`);
     if (handle) so.handle = handle; if (privacy) Object.assign(so.privacy, privacy); save();
   },
   async findUser(q) { q = String(q || '').replace(/^@/, '').toLowerCase(); return Object.entries(DEMO_PEOPLE).filter(([, p]) => p.handle.startsWith(q) || p.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || p.name.toLowerCase().startsWith(q)).map(([uid, p]) => ({ uid, name: p.name, handle: p.handle, privacy: p.privacy })); },
-  async getProfileCard(id) { const e = Object.entries(DEMO_PEOPLE).find(([uid, p]) => uid === id || p.handle === id); if (e) return { uid: e[0], ...e[1] }; if (id === 'demo' || id === social().handle) return { uid: 'demo', name: load().profile.name, handle: social().handle, privacy: social().privacy }; return null; },
+  async getProfileCard(id) { const e = Object.entries(DEMO_PEOPLE).find(([uid, p]) => uid === id || p.handle === id); if (e) return { uid: e[0], ...e[1] }; if (id === 'demo' || id === social().handle) return { uid: 'demo', name: load().profile.name, handle: social().handle, privacy: social().privacy, av: social().av, photo: social().photo }; return null; },
   async friendState(o) { const so = social(); return so.friends.includes(o) ? 'friends' : so.incoming.includes(o) ? 'incoming' : so.outgoing.includes(o) ? 'outgoing' : 'none'; },
   async sendRequest(o) { const so = social(); if (!so.outgoing.includes(o)) so.outgoing.push(o); save(); },
   async listRequests() { const so = social(); const card = (u) => ({ uid: u, name: DEMO_PEOPLE[u]?.name, handle: DEMO_PEOPLE[u]?.handle }); return { incoming: so.incoming.map(card), outgoing: so.outgoing.map(card) }; },

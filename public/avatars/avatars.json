@@ -1,0 +1,119 @@
+[
+ {
+  "id": "orlok",
+  "name": "Count Orlok",
+  "film": "Nosferatu",
+  "year": 1922,
+  "source": "https://commons.wikimedia.org/wiki/File:Max_Schreck_as_Count_Orlok_in_Nosferatu_%E2%80%93_Eine_Symphonie_des_Grauens_(1922).jpg",
+  "license": "Public domain",
+  "file": "Max Schreck as Count Orlok in Nosferatu – Eine Symphonie des Grauens (1922).jpg"
+ },
+ {
+  "id": "cesare",
+  "name": "Cesare",
+  "film": "The Cabinet of Dr. Caligari",
+  "year": 1920,
+  "source": "https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr_Caligari_Conrad_Veidt.jpg",
+  "license": "Public domain",
+  "file": "The Cabinet of Dr Caligari Conrad Veidt.jpg"
+ },
+ {
+  "id": "phantom",
+  "name": "The Phantom",
+  "film": "The Phantom of the Opera",
+  "year": 1925,
+  "source": "https://commons.wikimedia.org/wiki/File:Lon_Chaney_Phantom_of_The_Opera_Cropped.jpg",
+  "license": "Public domain",
+  "file": "Lon Chaney Phantom of The Opera Cropped.jpg"
+ },
+ {
+  "id": "caligari",
+  "name": "Dr. Caligari",
+  "film": "The Cabinet of Dr. Caligari",
+  "year": 1920,
+  "source": "https://commons.wikimedia.org/wiki/File:The_Cabinet_of_Dr_Caligari_Werner_Krauss.jpg",
+  "license": "Public domain",
+  "file": "The Cabinet of Dr Caligari Werner Krauss.jpg"
+ },
+ {
+  "id": "golem",
+  "name": "Astaroth",
+  "film": "The Golem",
+  "year": 1920,
+  "source": "https://commons.wikimedia.org/wiki/File:Astaroth_(The_Golem).jpg",
+  "license": "Public domain",
+  "file": "Astaroth (The Golem).jpg"
+ },
+ {
+  "id": "haxan",
+  "name": "The Possessed Nun",
+  "film": "Häxan",
+  "year": 1922,
+  "source": "https://commons.wikimedia.org/wiki/File:H%C3%A4xan_(1922_film)_-_A_nun_possessed.jpg",
+  "license": "CC0",
+  "file": "Häxan (1922 film) - A nun possessed.jpg"
+ },
+ {
+  "id": "frankenstein1910",
+  "name": "Frankenstein's Monster",
+  "film": "Frankenstein",
+  "year": 1910,
+  "source": "https://commons.wikimedia.org/wiki/File:Charles_Ogle_In_Frankenstein_1910.jpg",
+  "license": "Public domain",
+  "file": "Charles Ogle In Frankenstein 1910.jpg"
+ },
+ {
+  "id": "londonaftermidnight",
+  "name": "The Man in the Beaver Hat",
+  "film": "London After Midnight",
+  "year": 1927,
+  "source": "https://commons.wikimedia.org/wiki/File:Lon_Chaney_London_After_Midnight_Portrait.jpg",
+  "license": "Public domain",
+  "file": "Lon Chaney London After Midnight Portrait.jpg"
+ },
+ {
+  "id": "manwholaughs",
+  "name": "Gwynplaine",
+  "film": "The Man Who Laughs",
+  "year": 1928,
+  "source": "https://commons.wikimedia.org/wiki/File:The_Man_Who_Laughs_-_Conrad_Veidt_as_Gwynplaine.jpg",
+  "license": "Public domain",
+  "file": "The Man Who Laughs - Conrad Veidt as Gwynplaine.jpg"
+ },
+ {
+  "id": "whitezombie",
+  "name": "Murder Legendre",
+  "film": "White Zombie",
+  "year": 1932,
+  "source": "https://commons.wikimedia.org/wiki/File:Bela_Lugosi_-_White_Zombie.jpg",
+  "license": "Public domain",
+  "file": "Bela Lugosi - White Zombie.jpg"
+ },
+ {
+  "id": "carnival",
+  "name": "The Man",
+  "film": "Carnival of Souls",
+  "year": 1962,
+  "source": "https://commons.wikimedia.org/wiki/File:Herk_Harvey_in_Carnival_of_Souls.png",
+  "license": "Public domain",
+  "file": "Herk Harvey in Carnival of Souls.png"
+ },
+ {
+  "id": "househaunted",
+  "name": "Frederick Loren",
+  "film": "House on Haunted Hill",
+  "year": 1959,
+  "source": "https://commons.wikimedia.org/wiki/File:Vincent_Price_in_House_on_Haunted_Hill_(cropped).jpg",
+  "license": "Public domain",
+  "file": "Vincent Price in House on Haunted Hill (cropped).jpg"
+ },
+ {
+  "id": "vampyr",
+  "name": "The Reaper",
+  "film": "Vampyr",
+  "year": 1932,
+  "source": "https://commons.wikimedia.org/wiki/File:Vampyr-1932-1.jpg",
+  "license": "Public domain",
+  "file": "Vampyr-1932-1.jpg"
+ }
+]

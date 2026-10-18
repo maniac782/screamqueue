@@ -101,11 +101,16 @@ export const store = {
       const nm = d?.name || current?.name || '';
       const handle = await this.claimDefaultHandle(nm).catch(() => '');
       d = { name: nm, nameLower: nm.toLowerCase(), handle, privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) }, at: Date.now() };
-      await F.setDoc(F.doc(db, 'profiles', uid()), d).catch((e) => console.warn('profile card', e));
+      await F.setDoc(F.doc(db, 'profiles', uid()), d, { merge: true }).catch((e) => console.warn('profile card', e));
+      d = { ...snap.data(), ...d };
     } else if (d && d.name !== current?.name && current?.name) {
       F.updateDoc(F.doc(db, 'profiles', uid()), { name: current.name, nameLower: current.name.toLowerCase() }).catch(() => {});
     }
-    return { handle: d?.handle || '', privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) } };
+    return { handle: d?.handle || '', av: d?.av || '', photo: d?.photo || '', privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) } };
+  },
+  // Profile picture: av = 'pd:<id>' (classic horror portrait), 'ic:<icon>' (drawn icon), 'up' (uploaded photo in `photo`), or '' (initials)
+  async setAvatar(av, photo = '') {
+    await F.updateDoc(F.doc(db, 'profiles', uid()), { av, photo: av === 'up' ? photo : '' });
   },
   async claimDefaultHandle(name) {
     let base = String(name || '').toLowerCase().normalize('NFKD').replace(/[^a-z0-9_]+/g, '').slice(0, 16);
@@ -129,7 +134,7 @@ export const store = {
       if (prev.handle) batch.delete(F.doc(db, 'usernames', prev.handle));
     }
     const nm = name || current?.name || '';
-    batch.set(F.doc(db, 'profiles', uid()), { name: nm, nameLower: nm.toLowerCase(), handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() });
+    batch.set(F.doc(db, 'profiles', uid()), { name: nm, nameLower: nm.toLowerCase(), handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() }, { merge: true });
     await batch.commit();
     if (privacy?.reviews && privacy.reviews !== prev.privacy.reviews) {
       // keep existing reviews in step with the new setting
