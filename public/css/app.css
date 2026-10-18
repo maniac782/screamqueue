@@ -896,8 +896,8 @@ html, body { overscroll-behavior-y: none; }
 
 /* ---------- phones: rows sized like the Netflix app (3 full posters plus most of a 4th) ---------- */
 @media (max-width: 700px) {
-  .rail { --col: 24vw; }
-  .track { gap: 6px; }
+  .rail { --col: 28vw; }
+  .track { gap: 8px; }
   .grid { gap: 14px 6px; }
   .poster { border-radius: 6px; box-shadow: none; }
   .shelf-head h2 { font-size: 1.15rem; }
