@@ -811,12 +811,54 @@ views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1>
   </div>`;
 const aboutView = views.about;
 views.about = () => { S.after = S.afterAbout; return aboutView(); };
+views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="muted">Last updated October 18, 2026</p></div>
+  <div class="panel stack prose policy" style="max-width:760px;gap:18px">
+    <p>${esc(SITE_NAME)} is a free hobby site for finding horror movies to watch and keeping track of what you've seen. It's run by one person, not a company. This page explains what it keeps about you and why.</p>
+    <h2>What the site keeps</h2>
+    <ul>
+      <li><b>Your account.</b> Your email address, and your name if you sign in with Google, are held by Firebase Authentication so you can sign in. The site stores your display name, when you joined and roughly when you last visited.</li>
+      <li><b>Your movies.</b> Your queue, the movies you've seen, your skull ratings, watch dates, your streaming services and the "hide movies I've seen" setting.</li>
+      <li><b>Your public card.</b> Your display name, username, profile picture (an icon you pick or a photo you upload) and privacy settings. Any signed-in user can see your card, for example in a search or on the Friends page.</li>
+      <li><b>Friends.</b> Friend requests you send or receive, and your friends list.</li>
+      <li><b>Reviews and kill counts.</b> Reviews you write (with your name, username and rating) and the kill counts you submit.</li>
+      <li><b>Movie nights.</b> Movie nights you start or join, the movies suggested and the votes.</li>
+      <li><b>Feedback.</b> If you use Send feedback, your message is saved with the page you were on, your browser type, the site version and your account ID. Only the site's owner can read it.</li>
+      <li><b>Contact messages.</b> If you use Contact, your message, the email address and name you give, and the page and browser you were on are saved. Only the site's owner can read them, and your address is only used to reply.</li>
+      <li><b>On your device.</b> Your browser keeps a copy of your data so pages load quickly, plus your sign-in and a few display settings (theme and poster size). Demo mode keeps everything in your browser only.</li>
+    </ul>
+    <p>Nothing is used for advertising or tracking, and there are no analytics.</p>
+    <h2>Who can see it</h2>
+    <ul>
+      <li>Your Body Count, ratings and queue are visible to the people you choose in Profile: anyone signed in, friends only, or just you.</li>
+      <li>Your reviews are visible to everyone or friends only, as you choose in Profile.</li>
+      <li>Other users never see your email address.</li>
+      <li>The site's owner can see stored data through the Firebase console, and only looks when fixing problems or handling a request from you.</li>
+      <li>Nothing is sold or shared with anyone else.</li>
+    </ul>
+    <h2>Services the site uses</h2>
+    <ul>
+      <li><b>Google Firebase</b> runs the site (hosting, sign-in and the database), so your data is stored on Google's servers. Google also handles your IP address and browser details when you visit, as any web host does.</li>
+      <li><b>TMDB</b> supplies movie information. Posters, photos and logos load from TMDB's servers, which see your IP address like any website you load images from.</li>
+      <li><b>YouTube</b> plays trailers and Kill Count videos, only when you press play, using YouTube's privacy-enhanced mode.</li>
+      <li><b>Google Fonts</b> supplies the site's fonts.</li>
+    </ul>
+    <h2>Removing your data</h2>
+    <p>You can take any movie off your lists, delete your reviews, remove friends, and set your profile to private at any time. To delete your account and everything stored with it, use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> and choose "Privacy or my data". It will be done within 30 days.</p>
+    <h2>Changes</h2>
+    <p>If this policy changes, the date at the top will change too.</p>
+    <h2>Questions</h2>
+    <p>Use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> at the bottom of any page.</p>
+  </div>`;
+// #/contact opens the Contact form over whatever page you came from (or Tonight).
+views.contact = () => { setTimeout(() => openContact(), 50); return views.tonight(); };
+
 S.afterAbout = () => { if (S.scrollCredits) { S.scrollCredits = false; requestAnimationFrame(() => $('#credits')?.scrollIntoView({ block: 'start' })); } };
 
 // Admin
 views.admin = async () => {
   if (!S.user?.isAdmin) return `<div class="empty">${icon('shield')}<span>This page is for site admins.</span></div>`;
-  const stats = await store.adminStats().catch(() => ({ users: '—' }));
+  const [stats, fbs, cts] = await Promise.all([store.adminStats().catch(() => ({ users: '—' })), store.listInbox('feedback').catch(() => null), store.listInbox('contact').catch(() => null)]);
+  const inbox = { feedback: fbs, contact: cts };
   const c = S.config;
   const d = S.data;
   const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`).join('') || '<p class="muted">None.</p>';
@@ -845,8 +887,26 @@ views.admin = async () => {
     <div class="panel stack"><h2>Hidden from the site</h2><div class="list">${listOf(c.hidden || [], 'unhide')}</div>
       <label class="search"><span class="sr">Search a title to hide</span>${icon('search')}<input type="search" id="adm-hide-search" placeholder="Search to hide"></label><div id="adm-hide-results" class="list"></div></div>
     <button class="btn primary" data-act="savecfg">Save admin changes</button>
-  </div></div>`;
+  </div></div>
+  ${inboxHTML('feedback', inbox.feedback)}
+  ${inboxHTML('contact', inbox.contact)}`;
 };
+const FB_KINDS = { bug: 'Bug', idea: 'Idea', other: 'Other' };
+const CONTACT_TOPICS = { general: 'General', bug: 'Something\'s broken', data: 'Movie info is wrong', privacy: 'Privacy or my data' };
+function inboxHTML(kind, list) {
+  const fb = kind === 'feedback';
+  if (list == null) return `<section class="panel stack inbox"><h2>${fb ? 'Feedback' : 'Contact messages'}</h2><p class="muted">Couldn't load these. The database rules may still be publishing.</p></section>`;
+  return `<section class="panel stack inbox"><h2>${fb ? 'Feedback' : 'Contact messages'} <span class="faint">(${list.length})</span></h2>
+    ${fb ? '' : '<p class="muted" style="font-size:.88rem">Contact messages aren\'t emailed to you yet (that needs the Blaze plan). Reply opens your email app.</p>'}
+    ${list.length ? list.map((x) => `<article class="inbox-item">
+      <div class="inbox-head"><span class="tag">${esc(fb ? FB_KINDS[x.kind] || 'Other' : CONTACT_TOPICS[x.topic] || 'General')}</span>
+        ${fb ? `<a class="linkish" href="#/u/${esc(x.uid || '')}">${esc(x.name || 'A user')}</a>` : `<b>${esc(x.name || '')}</b> <a href="mailto:${esc(x.email)}">${esc(x.email)}</a>`}
+        <span class="faint">${esc(new Date(x.t).toLocaleString())}</span></div>
+      <p class="inbox-msg">${esc(x.msg)}</p>
+      <p class="fine">${esc(x.page || '')} · ${esc(x.v || '')} · ${esc((x.ua || '').slice(0, 120))}</p>
+      <div class="row" style="gap:8px">${fb ? '' : `<a class="btn small" href="mailto:${esc(x.email)}?subject=${encodeURIComponent('Re: your message to ' + SITE_NAME)}">${icon('mail')}Reply</a>`}<button class="btn small ghost" data-act="inboxdone" data-k="${kind}" data-id="${esc(x.id)}">${icon('check')}Done</button></div>
+    </article>`).join('') : '<p class="muted">Nothing here.</p>'}</section>`;
+}
 
 function searchList(q, act, n = 6) {
   q = q.trim().toLowerCase(); if (!q) return '';
@@ -1590,6 +1650,13 @@ const actions = {
   },
   goback() { history.back(); },
   closeplayer: () => $('#player').close(),
+  feedback() { if (!needUser()) return; openFeedback(); },
+  contact(el, e) { e?.preventDefault(); openContact(el?.dataset.k); },
+  closeform: () => $('#formdlg').close(),
+  async inboxdone(el) {
+    try { await store.clearInbox(el.dataset.k, el.dataset.id); el.closest('.inbox-item')?.remove(); toast('Marked as done', 'check'); }
+    catch { toast('Couldn\'t clear that', 'x'); }
+  },
   scroll(el) {
     const t = document.getElementById(el.dataset.target); if (!t) return;
     const c = t.firstElementChild; const step = c ? c.getBoundingClientRect().width + parseFloat(getComputedStyle(t).columnGap || 0) : t.clientWidth;
@@ -1927,6 +1994,68 @@ document.addEventListener('click', async (e) => {
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
 $('#player')?.addEventListener('click', (e) => { if (e.target.id === 'player') e.target.close(); });
 $('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
+$('#formdlg')?.addEventListener('click', (e) => { if (e.target.id === 'formdlg') e.target.close(); });
+
+// ---------- Send feedback and Contact ----------
+// Both save to the database; the site owner reads them on the Admin page.
+function openForm(html) {
+  const dlg = $('#formdlg'); if (!dlg) return;
+  dlg.innerHTML = html;
+  try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); }
+  const ta = dlg.querySelector('textarea'), cnt = dlg.querySelector('.fb-count');
+  ta?.addEventListener('input', () => { cnt.textContent = `${ta.value.length} / ${ta.maxLength}`; dlg.querySelector('.error').hidden = true; });
+  (dlg.querySelector('[autofocus]') || ta)?.focus();
+}
+const formHead = (title, note) => `<div class="fb-head"><div><h2>${title}</h2><p class="muted">${note}</p></div><button type="button" class="icon-btn" data-act="closeform" aria-label="Close">${icon('x')}</button></div>`;
+const FB_HINTS = { bug: 'What happened? What were you trying to do?', idea: 'What would make the site better?', other: 'What\'s on your mind?' };
+function openFeedback() {
+  openForm(`<form class="stack fb-form" data-form="feedback" novalidate>
+    ${formHead('Send feedback', 'Bugs, ideas, anything. It goes straight to the person who runs the site.')}
+    <div class="tabs fb-kinds" role="radiogroup" aria-label="What kind of feedback">${Object.entries(FB_KINDS).map(([k, l], i) => `<label><input type="radio" name="kind" value="${k}" ${i ? '' : 'checked'}><span>${l}</span></label>`).join('')}</div>
+    <div class="fb-box"><textarea name="msg" rows="6" maxlength="2000" aria-label="Message" placeholder="${FB_HINTS.bug}"></textarea><span class="fb-count">0 / 2000</span></div>
+    <p class="error" hidden></p>
+    <div class="fb-foot"><span class="fine">Includes the page you're on, your browser and the site version.</span><div class="row" style="gap:8px"><button type="button" class="btn ghost" data-act="closeform">Cancel</button><button class="btn primary" type="submit">Send</button></div></div>
+  </form>`);
+  $('#formdlg form').addEventListener('change', (e) => { if (e.target.name === 'kind') { const ta = $('#formdlg textarea'); ta.placeholder = FB_HINTS[e.target.value]; ta.focus(); } });
+}
+function openContact(topic = 'general') {
+  const email = S.user?.email || '', name = S.profile?.name || S.user?.name || '';
+  openForm(`<form class="stack fb-form" data-form="contact" novalidate>
+    ${formHead('Contact', 'Questions, problems, or anything else. It goes straight to the person who runs the site, and replies come to your email.')}
+    <div class="fb-row"><label class="field">Your email<input type="email" name="email" maxlength="120" autocomplete="email" required value="${esc(email)}" ${email ? '' : 'autofocus'}></label>
+      <label class="field">Name (optional)<input type="text" name="name" maxlength="60" autocomplete="name" value="${esc(name)}"></label></div>
+    <label class="field">About<select name="topic">${Object.entries(CONTACT_TOPICS).map(([k, l]) => `<option value="${k}" ${k === topic ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+    <div class="fb-box"><textarea name="msg" rows="6" maxlength="3000" aria-label="Message" placeholder="Your message" ${email ? 'autofocus' : ''}></textarea><span class="fb-count">0 / 3000</span></div>
+    <p class="error" hidden></p>
+    <div class="fb-foot"><span class="fine">Your email is only used to reply. <a href="#/privacy" data-act="closeform">Privacy</a></span><div class="row" style="gap:8px"><button type="button" class="btn ghost" data-act="closeform">Cancel</button><button class="btn primary" type="submit">Send</button></div></div>
+  </form>`);
+}
+async function submitForm(form) {
+  const fd = new FormData(form), kind = form.dataset.form;
+  const err = form.querySelector('.error'), btn = form.querySelector('[type=submit]');
+  const fail = (m, el) => { err.textContent = m; err.hidden = false; el?.focus(); };
+  const msg = String(fd.get('msg') || '').trim();
+  const meta = { page: (location.hash || '#/').slice(0, 300), ua: String(navigator.userAgent || '').slice(0, 300), v: VERSION };
+  let data;
+  if (kind === 'contact') {
+    const email = String(fd.get('email') || '').trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail('Enter your email so you can get a reply.', form.email);
+    if (!msg) return fail('Write a message first.', form.msg);
+    data = { email: email.slice(0, 120), name: String(fd.get('name') || '').trim().slice(0, 60), topic: String(fd.get('topic') || 'general'), msg: msg.slice(0, 3000), ...meta };
+  } else {
+    if (!msg) return fail('Write a message first.', form.msg);
+    data = { kind: String(fd.get('kind') || 'other'), msg: msg.slice(0, 2000), name: (S.profile?.name || S.user?.name || '').slice(0, 60), ...meta };
+  }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await (kind === 'contact' ? store.sendContact(data) : store.sendFeedback(data));
+    $('#formdlg').close();
+    toast(kind === 'contact' ? `Thanks! Your message was sent. Replies go to ${data.email}` : 'Thanks! Your feedback was sent', 'check');
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Send';
+    fail(e?.code === 'resource-exhausted' ? 'The site has hit its daily limit. Try again tomorrow.' : 'Couldn\'t send that. Try again in a moment.');
+  }
+}
 // Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
 // scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
 (() => {
@@ -2071,6 +2200,7 @@ async function afterFriendChange() {
   if (/^#\/(friends|u\/)/.test(location.hash)) await route(true, true); else renderFriendSearch();
 }
 document.addEventListener('submit', async (e) => {
+  if (e.target.classList?.contains('fb-form')) { e.preventDefault(); await submitForm(e.target); return; }
   if (e.target.classList?.contains('review-form')) {
     e.preventDefault();
     const id = e.target.dataset.id; const fd = new FormData(e.target);
@@ -2155,6 +2285,7 @@ function renderChrome() {
         <a role="menuitem" class="m-only-item" href="#/nights">${icon('users')}Movie Nights</a>
         ${S.user.isAdmin ? `<a role="menuitem" href="#/admin">${icon('shield')}Admin</a>` : ''}
         ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
+        <button role="menuitem" data-act="feedback">${icon('chat')}Send feedback</button>
         <button role="menuitem" data-act="signout">${icon('x')}Sign out</button>
         <span class="acct-ver">${esc(SITE_NAME)} v${VERSION}</span>
       </div></div>`
@@ -2207,7 +2338,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast', friends: 'Friends', u: 'Profile' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast', friends: 'Friends', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
 }
 
 async function boot() {

@@ -253,6 +253,14 @@ export const store = {
     catch { return { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' }; }
   },
   async saveConfig(full) { await F.setDoc(F.doc(db, 'config', 'site'), full); },
+  // Send feedback (signed in) and Contact (anyone). Only admins can read them, on the Admin page.
+  async sendFeedback(d) { await F.addDoc(F.collection(db, 'feedback'), { ...d, uid: uid(), t: Date.now() }); },
+  async sendContact(d) { await F.addDoc(F.collection(db, 'contact'), { ...d, t: Date.now() }); },
+  async listInbox(kind) {
+    const snap = await F.getDocs(F.query(F.collection(db, kind), F.orderBy('t', 'desc'), F.limit(200)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+  async clearInbox(kind, id) { await F.deleteDoc(F.doc(db, kind, id)); },
   async adminStats() {
     const c = await F.getCountFromServer(F.collection(db, 'users'));
     return { users: c.data().count };

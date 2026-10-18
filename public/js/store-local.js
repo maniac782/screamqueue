@@ -145,5 +145,9 @@ export const store = {
   async getConfig() { return structuredClone(load().config); },
   async saveConfig(patch) { Object.assign(load().config, patch); save(); },
   async adminStats() { return { users: 1 }; },
+  async sendFeedback(d) { (load().feedback ||= []).unshift({ id: 'f' + Date.now(), ...d, uid: 'demo', t: Date.now() }); save(); },
+  async sendContact(d) { (load().contact ||= []).unshift({ id: 'c' + Date.now(), ...d, t: Date.now() }); save(); },
+  async listInbox(kind) { return structuredClone(load()[kind] || []); },
+  async clearInbox(kind, id) { load()[kind] = (load()[kind] || []).filter((x) => x.id !== id); save(); },
   resetDemo() { mem = null; try { localStorage.removeItem(KEY); } catch { /* ignore */ } load(); emitUser(); },
 };

@@ -16,6 +16,32 @@ service cloud.firestore {
     }
 
     // Site settings: featured / hidden movies, subgenre fixes, poster toggle, announcement.
+    // Send feedback (signed-in people) and Contact (anyone); only admins read or clear them.
+    match /feedback/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['kind', 'msg', 'name', 'page', 'ua', 'v', 't', 'uid'])
+        && request.resource.data.uid == me()
+        && request.resource.data.kind in ['bug', 'idea', 'other']
+        && request.resource.data.msg is string && request.resource.data.msg.size() > 0 && request.resource.data.msg.size() <= 2000
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.page is string && request.resource.data.page.size() <= 300
+        && request.resource.data.ua is string && request.resource.data.ua.size() <= 300
+        && request.resource.data.v is string && request.resource.data.v.size() <= 20
+        && request.resource.data.t is int;
+      allow read, delete: if isAdmin();
+    }
+    match /contact/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['email', 'name', 'topic', 'msg', 'page', 'ua', 'v', 't'])
+        && request.resource.data.email is string && request.resource.data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$') && request.resource.data.email.size() <= 120
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.topic in ['general', 'bug', 'data', 'privacy']
+        && request.resource.data.msg is string && request.resource.data.msg.size() > 0 && request.resource.data.msg.size() <= 3000
+        && request.resource.data.page is string && request.resource.data.page.size() <= 300
+        && request.resource.data.ua is string && request.resource.data.ua.size() <= 300
+        && request.resource.data.v is string && request.resource.data.v.size() <= 20
+        && request.resource.data.t is int;
+      allow read, delete: if isAdmin();
+    }
     match /config/{doc} {
       allow read: if true;
       allow write: if isAdmin();
