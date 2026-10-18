@@ -1833,7 +1833,7 @@ async function boot() {
   $('#version').textContent = 'v' + VERSION;
   if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');
   $('#brand').textContent = SITE_NAME;
-  $('#mark').innerHTML = '<img src="icons/logo-96.png" alt="" width="38" height="38">';
+  $('#mark').innerHTML = '<img src="icons/logo-96.png" alt="" width="48" height="48">';
   [S.config] = await Promise.all([store.getConfig(), loadData()]);
   applyConfig();
   let first = true;

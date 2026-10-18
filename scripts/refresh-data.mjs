@@ -90,7 +90,7 @@ async function pages(path, params, count) {
 }
 
 // Dead Meat's "Kill Count" videos on YouTube, listed with yt-dlp (no API key needed). Returns [{ id, title }] or null.
-const DEAD_MEAT = 'https://www.youtube.com/@DeadMeatJames/videos';
+const DEAD_MEAT = 'https://www.youtube.com/@deadmeat/videos';
 let kcError = null;
 function deadMeatVideos() {
   return new Promise((done) => {
