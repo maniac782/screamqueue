@@ -32,6 +32,19 @@ service cloud.firestore {
       }
     }
 
+    // Fan-reported kill counts. Anyone can read; signed-in people set only their own number; admins verify.
+    match /kills/{movieId} {
+      allow read: if true;
+      allow write: if isAdmin() && request.resource.data.keys().hasOnly(['verified', 'by', 'at']);
+      match /votes/{uid} {
+        allow read: if true;
+        allow create, update: if signedIn() && uid == me()
+          && request.resource.data.keys().hasOnly(['n', 'at'])
+          && request.resource.data.n is int && request.resource.data.n >= 0 && request.resource.data.n <= 1000;
+        allow delete: if signedIn() && (uid == me() || isAdmin());
+      }
+    }
+
     // Movie nights: shared shortlist + voting. Knowing the night's link lets a signed-in person join.
     match /nights/{nightId} {
       allow get: if signedIn();

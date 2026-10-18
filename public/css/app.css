@@ -1008,3 +1008,18 @@ button.person img, button.person .ini { transition: box-shadow .15s; }
 .sz { display: block; border: 2px solid currentColor; border-radius: 2px; }
 .sz-s { width: 8px; height: 11px; } .sz-m { width: 11px; height: 15px; } .sz-l { width: 14px; height: 19px; }
 @media (max-width: 700px) { .size-pick { display: none; } }
+
+/* kill count box in movie details */
+.killbox { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 16px; align-items: center; padding: 14px 16px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--line); }
+.kill-num { width: 92px; height: 92px; border-radius: 18px; display: grid; place-items: center; align-content: center; gap: 2px; color: #fff;
+  background: radial-gradient(circle at 30% 25%, #ff5a6e, #b3001f 60%, #5a000f); box-shadow: 0 10px 24px -10px rgba(179, 0, 31, .8); }
+.kill-num .ic { width: 22px; height: 22px; opacity: .85; }
+.kill-num b { font-family: var(--font-display); font-size: 2rem; line-height: 1; }
+.kill-num.none { background: var(--raised); color: var(--faint); box-shadow: none; }
+.kill-body { display: grid; gap: 8px; min-width: 0; }
+.kill-body h3 { margin: 0; }
+.kill-body p { margin: 0; font-size: .9rem; }
+.kill-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kill-form label { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: .9rem; }
+.kill-form input { width: 84px; min-height: 34px; padding: 4px 10px; }
+@media (max-width: 560px) { .killbox { grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 12px; } .kill-num { width: 72px; height: 72px; border-radius: 14px; } .kill-num b { font-size: 1.6rem; } }

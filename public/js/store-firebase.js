@@ -85,6 +85,21 @@ export const store = {
   async decide(id, winner) { await F.updateDoc(F.doc(db, 'nights', id), { status: winner ? 'decided' : 'open', winner: winner ? String(winner) : null }); },
   async deleteNight(id) { await F.deleteDoc(F.doc(db, 'nights', id)); },
 
+  // Fan-reported kill counts: kills/{movieId}/votes/{uid} = { n }, and kills/{movieId} = { verified } set by an admin.
+  async getKills(id) {
+    const [top, votes] = await Promise.all([
+      F.getDoc(F.doc(db, 'kills', String(id))).catch(() => null),
+      F.getDocs(F.collection(db, 'kills', String(id), 'votes')).catch(() => null),
+    ]);
+    const list = votes ? votes.docs.map((d) => ({ uid: d.id, n: d.data().n })) : [];
+    return { votes: list.map((v) => v.n), mine: list.find((v) => v.uid === uid())?.n ?? null, verified: top?.data()?.verified ?? null };
+  },
+  async setKill(id, n) {
+    const ref = F.doc(db, 'kills', String(id), 'votes', uid());
+    if (n == null) await F.deleteDoc(ref); else await F.setDoc(ref, { n, at: Date.now() });
+  },
+  async verifyKill(id, n) { await F.setDoc(F.doc(db, 'kills', String(id)), { verified: n, by: uid(), at: Date.now() }); },
+
   async getConfig() {
     try { return { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '', ...((await F.getDoc(F.doc(db, 'config', 'site'))).data() || {}) }; }
     catch { return { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' }; }

@@ -73,6 +73,16 @@ export const store = {
   async decide(id, winner) { const n = load().nights[id]; n.status = winner ? 'decided' : 'open'; n.winner = winner ? String(winner) : null; save(); emitNight(id); },
   async deleteNight(id) { delete load().nights[id]; save(); },
 
+  async getKills(id) {
+    const k = (load().kills ||= {})[id] || { votes: { pal1: 13, pal2: 12 }, verified: null };
+    return { votes: Object.values(k.votes), mine: k.votes.demo ?? null, verified: k.verified };
+  },
+  async setKill(id, n) {
+    const all = (load().kills ||= {}); const k = all[id] ||= { votes: { pal1: 13, pal2: 12 }, verified: null };
+    if (n == null) delete k.votes.demo; else k.votes.demo = n; save();
+  },
+  async verifyKill(id, n) { const all = (load().kills ||= {}); (all[id] ||= { votes: {}, verified: null }).verified = n; save(); },
+
   async getConfig() { return structuredClone(load().config); },
   async saveConfig(patch) { Object.assign(load().config, patch); save(); },
   async adminStats() { return { users: 1 }; },

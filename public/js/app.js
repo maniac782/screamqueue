@@ -170,6 +170,37 @@ function castHTML(m, cr) {
     return c.i ? `<button class="person" data-act="person" data-k="${c.i}" aria-label="${esc(c.n)}: more horror movies">${inner}</button>` : `<div class="person">${inner}</div>`;
   }).join('')}</div></div>`;
 }
+// ---------- kill counts: fan-reported numbers + Dead Meat's "Kill Count" videos ----------
+const killCache = new Map();
+const median = (a) => { const s = [...a].sort((x, y) => x - y); const n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : Math.round((s[n / 2 - 1] + s[n / 2]) / 2)) : null; };
+function killCountUrl(m) { return `https://www.youtube.com/results?search_query=${encodeURIComponent(`Dead Meat Kill Count ${m.t} ${m.y || ''}`)}`; }
+function killHTML(m, k) {
+  const n = k ? (k.verified ?? median(k.votes)) : null;
+  const fans = k?.votes.length || 0;
+  const lo = fans ? Math.min(...k.votes) : 0, hi = fans ? Math.max(...k.votes) : 0;
+  const editing = S.killEdit === String(m.id);
+  const mine = k?.mine;
+  let you = '';
+  if (!S.user) you = `<a href="#/signin" data-act="gosignin" class="linkish">Sign in to add your count</a>`;
+  else if (editing || mine == null) you = `<form class="kill-form" data-id="${m.id}" novalidate><label>${mine == null ? 'Know the count?' : 'Your count'} <input type="number" name="n" min="0" max="1000" step="1" inputmode="numeric" value="${mine ?? ''}" placeholder="0" required></label><button class="btn small primary" type="submit">${mine == null ? 'Add it' : 'Save'}</button>${mine != null ? `<button class="btn small ghost" type="button" data-act="killclear" data-id="${m.id}">Remove mine</button>` : ''}</form>`;
+  else you = `<span class="muted">You said ${mine}.</span> <button class="linkish" data-act="killedit" data-id="${m.id}">Change</button>`;
+  const admin = S.user?.isAdmin && n != null ? `<button class="btn small ghost" data-act="killverify" data-id="${m.id}" data-k="${k.verified != null ? '' : n}">${k.verified != null ? 'Unverify' : `Verify as ${n}`}</button>` : '';
+  return `<div class="killbox">
+    <div class="kill-num ${n == null ? 'none' : ''}">${icon('skull')}<b>${n ?? '?'}</b></div>
+    <div class="kill-body">
+      <h3>Kill count</h3>
+      <p class="muted">${k == null ? 'Loading…' : n == null ? 'No one has added a count yet.' : k.verified != null ? `Verified${fans ? `. ${fans} fan${fans === 1 ? '' : 's'} reported` : ''}` : `Reported by ${fans} fan${fans === 1 ? '' : 's'}${hi > lo ? ` (answers range ${lo} to ${hi})` : ''}`}</p>
+      <div class="kill-you">${you}</div>
+      <div class="row" style="gap:8px"><a class="btn small" href="${esc(killCountUrl(m))}" target="_blank" rel="noopener">${icon('play')}Watch the Kill Count</a>${admin}</div>
+    </div></div>`;
+}
+function killBlock(m) {
+  const k = killCache.get(String(m.id));
+  if (!k && store.getKills) store.getKills(m.id).then((x) => { killCache.set(String(m.id), x); const el = document.querySelector(`#detail[data-id="${m.id}"] .kill-wrap`); if (el) el.innerHTML = killHTML(m, x); }).catch(() => {});
+  return `<div class="kill-wrap">${killHTML(m, k || null)}</div>`;
+}
+async function reloadKills(id) { killCache.delete(String(id)); S.killEdit = null; refreshDetail(); }
+
 function castBlock(m) {
   const have = castCache.get(String(m.id));
   if (have) return `<div class="cast-wrap">${castHTML(m, have)}</div>`;
@@ -1102,6 +1133,7 @@ function openDetail(id) {
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
       ${castBlock(m)}
+      ${killBlock(m)}
       <div class="signals">
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
@@ -1214,6 +1246,9 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
+  killedit(el) { S.killEdit = el.dataset.id; const m = S.byId.get(el.dataset.id); const w = $('#detail .kill-wrap'); if (w && m) w.innerHTML = killHTML(m, killCache.get(el.dataset.id)); w?.querySelector('input')?.focus(); },
+  async killclear(el) { await store.setKill(el.dataset.id, null); toast('Removed your kill count', 'x'); await reloadKills(el.dataset.id); },
+  async killverify(el) { await store.verifyKill(el.dataset.id, el.dataset.k === '' ? null : Number(el.dataset.k)); toast(el.dataset.k === '' ? 'Verification removed' : 'Kill count verified', 'check'); await reloadKills(el.dataset.id); },
   psize(el) {
     try { localStorage.setItem('sq-psize', el.dataset.k); } catch { /* ignore */ }
     applyPosterSize();
@@ -1690,6 +1725,15 @@ document.addEventListener('change', async (e) => {
 });
 
 document.addEventListener('submit', async (e) => {
+  if (e.target.classList?.contains('kill-form')) {
+    e.preventDefault();
+    if (!needUser()) return;
+    const id = e.target.dataset.id; const n = Math.round(Number(new FormData(e.target).get('n')));
+    if (!Number.isFinite(n) || n < 0 || n > 1000) { toast('Enter a number from 0 to 1000', 'x'); return; }
+    try { await store.setKill(id, n); toast(`Thanks! Kill count: ${n}`, 'skull'); await reloadKills(id); }
+    catch (err) { console.error(err); toast('Could not save that. Try again.', 'x'); }
+    return;
+  }
   const form = e.target; if (!form.dataset.form) return;
   e.preventDefault();
   const v = Object.fromEntries(new FormData(form));
