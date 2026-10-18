@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: python3 scripts/avatar-candidates.py
+      - run: if [ -f avatar-candidates/picks.json ]; then python3 scripts/avatar-fetch.py; else python3 scripts/avatar-candidates.py; fi
       - name: Commit candidates
         run: |
           git config user.name "github-actions[bot]"
