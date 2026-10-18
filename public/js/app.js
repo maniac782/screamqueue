@@ -1,6 +1,7 @@
 import { VERSION, SITE_NAME, TAGLINE, DEMO, VOTES_PER_PERSON } from './config.js';
 import { icon } from './icons.js';
 import { art, SG_HUE } from './art.js';
+import { FAMILIES, sgIcon, familyOf } from './sg.js';
 
 const { store } = globalThis.SQ_STORE
   ? { store: globalThis.SQ_STORE }
@@ -39,13 +40,22 @@ const today = () => new Date().toISOString().slice(0, 10);
 const avatarHue = (name) => [...(name || '')].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-function toast(msg, ic = 'check') {
+function toast(msg, ic = 'check', undo = null) {
   document.querySelectorAll('.toast').forEach((x) => x.remove());
   const t = document.createElement('div');
   t.className = 'toast'; t.setAttribute('role', 'status');
-  t.innerHTML = `${icon(ic)}<span>${esc(msg)}</span>`;
+  t.innerHTML = `${icon(ic)}<span>${esc(msg)}</span>${undo ? '<button class="toast-undo" type="button">Undo</button>' : ''}`;
+  if (undo) t.querySelector('.toast-undo').addEventListener('click', async () => { t.remove(); try { await undo(); } catch (e) { console.error(e); } });
   document.body.append(t);
-  setTimeout(() => t.remove(), 2600);
+  setTimeout(() => t.remove(), undo ? 5000 : 2600);
+}
+// Put a movie back the way it was before a queue/seen tap.
+function undoTo(id, prev) {
+  return async () => {
+    if (prev) { S.mine.set(String(id), { ...prev }); const { at, ...rest } = prev; await store.setMovie(id, rest); }
+    else { S.mine.delete(String(id)); await store.removeMovie(id); }
+    await refreshAll(); toast('Undone', 'check');
+  };
 }
 
 function needUser() {
@@ -158,29 +168,80 @@ function serviceLogos(m, max = 3) {
 }
 function card(m) {
   const sg = m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
-  return `<button class="card" data-act="open" data-id="${m.id}" aria-label="${esc(m.t)}${m.y ? ` (${m.y})` : ''}">
-    ${poster(m)}
-    <span class="meta"><span class="mt">${esc(m.t)}${m.y ? ` <span class="yr">(${m.y})</span>` : ''}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
-  </button>`;
+  const name = `${m.t}${m.y ? ` (${m.y})` : ''}`;
+  return `<div class="card" data-id="${m.id}">
+    <button class="card-open" data-act="open" data-id="${m.id}" aria-label="${esc(name)}">
+      ${poster(m)}
+      <span class="meta"><span class="mt">${esc(m.t)}${m.y ? ` <span class="yr">(${m.y})</span>` : ''}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
+    </button>
+    ${quickBar(m, name)}
+  </div>`;
+}
+// Quick actions on a poster: shown on hover/focus with a mouse, behind a + button on touch screens.
+function quickBar(m, name) {
+  const st = status(m.id);
+  const q = st?.status === 'queue', seen = st?.status === 'seen';
+  return `<button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
+    <div class="qa" role="group" aria-label="Quick actions for ${esc(name)}">
+      <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon(q ? 'check' : 'bookmark')}</button>
+      <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen}" title="${seen ? 'Seen' : 'Mark as seen'}" aria-label="${seen ? 'Seen' : 'Mark as seen'}">${icon('eye')}</button>
+      <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
+    </div>
+    <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div>`;
 }
 
 let shelfN = 0;
 function shelf(title, desc, list, emptyText, more = '') {
   const id = 'rail' + (++shelfN);
+  const plain = String(title).replace(/<[^>]+>/g, '');
   return `<section class="shelf">
     <div class="shelf-head"><div><h2>${title}</h2>${desc ? `<p class="muted">${desc}</p>` : ''}</div>
-      <div class="shelf-nav">${more}${list.length > 4 ? `<button class="icon-btn" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll back">${icon('left')}</button><button class="icon-btn" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll forward">${icon('right')}</button>` : ''}</div></div>
-    ${list.length ? `<div class="track" id="${id}">${list.map(card).join('')}</div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
+      ${more ? `<div class="shelf-nav">${more}</div>` : ''}</div>
+    ${list.length ? `<div class="rail" data-start="1">
+      <button class="rail-btn prev" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll ${esc(plain)} back" tabindex="-1">${icon('left')}</button>
+      <div class="track" id="${id}">${list.map(card).join('')}</div>
+      <button class="rail-btn next" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll ${esc(plain)} forward" tabindex="-1">${icon('right')}</button>
+    </div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
 }
+// Arrows hide at either end of a row (and both hide when everything fits).
+function updateRail(rail) {
+  const t = rail.querySelector('.track'); if (!t) return;
+  const max = t.scrollWidth - t.clientWidth - 4;
+  rail.toggleAttribute('data-start', t.scrollLeft <= 4);
+  rail.toggleAttribute('data-end', t.scrollLeft >= max);
+}
+function updateRails() { document.querySelectorAll('.rail').forEach(updateRail); }
+document.addEventListener('scroll', (e) => { const r = e.target.closest?.('.rail'); if (r) updateRail(r); }, true);
+window.addEventListener('resize', () => requestAnimationFrame(updateRails));
 
 function chip(act, k, label, pressed, extra = '') {
   return `<button class="chip" data-act="${act}" data-k="${k}" aria-pressed="${!!pressed}" ${extra}><span class="tick">${icon('check')}</span>${label}</button>`;
 }
 function sgChip(act, s, pressed) {
-  return `<button class="chip" data-act="${act}" data-k="${s.key}" aria-pressed="${!!pressed}" style="--h:${hue(s.key)}"><span class="sw"></span><span class="tick">${icon('check')}</span>${esc(s.label)}</button>`;
+  return `<button class="chip sg" data-act="${act}" data-k="${s.key}" aria-pressed="${!!pressed}" style="--h:${hue(s.key)}">${sgIcon(s.key)}<span class="tick">${icon('check')}</span>${esc(s.label)}</button>`;
 }
-function sgTag(k) { return `<span class="tag" style="--h:${hue(k)}"><span class="sw"></span>${esc(S.sgLabel.get(k) || k)}</span>`; }
+function sgTag(k) { return `<span class="tag" style="--h:${hue(k)}">${sgIcon(k)}${esc(S.sgLabel.get(k) || k)}</span>`; }
+// Subgenres grouped into families: a row of family tabs, then the chips for the open family.
+// Picks in other families stay on and show as a count on their tab.
+S.fam = {};
+function sgPicker(act, set) {
+  const subs = new Map(S.data.subgenres.map((s) => [s.key, s]));
+  const fams = FAMILIES.map((f) => ({ ...f, list: f.sg.map((k) => subs.get(k)).filter(Boolean) }));
+  const stray = S.data.subgenres.filter((s) => !FAMILIES.some((f) => f.sg.includes(s.key)));
+  if (stray.length) fams[fams.length - 1].list.push(...stray);
+  const open = S.fam[act] || (set.size ? familyOf([...set][0]).key : fams[0].key);
+  S.fam[act] = open;
+  const cur = fams.find((f) => f.key === open) || fams[0];
+  return `<div class="sgp" data-picker="${act}">
+    <div class="sgp-tabs" role="tablist" aria-label="Subgenre families">${fams.map((f) => {
+      const n = f.list.filter((s) => set.has(s.key)).length;
+      return `<button role="tab" class="sgp-tab" title="${esc(f.label)}" data-act="sgfam" data-picker="${act}" data-k="${f.key}" aria-selected="${f.key === cur.key}">${sgIcon(f.icon)}<span>${esc(f.label)}</span>${n ? `<b class="sgp-n">${n}</b>` : ''}</button>`;
+    }).join('')}</div>
+    <div class="chips sgp-chips" role="tabpanel">${cur.list.map((s) => sgChip(act, s, set.has(s.key))).join('')}</div>
+  </div>`;
+}
+function redrawPicker(act, set) { const el = document.querySelector(`.sgp[data-picker="${act}"]`); if (el) el.outerHTML = sgPicker(act, set); }
 const fmtRating = (r) => (Number.isInteger(r) ? String(r) : r.toFixed(1));
 function skullRow(r) {
   if (!r) return '<span class="faint">Not rated</span>';
@@ -304,7 +365,7 @@ views.browse = () => {
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
     </div>
-    <div class="filter-row"><span>Subgenre</span><div class="chips">${S.data.subgenres.map((s) => sgChip('fsg', s, f.sg.has(s.key))).join('')}</div></div>
+    <div class="filter-row"><span>Subgenre</span>${sgPicker('fsg', f.sg)}</div>
     <div class="filter-row"><span>How known</span><div class="chips">${S.data.tiers.map((t) => chip('ftier', t.key, esc(t.label), f.tier.has(t.key))).join('')}</div></div>
     <div class="filter-row"><span>Show</span><div class="chips">
       ${chip('fmine', '', 'On my services', f.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
@@ -367,7 +428,7 @@ views.pick = () => {
   <div class="pick-layout">
     <div class="panel filters">
       <div class="stack" style="gap:10px"><h3>Mood</h3><div class="seg">${MOODS.map(([k, l, d]) => `<button data-act="pmix" data-k="${k}" aria-pressed="${p.mix === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>
-      <div class="stack" style="gap:10px"><h3>Any of these subgenres</h3><div class="chips">${S.data.subgenres.map((s) => sgChip('psg', s, p.sg.has(s.key))).join('')}</div></div>
+      <div class="stack" style="gap:10px"><h3>Any of these subgenres</h3>${sgPicker('psg', p.sg)}</div>
       <div class="stack" style="gap:10px"><h3>Limits</h3><div class="chips">
         ${chip('pmine', '', 'On my services', p.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
         ${chip('pqueue', '', 'From my queue', p.queueOnly, S.user ? '' : 'disabled')}
@@ -799,7 +860,7 @@ function badgesSection(seen, counts) {
     <div class="mastery">${S.data.subgenres.map((s) => {
       const n = counts[s.key] || 0; const { cur, next } = levelFor(n);
       return `<button class="mast" data-act="sgbrowse" data-k="${s.key}" style="--h:${hue(s.key)}">
-        <span class="hd"><span style="font-family:var(--font-body);font-weight:700">${esc(s.label)}</span><span>${n}</span></span>
+        <span class="hd"><span class="mn">${sgIcon(s.key)}${esc(s.label)}</span><span>${n}</span></span>
         <small>${cur ? esc(cur[1]) : 'Not started'}${next ? `. ${next[0] - n} to ${next[1]}` : '. Maxed out'}</small>
         ${prog(n, next ? next[0] : Math.max(n, 1), hue(s.key))}</button>`;
     }).join('')}</div>
@@ -840,13 +901,14 @@ function renderQuick() {
     const tag = st?.status === 'queue' ? `<span class="qs-tag q">${icon('bookmark')}Queued</span>` : everSeen(m) ? `<span class="qs-tag s">${icon('skull')}Survived</span>` : '';
     return `<button class="qs-row" role="option" data-act="open" data-id="${m.id}" data-i="${i}">${thumb(m)}<span class="nm"><b>${esc(m.t)}</b><small>${[m.y, m.dir[0], servicesText(m)].filter(Boolean).map(esc).join(' · ')}</small></span>${tag}</button>`;
   }).join('');
-  box.innerHTML = `${sg ? `<button class="qs-row qs-sg" data-act="sgbrowse" data-k="${sg.key}" style="--h:${hue(sg.key)}"><span class="sgdot"></span><span class="nm"><b>Browse ${esc(sg.label)}</b><small>Subgenre</small></span></button>` : ''}
+  box.innerHTML = `${sg ? `<button class="qs-row qs-sg" data-act="sgbrowse" data-k="${sg.key}" style="--h:${hue(sg.key)}"><span class="sgdot">${sgIcon(sg.key)}</span><span class="nm"><b>Browse ${esc(sg.label)}</b><small>Subgenre</small></span></button>` : ''}
     ${rows || '<p class="qs-empty">No horror movie on the site matches that.</p>'}
     ${total > list.length ? `<button class="qs-more" data-act="qsall">See all ${total} results</button>` : ''}`;
   box.hidden = false; inp.setAttribute('aria-expanded', 'true');
   S.qsIdx = -1;
 }
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { const c = document.querySelector('.card.qa-on'); if (c) { const b = c.querySelector('.qa-rate:not([hidden]) .qa-x') || c.querySelector('.qa-plus'); c.classList.remove('qa-on', 'rating'); c.querySelector('.qa-rate').hidden = true; c.querySelector('.card-open')?.focus(); return; } }
   if (e.target.id !== 'qs') return;
   const rows = [...document.querySelectorAll('#qs-list .qs-row, #qs-list .qs-more')];
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -996,17 +1058,36 @@ async function patchConfig(fn) { fn(S.config); applyConfig(); await route(true);
 const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
-  scroll(el) { const t = document.getElementById(el.dataset.target); if (t) t.scrollBy({ left: Number(el.dataset.k) * t.clientWidth * 0.85, behavior: reduceMotion() ? 'auto' : 'smooth' }); },
+  scroll(el) {
+    const t = document.getElementById(el.dataset.target); if (!t) return;
+    const c = t.firstElementChild; const step = c ? c.getBoundingClientRect().width + parseFloat(getComputedStyle(t).columnGap || 0) : t.clientWidth;
+    const n = Math.max(1, Math.floor((t.clientWidth + 4) / step));
+    t.scrollBy({ left: Number(el.dataset.k) * n * step, behavior: reduceMotion() ? 'auto' : 'smooth' });
+  },
+  qaopen(el) {
+    const c = el.closest('.card'); const open = !c.classList.contains('qa-on');
+    document.querySelectorAll('.card.qa-on').forEach((x) => { x.classList.remove('qa-on', 'rating'); x.querySelector('.qa-plus')?.setAttribute('aria-expanded', 'false'); x.querySelector('.qa-rate').hidden = true; });
+    if (open) { c.classList.add('qa-on'); el.setAttribute('aria-expanded', 'true'); }
+  },
+  qarate(el) {
+    if (!needUser()) return;
+    const c = el.closest('.card'); c.classList.add('rating', 'qa-on'); const r = c.querySelector('.qa-rate'); r.hidden = false;
+    r.querySelector('button')?.focus();
+  },
+  qaclose(el) { const c = el.closest('.card'); c.classList.remove('rating', 'qa-on'); c.querySelector('.qa-rate').hidden = true; },
   async queue(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
+    const prev = st ? { ...st } : null;
     const r = rectOf(el);
-    if (st?.status === 'queue') { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); toast('Removed from your queue', 'x'); }
-    else {
+    if (st?.status === 'queue') {
+      if (st.wasSeen) await setStatus(el.dataset.id, { status: 'seen' }); else { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); }
+      toast('Removed from your queue', 'x', undoTo(el.dataset.id, prev));
+    } else {
       markJust(el.dataset.id);
       await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
       burst(null, 'pop', r); flyTo(r, QUEUE_TARGETS, 'bookmark');
-      toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark');
+      toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark', undoTo(el.dataset.id, prev));
     }
     await refreshAll();
     if (!st || st.status !== 'queue') ping($('#detail').open ? $('#detail [data-act="queue"]') : null);
@@ -1015,22 +1096,25 @@ const actions = {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     if (st?.status === 'seen') return;
+    const prev = st ? { ...st } : null;
     const r = rectOf(el);
     markJust(el.dataset.id);
-    await setStatus(el.dataset.id, { status: 'seen', rating: 0, seenOn: today() });
+    await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today() });
     burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); flyTo(r, COUNT_TARGETS, 'skull');
-    toast('Body Count +1. Rate it with the skulls', 'skull');
+    toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev));
     await refreshAll();
     const sk = $('#detail').open && $('#detail .skulls'); if (sk && canFx()) sk.animate([{ opacity: 0, transform: 'translateY(8px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.4,.64,1)' });
   },
   async rate(el) {
     let k = Number(el.dataset.k);
-    if ((status(el.dataset.id)?.rating || 0) === k) k = 0; // tap your current rating again to clear it
-    await setStatus(el.dataset.id, { status: 'seen', rating: k });
+    const st = status(el.dataset.id);
+    if ((st?.rating || 0) === k) k = 0; // tap your current rating again to clear it
+    await setStatus(el.dataset.id, st?.status === 'seen' || st?.wasSeen ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
+    if (el.closest('.qa-rate')) toast(k ? `Rated ${fmtRating(k)} of 5${st?.status === 'seen' || st?.wasSeen ? '' : '. Added to your Body Count'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
     await refreshAll();
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
   },
-  sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.f.hideSeen = false; location.hash = '#/browse'; },
+  sgbrowse(el) { S.f.sg = new Set([el.dataset.k]); S.fam.fsg = familyOf(el.dataset.k).key; S.f.hideSeen = false; location.hash = '#/browse'; },
   qsall() { const q = $('#qs')?.value.trim() || ''; Object.assign(S.f, { q, sg: new Set(), tier: new Set(), decade: '', provider: '', mine: false, limit: 60 }); location.hash = '#/browse'; },
   bctab(el) { S.bcTab = el.dataset.k; route(true, true); },
   ckmode(el) { S.ckAll = el.dataset.k === 'all'; route(true); },
@@ -1044,13 +1128,14 @@ const actions = {
   },
   async forget(el) { S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); refreshAll(); },
   more() { S.f.limit += 60; renderResults(); },
-  fsg(el) { toggle(S.f.sg, el.dataset.k); el.setAttribute('aria-pressed', S.f.sg.has(el.dataset.k)); S.f.limit = 60; renderResults(); },
+  fsg(el) { toggle(S.f.sg, el.dataset.k); redrawPicker('fsg', S.f.sg); S.f.limit = 60; renderResults(); },
+  sgfam(el) { S.fam[el.dataset.picker] = el.dataset.k; redrawPicker(el.dataset.picker, el.dataset.picker === 'psg' ? S.p.sg : S.f.sg); document.querySelector(`.sgp[data-picker="${el.dataset.picker}"] [data-k="${el.dataset.k}"]`)?.focus(); },
   ftier(el) { toggle(S.f.tier, el.dataset.k); el.setAttribute('aria-pressed', S.f.tier.has(el.dataset.k)); renderResults(); },
   fmine(el) { S.f.mine = !S.f.mine; el.setAttribute('aria-pressed', S.f.mine); renderResults(); },
   fseen(el) { S.f.hideSeen = !S.f.hideSeen; el.setAttribute('aria-pressed', S.f.hideSeen); renderResults(); },
   fclear() { Object.assign(S.f, { q: '', sg: new Set(), tier: new Set(), mine: false, decade: '', provider: '', limit: 60 }); route(true); },
   pmix(el) { S.p.mix = el.dataset.k; document.querySelectorAll('[data-act="pmix"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === S.p.mix)); },
-  psg(el) { toggle(S.p.sg, el.dataset.k); el.setAttribute('aria-pressed', S.p.sg.has(el.dataset.k)); },
+  psg(el) { toggle(S.p.sg, el.dataset.k); redrawPicker('psg', S.p.sg); },
   pmine(el) { S.p.mine = !S.p.mine; el.setAttribute('aria-pressed', S.p.mine); },
   pqueue(el) { S.p.queueOnly = !S.p.queueOnly; el.setAttribute('aria-pressed', S.p.queueOnly); },
   repick() {
@@ -1155,6 +1240,7 @@ document.addEventListener('click', async (e) => {
   try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.', 'x'); }
 });
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
+document.addEventListener('click', (e) => { if (!e.target.closest('.card.qa-on')) document.querySelectorAll('.card.qa-on').forEach((x) => { x.classList.remove('qa-on', 'rating'); x.querySelector('.qa-rate').hidden = true; x.querySelector('.qa-plus')?.setAttribute('aria-expanded', 'false'); }); }, true);
 
 document.addEventListener('input', (e) => {
   const el = e.target;
@@ -1268,7 +1354,12 @@ async function route(keepScroll, quiet) {
   const y = window.scrollY;
   const html = await view(arg);
   const after = S.after; S.after = null;
-  const swap = () => { $('#main').innerHTML = html; after?.(); window.scrollTo(0, keepScroll ? y : 0); };
+  const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
+  const swap = () => {
+    $('#main').innerHTML = html; after?.();
+    if (rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
+    window.scrollTo(0, keepScroll ? y : 0); updateRails();
+  };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for me', queue: 'My queue', nights: 'Movie nights', night: 'Movie night', settings: 'Settings', admin: 'Admin', signin: 'Sign in', about: 'How it works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist' }[name] || '') : ''}`;
