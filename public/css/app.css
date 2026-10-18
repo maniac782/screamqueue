@@ -893,3 +893,20 @@ html, body { overscroll-behavior-y: none; }
 
 /* re-renders after a tap (queue, seen, rate) shouldn't replay page entrance animations */
 #main.quiet .hero .art, #main.quiet .hero-body > *, #main.quiet .sgp-chips .chip { animation: none; }
+
+/* ---------- phones: rows sized like the Netflix app (3 full posters plus most of a 4th) ---------- */
+@media (max-width: 700px) {
+  .rail { --col: 24vw; }
+  .track { gap: 6px; }
+  .grid { gap: 14px 6px; }
+  .poster { border-radius: 6px; box-shadow: none; }
+  .shelf-head h2 { font-size: 1.15rem; }
+  .card .meta { padding-inline: 1px; }
+  .card .meta .mt { font-size: .74rem; }
+  .card .meta .l2 { font-size: .62rem; }
+  .badge-tier { top: 4px; left: 4px; height: 17px; padding: 0 5px; font-size: .54rem; }
+  .qa-plus { width: 28px; height: 28px; right: 4px; top: calc(150cqw - 32px); background: rgba(12, 12, 16, .6); }
+  .qa-plus .ic { width: 16px; height: 16px; }
+  .qa { bottom: calc(100% - 150cqw + 36px); right: 3px; }
+  .qa-b { width: 32px; height: 32px; }
+}
