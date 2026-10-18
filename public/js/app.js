@@ -383,7 +383,8 @@ views.tonight = () => {
   const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 18);
   const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
   const inTheaters = pool.filter((m) => theaterStatus(m) === 'in').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
-  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon').sort((a, b) => a.th.localeCompare(b.th)).slice(0, 18);
+  // the 18 most talked-about upcoming releases, then shown soonest first
+  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon').sort((a, b) => b.buzz - a.buzz).slice(0, 18).sort((a, b) => a.th.localeCompare(b.th));
   const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach).slice(0, 18);
   const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a))).slice(0, 18);
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
