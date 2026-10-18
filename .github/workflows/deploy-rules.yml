@@ -1,0 +1,31 @@
+name: Publish Firestore rules
+
+on:
+  push:
+    branches: [main]
+    paths: ['firestore.rules']
+  workflow_dispatch:
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish firestore.rules
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SCREAMQUEUE }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          set +e
+          npx -y firebase-tools@latest deploy --only firestore:rules --project screamqueue --non-interactive 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          code=${PIPESTATUS[0]}
+          rm -f "$RUNNER_TEMP/sa.json"
+          if [ "$code" != "0" ]; then
+            msg=$(grep -v '^npm warn' "$RUNNER_TEMP/deploy.log" | tail -15 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Rules deploy failed::$msg"
+          fi
+          exit $code
