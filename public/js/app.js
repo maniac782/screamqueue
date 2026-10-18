@@ -186,7 +186,7 @@ function quickBar(m, name) {
   return `<button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
     <div class="qa" role="group" aria-label="Quick actions for ${esc(name)}">
       <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon('bookmark', q ? 'filled' : '')}</button>
-      <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen}" title="${seen ? 'Seen' : 'Mark as seen'}" aria-label="${seen ? 'Seen' : 'Mark as seen'}">${icon('eye')}</button>
+      <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen}" title="${seen ? 'Seen. Click to unmark' : 'Mark as seen'}" aria-label="${seen ? 'Unmark as seen' : 'Mark as seen'}">${icon('eye')}</button>
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
     </div>
     <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div>`;
@@ -964,7 +964,7 @@ function openDetail(id) {
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
       </div>
-      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>
+      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
@@ -1108,8 +1108,14 @@ const actions = {
   async seen(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
-    if (st?.status === 'seen') return;
     const prev = st ? { ...st } : null;
+    if (st?.status === 'seen') { // tap again to take it back off your Body Count
+      await unstamp(el.dataset.id);
+      S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id);
+      toast('Removed from your Body Count', 'x', undoTo(el.dataset.id, prev));
+      await refreshAll();
+      return;
+    }
     const r = rectOf(el);
     markJust(el.dataset.id);
     await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today() });
