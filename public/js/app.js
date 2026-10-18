@@ -249,6 +249,14 @@ function serviceLogos(m, max = 3) {
     : `<span class="svc-logo txt" title="${esc(g.label)}">${esc(g.label.slice(0, 2))}</span>`).join('')
     + (list.length > max ? `<span class="svc-more">+${list.length - max}</span>` : '');
 }
+// Poster size for grids on bigger screens (Browse, My Queue, Body Count, cast pages). Saved per browser.
+const SIZES = [['s', 'Small'], ['m', 'Medium'], ['l', 'Large']];
+function posterSize() { try { return localStorage.getItem('sq-psize') || 'm'; } catch { return 'm'; } }
+function applyPosterSize() { document.documentElement.dataset.psize = posterSize(); }
+function sizePicker() {
+  const cur = posterSize();
+  return `<div class="size-pick" role="group" aria-label="Poster size">${SIZES.map(([k, l]) => `<button data-act="psize" data-k="${k}" aria-pressed="${cur === k}" title="${l} posters" aria-label="${l} posters"><span class="sz sz-${k}"></span></button>`).join('')}</div>`;
+}
 function card(m, opts) {
   const sub = typeof opts === 'object' && opts?.sub;
   const sg = sub || m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
@@ -443,7 +451,7 @@ function filtered() {
 function renderResults() {
   const list = filtered();
   const el = $('#results'); if (!el) return;
-  setHTML(el, `<p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>
+  setHTML(el, `<div class="results-head"><p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>${sizePicker()}</div>
     ${list.length ? `<div class="grid">${list.slice(0, S.f.limit).map(card).join('')}</div>` : `<div class="empty">${icon('search')}<span>Nothing matches all of those filters. Try removing a subgenre.</span></div>`}
     ${list.length > S.f.limit ? '<div class="row" style="justify-content:center"><button class="btn" data-act="more">Show more</button></div>' : ''}`);
 }
@@ -1206,6 +1214,11 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
+  psize(el) {
+    try { localStorage.setItem('sq-psize', el.dataset.k); } catch { /* ignore */ }
+    applyPosterSize();
+    document.querySelectorAll('.size-pick [data-act="psize"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.k === el.dataset.k));
+  },
   person(el) {
     // Remember where we came from (page, scroll spot, and the movie that was open) so Back can return there.
     const d = $('#detail');
@@ -1769,6 +1782,7 @@ async function route(keepScroll, quiet) {
 }
 
 async function boot() {
+  applyPosterSize();
   try { const t = localStorage.getItem('sq-theme'); if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t); } catch { /* ignore */ }
   $('#version').textContent = 'v' + VERSION;
   if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');

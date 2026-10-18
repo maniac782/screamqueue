@@ -366,7 +366,11 @@ button.card { all: unset; box-sizing: border-box; cursor: pointer; display: grid
 .track::-webkit-scrollbar { display: none; }
 .track > * { scroll-snap-align: start; }
 @media (max-width: 860px) { .shelf-nav .icon-btn { display: none; } }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(156px, 44vw), 1fr)); gap: 22px 18px; }
+.grid { --gmin: 220px; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(var(--gmin), 44vw), 1fr)); gap: 24px 20px; }
+@media (min-width: 701px) {
+  :root[data-psize="s"] .grid { --gmin: 150px; gap: 20px 16px; }
+  :root[data-psize="l"] .grid { --gmin: 260px; gap: 28px 24px; }
+}
 .empty { border: 1px dashed var(--line-2); border-radius: var(--r-lg); padding: 28px; color: var(--muted); text-align: center; display: grid; gap: 10px; justify-items: center; }
 .empty .ic { width: 28px; height: 28px; color: var(--faint); }
 
@@ -993,3 +997,14 @@ button.person img, button.person .ini { transition: box-shadow .15s; }
 .rel-pill.in { background: linear-gradient(135deg, #ff3b54, #ff7a45); }
 .rel-pill.soon { background: #6c4bd6; }
 .t-th-in { --tc: #ff7a45; } .t-th-soon { --tc: #a98bff; }
+
+/* poster size picker (bigger screens only; phones use a fixed 3-across grid) */
+.results-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.size-pick { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); }
+.size-pick button { all: unset; cursor: pointer; width: 32px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--muted); }
+.size-pick button:hover { color: var(--fg); }
+.size-pick button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line-2); }
+.size-pick button:focus-visible { outline: 2px solid var(--accent); }
+.sz { display: block; border: 2px solid currentColor; border-radius: 2px; }
+.sz-s { width: 8px; height: 11px; } .sz-m { width: 11px; height: 15px; } .sz-l { width: 14px; height: 19px; }
+@media (max-width: 700px) { .size-pick { display: none; } }
