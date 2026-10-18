@@ -196,7 +196,7 @@ let shelfN = 0;
 function shelf(title, desc, list, emptyText, more = '') {
   const id = 'rail' + (++shelfN);
   const plain = String(title).replace(/<[^>]+>/g, '');
-  return `<section class="shelf">
+  return `<section class="shelf" data-key="${esc(plain.split(':')[0].trim().toLowerCase())}">
     <div class="shelf-head"><div><h2>${title}</h2>${desc ? `<p class="muted">${desc}</p>` : ''}</div>
       ${more ? `<div class="shelf-nav">${more}</div>` : ''}</div>
     ${list.length ? `<div class="rail" data-start="1">
@@ -1268,23 +1268,49 @@ async function refreshAll() {
   refreshDetail();
   if (location.hash.startsWith('#/night/')) return;
   await flip(async () => {
-    if (location.hash.startsWith('#/bodycount') && $('#bc-results')) { renderBodyList(); renderChrome(); return; }
     await route(true, true);
   });
 }
 
 // Re-render a region but keep any card (or hero) whose markup didn't change, so its poster image
 // isn't torn down and reloaded. Swapping everything made phones flash after every tap.
-let reusePool = null; // during a full re-render, old cards from the whole page so nested regions (Browse results) can reuse them too
-function collectReusable(root, into = new Map()) {
-  root.querySelectorAll('.card[data-id], .hero').forEach((n) => { const k = n.outerHTML; if (!into.has(k)) into.set(k, []); into.get(k).push(n); });
-  return into;
+// Update a region in place instead of replacing it: elements that didn't change are left alone,
+// changed ones get their attributes/text patched, and cards are matched by movie id so a row losing
+// one card keeps every other card (and its already-decoded poster). Rebuilding everything made phones flash.
+const keyOf = (n) => n.nodeType === 1 ? (n.dataset.key ? 'k:' + n.dataset.key : n.matches('.card[data-id]') ? 'c:' + n.dataset.id : null) : null;
+function syncAttrs(o, n) {
+  for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
+  for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
 }
-function setHTML(host, html) {
-  const old = reusePool || collectReusable(host);
+function morphKids(o, n, skip) {
+  const olds = [...o.childNodes];
+  const keyed = new Map(); const loose = [];
+  for (const c of olds) { const k = keyOf(c); if (k && !keyed.has(k)) keyed.set(k, c); else if (!k) loose.push(c); }
+  const used = new Set();
+  let cursor = o.firstChild;
+  for (const nc of [...n.childNodes]) {
+    const k = keyOf(nc);
+    let match = k ? keyed.get(k) : loose.find((c) => !used.has(c) && c.nodeType === nc.nodeType && c.nodeName === nc.nodeName);
+    if (match && used.has(match)) match = null;
+    let node = nc;
+    const atCursor = match && match === cursor;
+    if (match) { used.add(match); node = morph(match, nc, skip); }
+    if (atCursor || node === cursor) cursor = node.nextSibling;
+    else o.insertBefore(node, cursor);
+  }
+  for (const c of olds) if (!used.has(c) && c.parentNode === o) c.remove();
+}
+function morph(o, n, skip) {
+  if (o.nodeType !== n.nodeType || o.nodeName !== n.nodeName) { o.replaceWith(n); return n; }
+  if (o.nodeType !== 1) { if (o.nodeValue !== n.nodeValue) o.nodeValue = n.nodeValue; return o; }
+  if (o.isEqualNode(n)) return o;
+  syncAttrs(o, n);
+  if (!(skip && n.id && skip.includes(n.id))) morphKids(o, n, skip); // skipped regions are filled by their own render function
+  return o;
+}
+function setHTML(host, html, skip) {
   const tpl = document.createElement('template'); tpl.innerHTML = html;
-  if (old.size) [...tpl.content.querySelectorAll('.card[data-id], .hero')].forEach((n) => { if (!n.isConnected && !tpl.content.contains(n)) return; const o = old.get(n.outerHTML)?.shift(); if (o) n.replaceWith(o); });
-  host.replaceChildren(tpl.content);
+  morphKids(host, tpl.content, skip);
 }
 
 // ---------- cards leaving a screen ----------
@@ -1533,8 +1559,8 @@ async function route(keepScroll, quiet) {
   const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
   const swap = () => {
     $('#main').classList.toggle('quiet', !!quiet);
-    if (quiet) { reusePool = collectReusable($('#main')); setHTML($('#main'), html); } else $('#main').innerHTML = html;
-    try { after?.(); } finally { reusePool = null; }
+    if (quiet) setHTML($('#main'), html, ['results', 'bc-results']); else $('#main').innerHTML = html;
+    after?.();
     if (rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
