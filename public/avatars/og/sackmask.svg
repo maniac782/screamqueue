@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><radialGradient id="bg" cx="50%" cy="40%" r="70%"><stop offset="0" stop-color="#4b3a20"/><stop offset="1" stop-color="#120c05"/></radialGradient></defs><rect width="100" height="100" fill="url(#bg)"/>
+<defs><radialGradient id="s" cx="45%" cy="35%" r="70%"><stop offset="0" stop-color="#c9a873"/><stop offset="1" stop-color="#8a6a3c"/></radialGradient>
+<pattern id="w" width="4" height="4" patternUnits="userSpaceOnUse"><path d="M0 2h4M2 0v4" stroke="#6e5230" stroke-width=".5" opacity=".5"/></pattern></defs>
+<path d="M50 14c18 0 28 14 27 32-1 20-8 38-27 40-19-2-26-20-27-40-1-18 9-32 27-32z" fill="url(#s)"/>
+<path d="M50 14c18 0 28 14 27 32-1 20-8 38-27 40-19-2-26-20-27-40-1-18 9-32 27-32z" fill="url(#w)"/>
+<path d="M30 74c6 6 13 9 20 9s14-3 20-9" stroke="#5a4020" stroke-width="2.5" fill="none"/>
+<path d="M33 76l-2 6M40 80l-1 6M50 82v6M60 80l1 6M67 76l2 6" stroke="#5a4020" stroke-width="2"/>
+<ellipse cx="40" cy="44" rx="6" ry="7" fill="#0b0805"/><ellipse cx="60" cy="44" rx="6" ry="7" fill="#0b0805"/>
+<path d="M33 37l14 14M47 37L33 51" stroke="#3b2a14" stroke-width="1.2" opacity=".0"/>
+<path d="M34 36l4 2M43 35l-3 3M54 35l3 3M66 36l-4 2" stroke="#3b2a14" stroke-width="1.6" stroke-linecap="round"/>
+<path d="M38 62q12 8 24 0" stroke="#2a1d0c" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+<path d="M41 61l1 4M46 63l0 4M51 64l0 4M56 63l0 4M60 61l-1 4" stroke="#2a1d0c" stroke-width="1.4"/>
+<path d="M24 30q26-14 52 0" stroke="#5a4020" stroke-width="3" fill="none" stroke-dasharray="3 3"/></svg>

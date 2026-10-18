@@ -1057,12 +1057,16 @@ const PRIVACY = { public: 'Anyone signed in', friends: 'Friends only', private: 
 // 'up' (their uploaded photo), or '' (initials). Other people's choices are looked up from their profile card.
 let AVATARS = [];
 fetch('avatars/avatars.json').then((r) => (r.ok ? r.json() : [])).then((x) => { AVATARS = x; }).catch(() => {});
+// Original drawings made for this site (generic slasher props, no specific characters).
+const AV_PROPS = [['hockeymask', 'Hockey mask'], ['knife', 'Kitchen knife'], ['sackmask', 'Sack mask'], ['doll', 'Creepy doll'], ['chainsaw', 'Chainsaw'], ['pigmask', 'Pig mask'],
+  ['phone', 'The phone call'], ['pumpkin', 'Jack-o\'-lantern'], ['machete', 'Machete'], ['clawglove', 'Claw glove'], ['vhs', 'Cursed tape'], ['beartrap', 'Bear trap']];
 const AV_ICONS = ['ghost', 'demonic', 'vampire', 'werewolf', 'zombie', 'slasher', 'creature', 'cosmic', 'occult', 'classic', 'body', 'folk'];
 S.cards = new Map();
 function renderAvatar(name, c, cls = '') {
   const a = c?.av || '';
   const ah = `--ah:${avatarHue(name || '?')}`;
   if (a === 'up' && c.photo) return `<span class="avatar pic ${cls}"><img src="${esc(c.photo)}" alt=""></span>`;
+  if (a.startsWith('og:')) return `<span class="avatar pic ${cls}"><img src="avatars/og/${esc(a.slice(3))}.svg" alt=""></span>`;
   if (a.startsWith('pd:')) return `<span class="avatar pic ${cls}"><img src="avatars/${esc(a.slice(3))}.jpg" alt=""></span>`;
   if (a.startsWith('ic:')) return `<span class="avatar ic ${cls}" style="${ah}">${sgIcon(a.slice(3))}</span>`;
   return `<span class="avatar ${cls}" style="${ah}">${esc(((name || '?')[0] || '?').toUpperCase())}</span>`;
@@ -1110,7 +1114,10 @@ function avatarPicker() {
     <h2>Profile picture</h2>
     <div class="av-now">${renderAvatar(S.profile.name || S.user?.name, myCard(), 'xl')}
       <div class="stack" style="gap:8px"><label class="btn small">${icon('plus')}Upload a photo<input type="file" id="av-file" accept="image/*" hidden></label>
+      <span class="fine">Only upload pictures you have the right to use.</span>
       ${cur ? `<button type="button" class="btn small ghost" data-act="setav" data-k="">Use my initials</button>` : ''}</div></div>
+    <h3>Slasher props</h3>
+    <div class="av-grid">${AV_PROPS.map(([k, l]) => opt(`og:${k}`, `<img src="avatars/og/${k}.svg" alt="" loading="lazy">`, l)).join('')}</div>
     <h3>Classic horror icons</h3>
     <div class="av-grid">${AVATARS.map((a) => opt(`pd:${a.id}`, `<img src="avatars/${a.id}.jpg" alt="" loading="lazy">`, `${a.name}, ${a.film} (${a.year})`)).join('')}</div>
     <p class="fine">Public-domain film stills from Wikimedia Commons. <a href="#/about" data-act="credits">Picture credits</a></p>
@@ -1120,9 +1127,11 @@ function avatarPicker() {
 }
 const handleOf = (p) => (p?.handle ? `@${p.handle}` : '');
 function inviteLink() { return `${location.origin}${location.pathname}#/u/${encodeURIComponent(S.social?.handle || S.user?.uid || '')}`; }
-async function loadSocial() {
-  S.social = null; S.friends = []; S.requests = { incoming: [], outgoing: [] };
-  if (!S.user || !store.getSocial) return;
+// One load at a time: overlapping calls share the same request instead of racing each other.
+let socialLoading = null;
+function loadSocial() { if (!socialLoading) socialLoading = loadSocialNow().finally(() => { socialLoading = null; }); return socialLoading; }
+async function loadSocialNow() {
+  if (!S.user || !store.getSocial) { S.social = null; S.friends = []; S.requests = { incoming: [], outgoing: [] }; return; }
   try {
     [S.social, S.friends, S.requests] = await Promise.all([store.getSocial(), store.listFriends(), store.listRequests()]);
     await Promise.all(S.friends.filter((f) => !S.cards.has(f.uid)).map(async (f) => { S.cards.set(f.uid, (await store.getProfileCard(f.uid).catch(() => null)) || {}); }));
@@ -1161,6 +1170,7 @@ views.friends = async () => {
     return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
+  const everyone = store.listPublic ? (await store.listPublic().catch(() => [])).filter((p) => p.uid !== S.user.uid) : [];
   return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p></div>
   <div class="friends-grid">
     <div class="stack" style="gap:24px">
@@ -1181,9 +1191,15 @@ views.friends = async () => {
         ${outgoing.length ? `<h3 class="muted" style="margin-top:6px">Waiting on</h3>${outgoing.map((r) => `<div class="person-row">${av(r.name, '', r.uid)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div>${friendBtn(r.uid, 'outgoing')}</div>`).join('')}` : ''}
       </section>
     </div>
+    <div class="stack" style="gap:24px">
     <section class="panel stack" style="gap:6px"><h2>What your friends are watching</h2>
       ${feed.length ? feed.slice(0, 40).map(line).join('') : `<p class="muted">${S.friends.length ? 'Nothing yet. Activity shows up here when friends queue or survive a movie.' : 'Add friends to see their activity here.'}</p>`}
     </section>
+    <section class="panel stack" style="gap:10px"><h2>People on ${esc(SITE_NAME)}</h2>
+      <p class="muted" style="font-size:.9rem">Everyone with a public profile. ${S.social?.privacy?.profile === 'public' ? 'You are listed here too.' : 'Set your profile to "Anyone signed in" in <a href="#/profile">Profile</a> to be listed.'}</p>
+      ${everyone.length ? everyone.map((p) => `<div class="person-row">${renderAvatar(p.name, p)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Horror fan')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No public profiles yet.</p>'}
+    </section>
+    </div>
   </div>`;
 };
 function timeAgo(t) {
@@ -2149,7 +2165,11 @@ document.addEventListener('click', (e) => { if (S.menuOpen && !e.target.closest(
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.menuOpen) { setMenu(false); $('.acct-btn')?.focus(); } });
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.installEvt = e; if (S.user) renderChrome(); });
 
+// Every render gets a number; a slower, older render that finishes late is thrown away
+// instead of painting over a newer one.
+let routeGen = 0;
 async function route(keepScroll, quiet) {
+  const gen = ++routeGen;
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
   if (!quiet && !keepScroll && $('#detail')?.open) $('#detail').close();
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
@@ -2158,9 +2178,11 @@ async function route(keepScroll, quiet) {
   renderChrome();
   const y = window.scrollY;
   const html = await view(arg);
+  if (gen !== routeGen) return;
   const after = S.after; S.after = null;
   const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
   const swap = () => {
+    if (gen !== routeGen) return;
     $('#main').classList.toggle('quiet', !!quiet);
     if (quiet) setHTML($('#main'), html, ['results', 'bc-results']); else $('#main').innerHTML = html;
     after?.();
@@ -2189,7 +2211,7 @@ async function boot() {
   store.init(async (u) => {
     S.user = u;
     await loadMine();
-    loadSocial().then(() => renderChrome()).catch(() => {});
+    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)/.test(location.hash)) route(true, true); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);
     first = false;

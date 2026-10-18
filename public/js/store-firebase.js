@@ -150,6 +150,11 @@ export const store = {
     for (const snap of [a, b]) for (const d of snap?.docs || []) if (d.id !== uid()) out.set(d.id, { uid: d.id, ...d.data() });
     return [...out.values()];
   },
+  // Everyone who set their profile to public (most recently active first).
+  async listPublic() {
+    const snap = await F.getDocs(F.query(F.collection(db, 'profiles'), F.where('privacy.profile', '==', 'public'), F.limit(100)));
+    return snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
+  },
   async getProfileCard(idOrHandle) {
     let id = idOrHandle;
     if (!/^[A-Za-z0-9]{20,}$/.test(id)) { const u = await F.getDoc(F.doc(db, 'usernames', String(id).toLowerCase())); if (!u.exists()) return null; id = u.data().uid; }
