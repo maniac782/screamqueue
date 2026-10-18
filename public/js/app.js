@@ -109,6 +109,9 @@ function rating(m) { const r = m.imdb?.r ?? (m.va ? Number(m.va.toFixed(1)) : nu
 const tom = (m) => m.imdb?.tom ?? null;
 const TOMATO = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.4c4.9 0 8.6 3 8.6 7.1S16.9 20.8 12 20.8 3.4 17.6 3.4 13.5 7.1 6.4 12 6.4z" fill="#f2332a"/><path d="M12 6.8 9.4 4.2l2.6 1.1 1.2-2.1.6 2.4 2.6-.4-2 2.1" fill="#3aa64c"/><ellipse cx="8.6" cy="11.4" rx="1.8" ry="1.1" fill="#fff" opacity=".45"/></svg>';
 const SPLAT = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2l1.6 3.4 3.4-2-.6 3.8 3.9.4-2.9 2.6 3 2.4-3.9.6.8 3.8-3.5-1.8-1.8 3.4-1.6-3.5-3.5 1.7.9-3.8-3.9-.7 3.1-2.3-2.8-2.7 3.9-.3-.5-3.8 3.3 2.1z" fill="#2f9e52"/></svg>';
+// Trailer on YouTube (opens the YouTube app on phones). Falls back to a YouTube search when TMDB has none.
+function trailerUrl(m) { return m.yt ? `https://www.youtube.com/watch?v=${encodeURIComponent(m.yt)}` : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${m.t} ${m.y || ''} trailer`)}`; }
+function trailerBtn(m, cls = '') { return `<a class="btn trailer ${cls}" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('play')}${m.yt ? 'Watch trailer' : 'Find the trailer'}</a>`; }
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
 function scoreRow(m) {
   const parts = [];
@@ -330,7 +333,7 @@ views.tonight = () => {
       <h1>${esc(top.t)}</h1>
       <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}${tomBadge(top)}<span>${esc(servicesText(top))}</span></div>
       ${top.ov ? `<p class="ov">${esc(top.ov)}</p>` : ''}
-      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
+      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}${top.yt ? trailerBtn(top, 'glass') : ''}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
     </div>
   </section>` : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
@@ -984,6 +987,7 @@ function openDetail(id) {
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
     </div></div>
     <div class="sheet-body">
+      <div class="row" style="gap:10px">${trailerBtn(m)}</div>
       ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}

@@ -937,3 +937,6 @@ html, body { overscroll-behavior-y: none; }
 .score b i { font-style: normal; font-size: .75rem; color: var(--faint); font-weight: 600; margin-left: 1px; }
 .score small { display: block; font-size: .74rem; color: var(--muted); }
 @media (max-width: 560px) { .score { padding: 6px 10px 6px 6px; gap: 8px; } .score .ico { width: 30px; height: 30px; } .score small { font-size: .68rem; } }
+
+.btn.trailer .ic { color: #ff3b54; }
+.btn.trailer.glass .ic { color: #fff; }

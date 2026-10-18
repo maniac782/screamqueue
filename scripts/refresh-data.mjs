@@ -137,7 +137,7 @@ async function main() {
   console.log(`Fetching details for ${ids.length} movies…`);
 
   const details = await pool(ids, 12, (id) =>
-    tmdb(`/movie/${id}`, { language: 'en-US', append_to_response: 'keywords,watch/providers,external_ids,release_dates,credits' }));
+    tmdb(`/movie/${id}`, { language: 'en-US', append_to_response: 'keywords,watch/providers,external_ids,release_dates,credits,videos' }));
 
   // Provider names for the "my services" picker
   const prov = await tmdb('/watch/providers/movie', { watch_region: REGION, language: 'en-US' });
@@ -187,6 +187,14 @@ async function main() {
     return omdb.get(d.id) || keep(imdbId, prevById.get(d.id)?.imdb);
   }
 
+  // Best YouTube trailer: official English trailers first, then teasers; the earliest one is usually the main trailer.
+  function trailerFor(d) {
+    const vids = (d.videos?.results || []).filter((v) => v.site === 'YouTube' && v.key && /^(Trailer|Teaser)$/.test(v.type));
+    const score = (v) => (v.type === 'Trailer' ? 4 : 0) + (v.official ? 2 : 0) + (!v.iso_639_1 || v.iso_639_1 === 'en' ? 1 : 0);
+    vids.sort((a, b) => score(b) - score(a) || String(a.published_at).localeCompare(String(b.published_at)));
+    return vids[0]?.key || null;
+  }
+
   const rows = [];
   for (const d of details) {
     if (!d || !d.genres?.some((g) => g.id === GENRE.horror)) continue;
@@ -213,6 +221,7 @@ async function main() {
       wl: wp.link || null,
       poster: d.poster_path || null,
       bd: d.backdrop_path || null,
+      yt: trailerFor(d),
       va: d.vote_average ?? null,
       // scoring inputs
       pop: d.popularity ?? null,
