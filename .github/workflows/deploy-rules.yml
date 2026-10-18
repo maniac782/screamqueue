@@ -1,8 +1,11 @@
 name: Publish Firestore rules
 
-# Manual for now: the GitHub deploy account needs the Firebase Rules Admin and Service Usage Consumer roles
-# before this can publish. Until then rules are pasted into the Firebase console.
+# Publishes firestore.rules whenever it changes on main. The deploy account has the
+# Firebase Rules Admin and Service Usage Consumer roles for this.
 on:
+  push:
+    branches: [main]
+    paths: ['firestore.rules']
   workflow_dispatch:
 
 jobs:
