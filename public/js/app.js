@@ -20,7 +20,7 @@ const S = {
   tierLabel: new Map(),
   config: { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' },
   f: { q: '', sg: new Set(), tier: new Set(), mine: false, hideSeen: false, decade: '', sort: 'buzz', provider: '', tom: '', limit: 60 },
-  p: { sg: new Set(), mix: 'crowd', mine: true, queueOnly: false, maxRt: '', recent: [], current: null },
+  p: { sg: new Set(), mix: 'crowd', mine: true, queueOnly: false, recent: [], current: null },
   qTab: 'queue',
   stopNight: null,
   afterSignIn: '#/',
@@ -458,8 +458,7 @@ function pickOne() {
   let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || p.mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
     (!p.sg.size || m.sg.some((k) => p.sg.has(k))) &&
     (!p.mine || onMine(m)) &&
-    (!p.queueOnly || status(m.id)?.status === 'queue') &&
-    (!p.maxRt || !m.rt || m.rt <= Number(p.maxRt)));
+    (!p.queueOnly || status(m.id)?.status === 'queue'));
   const fresh = pool.filter((m) => !p.recent.includes(m.id));
   if (fresh.length) pool = fresh;
   if (!pool.length) return null;
@@ -501,7 +500,6 @@ views.pick = () => {
       <div class="stack" style="gap:10px"><h3>Limits</h3><div class="chips">
         ${chip('pmine', '', 'On my services', p.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
         ${chip('pqueue', '', 'From my queue', p.queueOnly, S.user ? '' : 'disabled')}
-        <select id="p-rt" data-bind="maxRt" aria-label="Maximum length" style="width:auto;min-height:36px;padding-block:6px;border-radius:999px"><option value="">Any length</option>${[90, 100, 110, 120].map((n) => `<option value="${n}" ${String(p.maxRt) === String(n) ? 'selected' : ''}>Under ${n} min</option>`).join('')}</select>
       </div></div>
       <button class="btn primary" data-act="repick" style="justify-self:start">${icon('dice')}Pick for Me</button>
     </div>
@@ -1573,7 +1571,6 @@ document.addEventListener('input', (e) => {
   if (el.id === 'svc-q') { S.svcq = el.value; renderServices(); return; }
   if (el.id === 'ck-q') { S.ckq = el.value; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#ck-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); return; }
   if (el.dataset.bind && location.hash.startsWith('#/browse')) { S.f[el.dataset.bind] = el.value; S.f.limit = 60; renderResults(); }
-  if (el.dataset.bind === 'maxRt') S.p.maxRt = el.value;
   if (el.id === 'night-search') $('#night-search-results').innerHTML = searchList(el.value, 'nsuggest');
   if (el.id === 'adm-feat-search') $('#adm-feat-results').innerHTML = searchList(el.value, 'feature');
   if (el.id === 'adm-hide-search') $('#adm-hide-results').innerHTML = searchList(el.value, 'hide');
