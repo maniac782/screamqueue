@@ -85,6 +85,117 @@ export const store = {
   async decide(id, winner) { await F.updateDoc(F.doc(db, 'nights', id), { status: winner ? 'decided' : 'open', winner: winner ? String(winner) : null }); },
   async deleteNight(id) { await F.deleteDoc(F.doc(db, 'nights', id)); },
 
+  // ---------- social: usernames, privacy, friends, reviews ----------
+  // profiles/{uid}       public card: name, handle, privacy { profile: public|friends|private, reviews: public|friends }
+  // usernames/{handle}   { uid }  (claims a unique @handle)
+  // requests/{to}/from/{from}, sent/{from}/to/{to}   friend requests
+  // friends/{uid}/list/{friendUid}                    { name, handle, since }
+  // reviews/{movieId}/by/{uid}                        { uid, name, handle, text, spoiler, vis, rating, at }
+  me() { return current; },
+  async getSocial() {
+    const d = (await F.getDoc(F.doc(db, 'profiles', uid())).catch(() => null))?.data();
+    return { handle: d?.handle || '', privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) } };
+  },
+  async saveSocial({ handle, privacy, name }, reviewedIds = []) {
+    const prev = await this.getSocial();
+    const h = (handle || '').toLowerCase();
+    const batch = F.writeBatch(db);
+    if (h && h !== prev.handle) {
+      const taken = await F.getDoc(F.doc(db, 'usernames', h));
+      if (taken.exists() && taken.data().uid !== uid()) throw new Error(`@${h} is taken. Try another.`);
+      batch.set(F.doc(db, 'usernames', h), { uid: uid() });
+      if (prev.handle) batch.delete(F.doc(db, 'usernames', prev.handle));
+    }
+    batch.set(F.doc(db, 'profiles', uid()), { name: name || current?.name || '', handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() });
+    await batch.commit();
+    if (privacy?.reviews && privacy.reviews !== prev.privacy.reviews) {
+      // keep existing reviews in step with the new setting
+      await Promise.all(reviewedIds.map((mid) => F.updateDoc(F.doc(db, 'reviews', String(mid), 'by', uid()), { vis: privacy.reviews }).catch(() => {})));
+    }
+  },
+  async findUser(q) {
+    q = String(q || '').trim().replace(/^@/, '').toLowerCase(); if (q.length < 2) return [];
+    const snap = await F.getDocs(F.query(F.collection(db, 'profiles'), F.orderBy('handle'), F.startAt(q), F.endAt(q + '\uf8ff'), F.limit(8)));
+    return snap.docs.filter((d) => d.id !== uid()).map((d) => ({ uid: d.id, ...d.data() }));
+  },
+  async getProfileCard(idOrHandle) {
+    let id = idOrHandle;
+    if (!/^[A-Za-z0-9]{20,}$/.test(id)) { const u = await F.getDoc(F.doc(db, 'usernames', String(id).toLowerCase())); if (!u.exists()) return null; id = u.data().uid; }
+    const d = await F.getDoc(F.doc(db, 'profiles', id));
+    return d.exists() ? { uid: id, ...d.data() } : null;
+  },
+  async friendState(other) {
+    const [f, inc, out] = await Promise.all([
+      F.getDoc(F.doc(db, 'friends', uid(), 'list', other)), F.getDoc(F.doc(db, 'requests', uid(), 'from', other)), F.getDoc(F.doc(db, 'sent', uid(), 'to', other)),
+    ]);
+    return f.exists() ? 'friends' : inc.exists() ? 'incoming' : out.exists() ? 'outgoing' : 'none';
+  },
+  async sendRequest(other, card) {
+    const mine = await this.getSocial();
+    const b = F.writeBatch(db);
+    b.set(F.doc(db, 'requests', other, 'from', uid()), { name: current?.name || '', handle: mine.handle || '', at: Date.now() });
+    b.set(F.doc(db, 'sent', uid(), 'to', other), { name: card?.name || '', handle: card?.handle || '', at: Date.now() });
+    await b.commit();
+  },
+  async listRequests() {
+    const [inc, out] = await Promise.all([F.getDocs(F.collection(db, 'requests', uid(), 'from')), F.getDocs(F.collection(db, 'sent', uid(), 'to'))]);
+    return { incoming: inc.docs.map((d) => ({ uid: d.id, ...d.data() })), outgoing: out.docs.map((d) => ({ uid: d.id, ...d.data() })) };
+  },
+  async acceptRequest(from) {
+    const req = (await F.getDoc(F.doc(db, 'requests', uid(), 'from', from))).data() || {};
+    const mine = await this.getSocial();
+    const b = F.writeBatch(db);
+    b.set(F.doc(db, 'friends', uid(), 'list', from), { name: req.name || '', handle: req.handle || '', since: Date.now() });
+    b.set(F.doc(db, 'friends', from, 'list', uid()), { name: current?.name || '', handle: mine.handle || '', since: Date.now() });
+    b.delete(F.doc(db, 'requests', uid(), 'from', from));
+    b.delete(F.doc(db, 'sent', from, 'to', uid()));
+    await b.commit();
+  },
+  async declineRequest(from) {
+    const b = F.writeBatch(db);
+    b.delete(F.doc(db, 'requests', uid(), 'from', from)); b.delete(F.doc(db, 'sent', from, 'to', uid()));
+    await b.commit();
+  },
+  async cancelRequest(to) {
+    const b = F.writeBatch(db);
+    b.delete(F.doc(db, 'requests', to, 'from', uid())); b.delete(F.doc(db, 'sent', uid(), 'to', to));
+    await b.commit();
+  },
+  async unfriend(other) {
+    const b = F.writeBatch(db);
+    b.delete(F.doc(db, 'friends', uid(), 'list', other)); b.delete(F.doc(db, 'friends', other, 'list', uid()));
+    await b.commit();
+  },
+  async listFriends() {
+    const snap = await F.getDocs(F.collection(db, 'friends', uid(), 'list'));
+    return snap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+  },
+  // Someone else's watch list (allowed by the rules when their profile is public, or friends-only and you're friends).
+  async moviesOf(other) {
+    const snap = await F.getDocs(F.collection(db, 'users', other, 'movies'));
+    return new Map(snap.docs.map((d) => [d.id, d.data()]));
+  },
+  async movieOf(other, movieId) { const d = await F.getDoc(F.doc(db, 'users', other, 'movies', String(movieId))).catch(() => null); return d?.exists() ? d.data() : null; },
+  async recentOf(other, n = 12) {
+    const snap = await F.getDocs(F.query(F.collection(db, 'users', other, 'movies'), F.orderBy('at', 'desc'), F.limit(n)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+  async getReview(movieId, who) { const d = await F.getDoc(F.doc(db, 'reviews', String(movieId), 'by', who || uid())).catch(() => null); return d?.exists() ? d.data() : null; },
+  async listReviews(movieId, friendIds = []) {
+    const pub = await F.getDocs(F.query(F.collection(db, 'reviews', String(movieId), 'by'), F.where('vis', '==', 'public'), F.limit(60))).catch(() => null);
+    const out = new Map((pub?.docs || []).map((d) => [d.id, d.data()]));
+    const extra = [...new Set([...friendIds, uid()].filter((x) => x && !out.has(x)))];
+    await Promise.all(extra.map(async (f) => { const r = await this.getReview(movieId, f); if (r) out.set(f, r); }));
+    return [...out.values()];
+  },
+  async saveReview(movieId, { text, spoiler, rating }) {
+    const mine = await this.getSocial();
+    await F.setDoc(F.doc(db, 'reviews', String(movieId), 'by', uid()), {
+      uid: uid(), name: current?.name || '', handle: mine.handle || '', text, spoiler: !!spoiler, vis: mine.privacy.reviews || 'public', rating: rating || 0, at: Date.now(),
+    });
+  },
+  async deleteReview(movieId, who) { await F.deleteDoc(F.doc(db, 'reviews', String(movieId), 'by', who || uid())); },
+
   // Fan-reported kill counts: kills/{movieId}/votes/{uid} = { n }, and kills/{movieId} = { verified } set by an admin.
   async getKills(id) {
     const [top, votes] = await Promise.all([

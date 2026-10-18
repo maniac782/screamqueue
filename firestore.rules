@@ -6,6 +6,14 @@ service cloud.firestore {
     function me() { return request.auth.uid; }
     function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(me())); }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+    function isFriend(uid) { return signedIn() && exists(/databases/$(database)/documents/friends/$(uid)/list/$(me())); }
+    // Can the signed-in person see this user's Body Count, ratings and queue? (their profile privacy setting)
+    function canView(uid) {
+      return signedIn() && (uid == me() || isAdmin() || (
+        exists(/databases/$(database)/documents/profiles/$(uid)) && (
+          get(/databases/$(database)/documents/profiles/$(uid)).data.privacy.profile == 'public'
+          || (get(/databases/$(database)/documents/profiles/$(uid)).data.privacy.profile == 'friends' && isFriend(uid)))));
+    }
 
     // Site settings: featured / hidden movies, subgenre fixes, poster toggle, announcement.
     match /config/{doc} {
@@ -28,8 +36,56 @@ service cloud.firestore {
       allow delete: if signedIn() && uid == me();
 
       match /movies/{movieId} {
-        allow read, write: if signedIn() && uid == me();
+        allow read: if canView(uid);
+        allow write: if signedIn() && uid == me();
       }
+    }
+
+    // Public profile card: name, @handle and privacy settings. Signed-in people can look each other up.
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['name', 'handle', 'privacy', 'at'])
+        && request.resource.data.privacy.profile in ['public', 'friends', 'private']
+        && request.resource.data.privacy.reviews in ['public', 'friends']
+        && (request.resource.data.handle == '' || getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.handle)).data.uid == me());
+    }
+    // Unique @usernames: lowercase letters, numbers and _, 3 to 20 long.
+    match /usernames/{handle} {
+      allow read: if signedIn();
+      allow create: if signedIn() && handle.matches('^[a-z0-9_]{3,20}$') && request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == me();
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // Friend requests: requests/{to}/from/{from} (the inbox) and sent/{from}/to/{to} (the sender's outbox).
+    match /requests/{to}/from/{from} {
+      allow read: if signedIn() && (me() == to || me() == from);
+      allow create: if signedIn() && me() == from && from != to && request.resource.data.keys().hasOnly(['name', 'handle', 'at']);
+      allow delete: if signedIn() && (me() == to || me() == from);
+    }
+    match /sent/{from}/to/{to} {
+      allow read: if signedIn() && (me() == to || me() == from);
+      allow create: if signedIn() && me() == from && from != to;
+      allow delete: if signedIn() && (me() == to || me() == from);
+    }
+    // Friends: both sides are written when a request is accepted; either person can end it.
+    match /friends/{uid}/list/{fid} {
+      allow read: if signedIn() && (me() == uid || me() == fid);
+      allow create: if signedIn() && request.resource.data.keys().hasOnly(['name', 'handle', 'since']) && (
+        (me() == uid && exists(/databases/$(database)/documents/requests/$(uid)/from/$(fid)))
+        || (me() == fid && exists(/databases/$(database)/documents/requests/$(fid)/from/$(uid))));
+      allow delete: if signedIn() && (me() == uid || me() == fid);
+    }
+
+    // Written reviews: public, or friends-only, as the writer chooses in their profile.
+    match /reviews/{movieId}/by/{uid} {
+      allow read: if resource.data.vis == 'public' || (signedIn() && (uid == me() || isAdmin() || (resource.data.vis == 'friends' && isFriend(uid))));
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'handle', 'text', 'spoiler', 'vis', 'rating', 'at'])
+        && request.resource.data.uid == me()
+        && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 5000
+        && request.resource.data.vis in ['public', 'friends'];
+      allow delete: if signedIn() && (uid == me() || isAdmin());
     }
 
     // Fan-reported kill counts. Anyone can read; signed-in people set only their own number; admins verify.

@@ -32,6 +32,33 @@ function load() {
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch { /* storage unavailable */ } }
 
+const DAY = 86400000;
+const DEMO_PEOPLE = {
+  pal1: { name: 'Sample friend A', handle: 'finalgirl', privacy: { profile: 'friends', reviews: 'public' }, movies: {
+    '493922': { status: 'seen', rating: 4.5, seenOn: '2026-10-01', at: Date.now() - DAY * 2, rv: true },
+    '1078605': { status: 'seen', rating: 3, seenOn: '2026-10-10', at: Date.now() - DAY },
+    '17577': { status: 'queue', at: Date.now() - DAY * 3 },
+    '948': { status: 'seen', rating: 5, seenOn: '2026-09-20', at: Date.now() - DAY * 6 } } },
+  pal2: { name: 'Sample friend B', handle: 'ghostface_fan', privacy: { profile: 'public', reviews: 'public' }, movies: {
+    '493922': { status: 'seen', rating: 3.5, seenOn: '2026-08-12', at: Date.now() - DAY * 9, rv: true },
+    '4232': { status: 'seen', rating: 5, seenOn: '2026-10-14', at: Date.now() - DAY * 4 },
+    '1008042': { status: 'queue', at: Date.now() - DAY * 5 } } },
+  pal3: { name: 'Sample stranger', handle: 'creepshow', privacy: { profile: 'private', reviews: 'friends' }, movies: {} },
+};
+function social() {
+  const m = load();
+  m.social ||= { handle: '', privacy: { profile: 'friends', reviews: 'public' }, friends: ['pal1', 'pal2'], incoming: ['pal3'], outgoing: [] };
+  return m.social;
+}
+function reviews() {
+  const m = load();
+  m.reviews ||= {
+    '493922|pal1': { uid: 'pal1', name: 'Sample friend A', handle: 'finalgirl', text: 'The dinner scene still haunts me. Toni Collette deserved every award.', spoiler: false, vis: 'public', rating: 4.5, at: Date.now() - DAY * 2 },
+    '493922|pal2': { uid: 'pal2', name: 'Sample friend B', handle: 'ghostface_fan', text: 'That ending on the treehouse is wild once you know who Paimon is.', spoiler: true, vis: 'public', rating: 3.5, at: Date.now() - DAY * 9 },
+  };
+  return m.reviews;
+}
+
 const listeners = new Set();
 const nightWatchers = new Map();
 const user = () => (load().signedIn ? { uid: 'demo', name: load().profile.name, email: 'demo@example.com', isAdmin: true } : null);
@@ -72,6 +99,36 @@ export const store = {
   async vote(id, movieIds) { load().nights[id].votes.demo = movieIds.map(String); save(); emitNight(id); },
   async decide(id, winner) { const n = load().nights[id]; n.status = winner ? 'decided' : 'open'; n.winner = winner ? String(winner) : null; save(); emitNight(id); },
   async deleteNight(id) { delete load().nights[id]; save(); },
+
+  // ---------- social (demo): two sample friends and one pending request ----------
+  me() { return user(); },
+  async getSocial() { const so = social(); return { handle: so.handle, privacy: { ...so.privacy } }; },
+  async saveSocial({ handle, privacy }) {
+    const so = social();
+    if (handle && Object.values(DEMO_PEOPLE).some((p) => p.handle === handle)) throw new Error(`@${handle} is taken. Try another.`);
+    if (handle) so.handle = handle; if (privacy) Object.assign(so.privacy, privacy); save();
+  },
+  async findUser(q) { q = String(q || '').replace(/^@/, '').toLowerCase(); return Object.entries(DEMO_PEOPLE).filter(([, p]) => p.handle.startsWith(q)).map(([uid, p]) => ({ uid, name: p.name, handle: p.handle, privacy: p.privacy })); },
+  async getProfileCard(id) { const e = Object.entries(DEMO_PEOPLE).find(([uid, p]) => uid === id || p.handle === id); if (e) return { uid: e[0], ...e[1] }; if (id === 'demo' || id === social().handle) return { uid: 'demo', name: load().profile.name, handle: social().handle, privacy: social().privacy }; return null; },
+  async friendState(o) { const so = social(); return so.friends.includes(o) ? 'friends' : so.incoming.includes(o) ? 'incoming' : so.outgoing.includes(o) ? 'outgoing' : 'none'; },
+  async sendRequest(o) { const so = social(); if (!so.outgoing.includes(o)) so.outgoing.push(o); save(); },
+  async listRequests() { const so = social(); const card = (u) => ({ uid: u, name: DEMO_PEOPLE[u]?.name, handle: DEMO_PEOPLE[u]?.handle }); return { incoming: so.incoming.map(card), outgoing: so.outgoing.map(card) }; },
+  async acceptRequest(f) { const so = social(); so.incoming = so.incoming.filter((x) => x !== f); if (!so.friends.includes(f)) so.friends.push(f); save(); },
+  async declineRequest(f) { const so = social(); so.incoming = so.incoming.filter((x) => x !== f); save(); },
+  async cancelRequest(t) { const so = social(); so.outgoing = so.outgoing.filter((x) => x !== t); save(); },
+  async unfriend(o) { const so = social(); so.friends = so.friends.filter((x) => x !== o); save(); },
+  async listFriends() { return social().friends.map((u) => ({ uid: u, name: DEMO_PEOPLE[u]?.name, handle: DEMO_PEOPLE[u]?.handle })); },
+  async moviesOf(o) {
+    if (o === 'demo') return new Map(Object.entries(load().movies));
+    const p = DEMO_PEOPLE[o]; if (!p || (p.privacy.profile !== 'public' && !(p.privacy.profile === 'friends' && social().friends.includes(o)))) throw new Error('Private');
+    return new Map(Object.entries(p.movies));
+  },
+  async movieOf(o, id) { try { return (await this.moviesOf(o)).get(String(id)) || null; } catch { return null; } },
+  async recentOf(o, n = 12) { return [...(await this.moviesOf(o)).entries()].map(([id, x]) => ({ id, ...x })).sort((a, b) => b.at - a.at).slice(0, n); },
+  async getReview(id, who = 'demo') { return reviews()[`${id}|${who}`] || null; },
+  async listReviews(id) { return Object.entries(reviews()).filter(([k]) => k.startsWith(`${id}|`)).map(([, r]) => r); },
+  async saveReview(id, { text, spoiler, rating }) { reviews()[`${id}|demo`] = { uid: 'demo', name: load().profile.name, handle: social().handle, text, spoiler: !!spoiler, vis: social().privacy.reviews, rating: rating || 0, at: Date.now() }; save(); },
+  async deleteReview(id, who = 'demo') { delete reviews()[`${id}|${who}`]; save(); },
 
   async getKills(id) {
     const k = (load().kills ||= {})[id] || { votes: { pal1: 13, pal2: 12 }, verified: null };

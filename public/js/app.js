@@ -291,11 +291,12 @@ function sizePicker() {
 }
 function card(m, opts) {
   const sub = typeof opts === 'object' && opts?.sub;
+  const plain = typeof opts === 'object' && opts?.plain;
   const sg = sub || m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
   const name = `${m.t}${m.y ? ` (${m.y})` : ''}`;
   return `<div class="card" data-id="${m.id}">
     <button class="card-open" data-act="open" data-id="${m.id}" aria-label="${esc(name)}">
-      ${poster(m)}
+      ${poster(m, plain ? { noBadges: true } : {})}
       <span class="meta"><span class="mt">${esc(m.t)}${m.y ? ` <span class="yr">(${m.y})</span>` : ''}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
     </button>
     ${quickBar(m, name)}
@@ -728,6 +729,7 @@ views.profile = (sub) => {
   if (!S.user) return signInPrompt('Sign in to save your name and streaming services.');
   let theme = 'system'; try { theme = localStorage.getItem('sq-theme') || 'system'; } catch { /* ignore */ }
   const name = S.profile.name || S.user.name || '';
+  if (!S.social && store.getSocial) loadSocial().then(() => { if (location.hash.startsWith('#/profile')) route(true, true); });
   S.after = () => { renderServices(); if (sub === 'services') $('#services')?.scrollIntoView({ block: 'start' }); };
   return `<div class="profile-head"><span class="avatar xl" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span><div><h1>${esc(name)}</h1><p class="muted">${esc(S.user.email || '')}</p></div></div>
   <div class="profile-grid">
@@ -745,6 +747,13 @@ views.profile = (sub) => {
         <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
         <button class="btn primary" type="submit" style="justify-self:start">Save profile</button>
       </form>
+      ${store.getSocial ? `<form class="panel stack" data-form="social" style="gap:14px">
+        <h2>Friends &amp; privacy</h2>
+        <label class="field">Username (so friends can find you)<span class="handle-in"><span>@</span><input type="text" name="handle" maxlength="20" pattern="[A-Za-z0-9_]{3,20}" value="${esc(S.social?.handle || '')}" placeholder="pick one" autocomplete="off"></span></label>
+        <label class="field">Who can see my Body Count, ratings and queue<select name="pv">${Object.entries(PRIVACY).map(([k, l]) => `<option value="${k}" ${(S.social?.privacy?.profile || 'friends') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="field">Who can read my reviews<select name="rv">${['public', 'friends'].map((k) => `<option value="${k}" ${(S.social?.privacy?.reviews || 'public') === k ? 'selected' : ''}>${k === 'public' ? 'Everyone' : 'Friends only'}</option>`).join('')}</select></label>
+        <div class="row" style="gap:8px"><button class="btn primary" type="submit">Save</button><a class="btn ghost" href="#/u/${esc(S.social?.handle || S.user.uid)}">${icon('eye')}See my profile</a><a class="btn ghost" href="#/friends">${icon('users')}Friends</a></div>
+      </form>` : ''}
       <section class="panel stack" style="gap:14px">
         <h2>Appearance</h2>
         <div class="tabs" role="group" aria-label="Theme">${['system', 'dark', 'light'].map((t) => `<button data-act="theme" data-k="${t}" aria-selected="${theme === t}">${{ system: 'Match device', dark: 'Dark', light: 'Light' }[t]}</button>`).join('')}</div>
@@ -905,7 +914,7 @@ function watchedCard(x) {
   return `<div class="card watched" data-id="${x.id}">
     <button class="card-open" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(name)}, seen">
     ${poster(m, { noBadges: true })}
-    <span class="meta"><span class="mt">${esc(x.t)}${x.y ? ` <span class="yr">(${x.y})</span>` : ''}</span><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}</span></span>
+    <span class="meta"><span class="mt">${esc(x.t)}${x.y ? ` <span class="yr">(${x.y})</span>` : ''}</span><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}${x.st.rv ? '. Reviewed' : ''}</span></span>
   </button>
     ${quickBar(m, name)}
   </div>`;
@@ -1034,6 +1043,188 @@ views.person = async (id) => {
     ${credits.length ? `<div class="grid">${credits.map((x) => card(x.m, { sub: x.role === 'Director' ? 'Director' : x.role ? `as ${x.role}` : '' })).join('')}</div>` : ''}`;
 };
 
+// ---------- social: friends, profiles, reviews ----------
+const PRIVACY = { public: 'Anyone signed in', friends: 'Friends only', private: 'Only me' };
+const av = (name, cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name || '?')}">${esc(((name || '?')[0] || '?').toUpperCase())}</span>`;
+const handleOf = (p) => (p?.handle ? `@${p.handle}` : '');
+function inviteLink() { return `${location.origin}${location.pathname}#/u/${encodeURIComponent(S.social?.handle || S.user?.uid || '')}`; }
+async function loadSocial() {
+  S.social = null; S.friends = []; S.requests = { incoming: [], outgoing: [] };
+  if (!S.user || !store.getSocial) return;
+  try {
+    [S.social, S.friends, S.requests] = await Promise.all([store.getSocial(), store.listFriends(), store.listRequests()]);
+  } catch (e) { console.warn('social', e); S.social ||= { handle: '', privacy: { profile: 'friends', reviews: 'public' } }; }
+}
+const friendIds = () => (S.friends || []).map((f) => f.uid);
+
+// Friend button for someone else's page or a search result
+function friendBtn(uid, state) {
+  if (!S.user || uid === S.user.uid) return '';
+  if (state === 'friends') return `<button class="btn small" data-act="unfriend" data-k="${uid}">${icon('check')}Friends</button>`;
+  if (state === 'incoming') return `<button class="btn small primary" data-act="accept" data-k="${uid}">${icon('plus')}Accept request</button><button class="btn small ghost" data-act="decline" data-k="${uid}">Decline</button>`;
+  if (state === 'outgoing') return `<button class="btn small ghost" data-act="cancelreq" data-k="${uid}">Requested · Cancel</button>`;
+  return `<button class="btn small primary" data-act="addfriend" data-k="${uid}">${icon('plus')}Add friend</button>`;
+}
+function stateFor(uid) {
+  if (friendIds().includes(uid)) return 'friends';
+  if (S.requests?.incoming.some((r) => r.uid === uid)) return 'incoming';
+  if (S.requests?.outgoing.some((r) => r.uid === uid)) return 'outgoing';
+  return 'none';
+}
+
+// Friends page: requests, find people, invite link, your friends, and what they've been watching
+views.friends = async () => {
+  if (!S.user) return signInPrompt('Sign in to add friends and see what they are watching.');
+  await loadSocial();
+  const { incoming, outgoing } = S.requests;
+  const feed = [];
+  await Promise.all(S.friends.map(async (f) => {
+    try { for (const x of await store.recentOf(f.uid, 8)) feed.push({ f, x }); } catch { /* private or gone */ }
+  }));
+  feed.sort((a, b) => b.x.at - a.x.at);
+  const line = ({ f, x }) => {
+    const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
+    const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
+    return `<div class="feed-item">${av(f.name)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
+  };
+  const handle = S.social?.handle;
+  return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p></div>
+  <div class="friends-grid">
+    <div class="stack" style="gap:24px">
+      ${incoming.length ? `<section class="panel stack" style="gap:12px"><h2>Friend requests <span class="pill-n">${incoming.length}</span></h2>
+        ${incoming.map((r) => `<div class="person-row">${av(r.name)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div><div class="row" style="gap:6px">${friendBtn(r.uid, 'incoming')}</div></div>`).join('')}</section>` : ''}
+      <section class="panel stack" style="gap:12px">
+        <h2>Find people</h2>
+        <label class="search"><span class="sr">Search by username</span>${icon('search')}<input type="search" id="fr-q" placeholder="Search by @username" autocomplete="off"></label>
+        <div id="fr-results" class="stack" style="gap:8px"></div>
+        <div class="stack" style="gap:8px"><b>Or send your invite link</b>
+          <div class="row" style="gap:8px"><input type="text" id="invite-me" readonly value="${esc(inviteLink())}" aria-label="Your invite link" style="flex:1;min-width:0"><button class="btn" data-act="copy" data-target="invite-me">${icon('link')}Copy</button></div>
+          ${handle ? '' : `<p class="fine">Pick a username in <a href="#/profile">Profile</a> so friends can find you and your link looks nicer.</p>`}
+        </div>
+      </section>
+      <section class="panel stack" style="gap:12px">
+        <h2>Your friends${S.friends.length ? ` <span class="faint">${S.friends.length}</span>` : ''}</h2>
+        ${S.friends.length ? S.friends.map((f) => `<a class="person-row link" href="#/u/${esc(f.handle || f.uid)}">${av(f.name)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${esc(handleOf(f))}</small></div>${icon('right')}</a>`).join('') : '<p class="muted">No friends yet. Search for someone above, or send them your invite link.</p>'}
+        ${outgoing.length ? `<h3 class="muted" style="margin-top:6px">Waiting on</h3>${outgoing.map((r) => `<div class="person-row">${av(r.name)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div>${friendBtn(r.uid, 'outgoing')}</div>`).join('')}` : ''}
+      </section>
+    </div>
+    <section class="panel stack" style="gap:6px"><h2>What your friends are watching</h2>
+      ${feed.length ? feed.slice(0, 40).map(line).join('') : `<p class="muted">${S.friends.length ? 'Nothing yet. Activity shows up here when friends queue or survive a movie.' : 'Add friends to see their activity here.'}</p>`}
+    </section>
+  </div>`;
+};
+function timeAgo(t) {
+  const d = (Date.now() - t) / 1000;
+  if (d < 3600) return `${Math.max(1, Math.round(d / 60))} min ago`;
+  if (d < 86400) return `${Math.round(d / 3600)} hr ago`;
+  if (d < 86400 * 30) return `${Math.round(d / 86400)} day${Math.round(d / 86400) === 1 ? '' : 's'} ago`;
+  return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+async function renderFriendSearch() {
+  const box = $('#fr-results'); const q = $('#fr-q')?.value.trim(); if (!box) return;
+  if (!q || q.replace(/^@/, '').length < 2) { box.innerHTML = ''; return; }
+  const found = await store.findUser(q).catch(() => []);
+  if ($('#fr-q')?.value.trim() !== q) return;
+  box.innerHTML = found.length ? found.map((p) => `<div class="person-row">${av(p.name)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Someone')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No one with that username yet.</p>';
+}
+
+// Someone's page: their Body Count, ratings, reviews and queue (if their privacy setting lets you), plus a comparison with yours
+views.u = async (key) => {
+  if (!S.user) return signInPrompt('Sign in to see people\'s Body Counts and add friends.');
+  key = decodeURIComponent(key || '');
+  if (!S.social) await loadSocial();
+  const pc = await store.getProfileCard(key).catch(() => null);
+  if (!pc) return `<div class="empty">${icon('users')}<span>We couldn't find that person. Their username may have changed.</span></div>`;
+  const isMe = pc.uid === S.user.uid;
+  const state = isMe ? 'me' : stateFor(pc.uid);
+  let movies = null;
+  try { movies = isMe ? S.mine : await store.moviesOf(pc.uid); } catch { movies = null; }
+  const priv = pc.privacy?.profile || 'friends';
+  const head = `<div class="profile-head">${av(pc.name, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
+    <div class="row" style="gap:8px">${isMe ? `<a class="btn small" href="#/profile">${icon('gear')}Edit profile &amp; privacy</a>` : friendBtn(pc.uid, state)}</div></div></div>`;
+  if (!movies) return `${head}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
+  const list = [...movies.entries()].map(([id, st]) => ({ id, st, m: S.byId.get(String(id)) }));
+  const seen = list.filter((x) => x.st.status === 'seen' || x.st.wasSeen).sort((a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at);
+  const queue = list.filter((x) => x.st.status === 'queue' && x.m).sort((a, b) => b.st.at - a.st.at);
+  const rated = seen.filter((x) => x.st.rating);
+  const avg = rated.length ? (rated.reduce((s, x) => s + x.st.rating, 0) / rated.length).toFixed(1) : '—';
+  const both = isMe ? [] : seen.filter((x) => everSeen({ id: x.id }));
+  const loved = isMe ? [] : seen.filter((x) => x.m && x.st.rating >= 4 && !everSeen({ id: x.id })).sort((a, b) => b.st.rating - a.st.rating);
+  const diffs = both.filter((x) => x.st.rating && status(x.id)?.rating).map((x) => ({ ...x, mine: status(x.id).rating, d: x.st.rating - status(x.id).rating })).sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+  const tab = S.uTab || 'seen';
+  S.after = () => loadProfileReviews(pc, seen);
+  // Posters here show their ratings, not your own queue/seen marks (which would look like theirs).
+  const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, sub: x.st.rating ? `${fmtRating(x.st.rating)} skulls` : 'Survived' }) : '';
+  return `${head}
+    <div class="stat-row">
+      <div class="stat"><b>${seen.length}</b><span>Body Count</span></div>
+      <div class="stat"><b>${avg}</b><span>Average rating</span></div>
+      <div class="stat"><b>${queue.length}</b><span>In their queue</span></div>
+      ${isMe ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
+    </div>
+    ${!isMe && (loved.length || diffs.length) ? `<section class="panel stack" style="gap:14px">
+      <h2>You vs. ${esc(pc.name || 'them')}</h2>
+      ${diffs.length ? `<div class="stack" style="gap:6px">${diffs.slice(0, 5).map((x) => `<div class="cmp-row"><button class="linkish" data-act="open" data-id="${x.id}">${esc(x.m?.t || x.st.title || 'Movie')}</button><span>You ${skullRow(x.mine)}</span><span>${esc(pc.name || 'Them')} ${skullRow(x.st.rating)}</span></div>`).join('')}</div>` : ''}
+      ${loved.length ? `<h3>They loved it, you haven't seen it</h3><div class="grid">${loved.slice(0, 12).map(ratedCard).join('')}</div>` : ''}
+    </section>` : ''}
+    <div class="tabs" role="tablist" style="margin-top:8px">${[['seen', `Body Count (${seen.length})`], ['reviews', 'Reviews'], ['queue', `Queue (${queue.length})`]].map(([k, l]) => `<button role="tab" data-act="utab" data-k="${k}" aria-selected="${tab === k}">${l}</button>`).join('')}</div>
+    <div id="u-pane">${tab === 'queue' ? (queue.length ? `<div class="grid">${queue.map((x) => card(x.m, { plain: !isMe })).join('')}</div>` : '<p class="muted">Nothing queued.</p>')
+      : tab === 'reviews' ? '<div id="u-reviews" class="stack" style="gap:12px"><p class="muted">Loading reviews…</p></div>'
+      : (seen.length ? `<div class="grid">${seen.map(ratedCard).join('')}</div>` : '<p class="muted">Nothing survived yet.</p>')}</div>`;
+};
+async function loadProfileReviews(pc, seen) {
+  const box = $('#u-reviews'); if (!box) return;
+  const ids = seen.filter((x) => x.st.rv).map((x) => x.id);
+  const got = (await Promise.all(ids.map((id) => store.getReview(id, pc.uid).then((r) => r && { id, r }).catch(() => null)))).filter(Boolean).sort((a, b) => b.r.at - a.r.at);
+  box.innerHTML = got.length ? got.map(({ id, r }) => { const m = S.byId.get(String(id)); return `<div class="review"><div class="rv-movie">${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}">${thumb(m)}</button>` : ''}<div><b>${esc(m?.t || 'Movie')}</b>${m?.y ? ` <span class="faint">(${m.y})</span>` : ''}<div>${r.rating ? skullRow(r.rating) : ''}</div></div></div>${reviewText(r, `${id}-${pc.uid}`)}</div>`; }).join('')
+    : '<p class="muted">No reviews they can show you yet.</p>';
+}
+function reviewText(r, key) {
+  const shown = !r.spoiler || S.spoilersShown?.has(key);
+  return `<div class="rv-text ${shown ? '' : 'blur'}">${esc(r.text).replace(/\n/g, '<br>')}</div>${r.spoiler && !shown ? `<button class="btn small ghost" data-act="spoiler" data-k="${esc(key)}">${icon('eye')}Show spoilers</button>` : ''}`;
+}
+
+// ---------- reviews + "friends who've seen this" in movie details ----------
+const reviewCache = new Map();
+function reviewsBlock(m) {
+  const c = reviewCache.get(String(m.id));
+  if (!c && store.listReviews) loadReviewsFor(m);
+  return `<div class="reviews-wrap">${reviewsHTML(m, c)}</div>`;
+}
+async function loadReviewsFor(m) {
+  const ids = friendIds();
+  const [reviews, friendsSeen] = await Promise.all([
+    store.listReviews(m.id, ids).catch(() => []),
+    S.user ? Promise.all((S.friends || []).slice(0, 40).map(async (f) => ({ f, st: await store.movieOf(f.uid, m.id).catch(() => null) }))).then((a) => a.filter((x) => x.st && (x.st.status === 'seen' || x.st.wasSeen))) : [],
+  ]);
+  reviewCache.set(String(m.id), { reviews, friendsSeen });
+  const el = document.querySelector(`#detail[data-id="${m.id}"] .reviews-wrap`); if (el) el.innerHTML = reviewsHTML(m, reviewCache.get(String(m.id)));
+}
+function reviewsHTML(m, c) {
+  const st = status(m.id); const seen = st?.status === 'seen' || st?.wasSeen;
+  const mine = c?.reviews.find((r) => r.uid === S.user?.uid);
+  const fset = new Set(friendIds());
+  const others = (c?.reviews || []).filter((r) => r.uid !== S.user?.uid).sort((a, b) => (fset.has(b.uid) - fset.has(a.uid)) || b.at - a.at);
+  const editing = S.reviewEdit === String(m.id) || (seen && !mine && S.reviewOpen === String(m.id));
+  let me = '';
+  if (!S.user) me = '';
+  else if (editing) me = `<form class="review-form" data-id="${m.id}"><textarea name="text" rows="4" maxlength="5000" placeholder="What did you think? No one can see this until you post it." required>${esc(mine?.text || '')}</textarea>
+      <div class="row" style="gap:10px;justify-content:space-between"><label class="row" style="gap:8px"><input type="checkbox" name="spoiler" ${mine?.spoiler ? 'checked' : ''}> Contains spoilers</label>
+      <span class="row" style="gap:8px"><button class="btn small ghost" type="button" data-act="reviewcancel" data-id="${m.id}">Cancel</button><button class="btn small primary" type="submit">${mine ? 'Save review' : 'Post review'}</button></span></div>
+      <p class="fine">Visible to ${esc((PRIVACY[S.social?.privacy?.reviews || 'public'] || '').toLowerCase())}. Change this in <a href="#/profile">Profile</a>.</p></form>`;
+  else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
+  else if (seen) me = `<button class="btn small" data-act="reviewwrite" data-id="${m.id}">${icon('plus')}Write a review</button>`;
+  else me = '<p class="fine">Mark it as seen to write a review.</p>';
+  const fs = c?.friendsSeen || [];
+  return `<div class="stack" style="gap:12px">
+    ${fs.length ? `<div class="friends-seen"><span class="fs-avs">${fs.slice(0, 6).map(({ f }) => av(f.name, 'sm')).join('')}</span><span>${fs.length === 1 ? `<b>${esc(fs[0].f.name)}</b> has seen this` : `<b>${fs.length} friends</b> have seen this`}${fs.some((x) => x.st.rating) ? `: ${fs.filter((x) => x.st.rating).slice(0, 3).map((x) => `${esc(x.f.name.split(' ')[0])} ${skullRow(x.st.rating)}`).join(', ')}` : ''}</span></div>` : ''}
+    <h3>Reviews${others.length || mine ? ` <span class="faint">${others.length + (mine ? 1 : 0)}</span>` : ''}</h3>
+    ${me}
+    ${c == null ? '<p class="muted">Loading reviews…</p>' : others.length ? others.slice(0, 20).map((r) => `<div class="review"><div class="rv-head">${av(r.name)}<a class="linkish" href="#/u/${esc(r.handle || r.uid)}" data-act="gouser"><b>${esc(r.name || 'A fan')}</b></a>${fset.has(r.uid) ? '<span class="tag">Friend</span>' : ''}${r.rating ? skullRow(r.rating) : ''}<span class="faint">${esc(timeAgo(r.at))}</span>${S.user?.isAdmin ? `<button class="linkish danger" data-act="reviewmod" data-id="${m.id}" data-k="${r.uid}">Remove</button>` : ''}</div>${reviewText(r, `${m.id}-${r.uid}`)}</div>`).join('') : (mine ? '' : '<p class="muted">No reviews yet.</p>')}
+  </div>`;
+}
+function rerenderReviews(id) { const m = S.byId.get(String(id)); const el = $('#detail .reviews-wrap'); if (m && el) el.innerHTML = reviewsHTML(m, reviewCache.get(String(id))); }
+
 views.checklist = () => {
   if (!S.user) return signInPrompt('Sign in to check off the movies you have seen.');
   const q = (S.ckq || '').toLowerCase();
@@ -1135,6 +1326,7 @@ function openDetail(id) {
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
       ${castBlock(m)}
       ${killBlock(m)}
+      ${reviewsBlock(m)}
       <div class="signals">
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
@@ -1247,6 +1439,38 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
+  async addfriend(el) {
+    if (!needUser()) return;
+    if (!S.social?.handle) toast('Tip: pick a username in Profile so friends can find you', 'users');
+    const pc = await store.getProfileCard(el.dataset.k).catch(() => null);
+    await store.sendRequest(el.dataset.k, pc || {}); await loadSocial();
+    toast('Friend request sent', 'users'); await afterFriendChange();
+  },
+  async accept(el) { await store.acceptRequest(el.dataset.k); await loadSocial(); toast('You are now friends', 'users'); await afterFriendChange(); },
+  async decline(el) { await store.declineRequest(el.dataset.k); await loadSocial(); toast('Request declined', 'x'); await afterFriendChange(); },
+  async cancelreq(el) { await store.cancelRequest(el.dataset.k); await loadSocial(); toast('Request canceled', 'x'); await afterFriendChange(); },
+  async unfriend(el) {
+    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.innerHTML = `${icon('x')}Unfriend?`; el.classList.add('danger'); setTimeout(() => { if (el.isConnected) { el.dataset.confirm = ''; el.innerHTML = `${icon('check')}Friends`; el.classList.remove('danger'); } }, 3000); return; }
+    await store.unfriend(el.dataset.k); await loadSocial(); toast('Removed from friends', 'x'); await afterFriendChange();
+  },
+  gouser(el) { const d = $('#detail'); if (d.open) d.close(); location.hash = el.getAttribute('href'); },
+  utab(el) { S.uTab = el.dataset.k; route(true, true); },
+  spoiler(el) { (S.spoilersShown ||= new Set()).add(el.dataset.k); const box = el.previousElementSibling; if (box) box.classList.remove('blur'); el.remove(); },
+  reviewwrite(el) { if (!needUser()) return; S.reviewOpen = el.dataset.id; rerenderReviews(el.dataset.id); $('#detail .review-form textarea')?.focus(); },
+  reviewedit(el) { S.reviewEdit = el.dataset.id; rerenderReviews(el.dataset.id); $('#detail .review-form textarea')?.focus(); },
+  reviewcancel(el) { S.reviewEdit = null; S.reviewOpen = null; rerenderReviews(el.dataset.id); },
+  async reviewdel(el) {
+    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Delete for good?'; el.classList.add('danger'); return; }
+    const id = el.dataset.id; await store.deleteReview(id); await setStatus(id, { rv: false });
+    const c = reviewCache.get(String(id)); if (c) c.reviews = c.reviews.filter((r) => r.uid !== S.user.uid);
+    toast('Review deleted', 'x'); rerenderReviews(id);
+  },
+  async reviewmod(el) {
+    if (el.dataset.confirm !== '1') { el.dataset.confirm = '1'; el.textContent = 'Remove for good?'; return; }
+    await store.deleteReview(el.dataset.id, el.dataset.k);
+    const c = reviewCache.get(String(el.dataset.id)); if (c) c.reviews = c.reviews.filter((r) => r.uid !== el.dataset.k);
+    toast('Review removed', 'shield'); rerenderReviews(el.dataset.id);
+  },
   killvid: (el) => openTrailer(el.dataset.id, 'kc'),
   killedit(el) { S.killEdit = el.dataset.id; const m = S.byId.get(el.dataset.id); const w = $('#detail .kill-wrap'); if (w && m) w.innerHTML = killHTML(m, killCache.get(el.dataset.id)); w?.querySelector('input')?.focus(); },
   async killclear(el) { await store.setKill(el.dataset.id, null); toast('Removed your kill count', 'x'); await reloadKills(el.dataset.id); },
@@ -1641,8 +1865,10 @@ $('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
 })();
 document.addEventListener('click', (e) => { if (!e.target.closest('.card.qa-on')) document.querySelectorAll('.card.qa-on').forEach((x) => { x.classList.remove('qa-on', 'rating'); x.querySelector('.qa-rate').hidden = true; x.querySelector('.qa-plus')?.setAttribute('aria-expanded', 'false'); }); }, true);
 
+let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'fr-q') { clearTimeout(frTimer); frTimer = setTimeout(renderFriendSearch, 250); return; }
   if (el.id === 'qs') { renderQuick(); return; }
   if (el.id === 'bc-q') { S.bcq = el.value; if ((S.bcTab || 'watched') !== 'watched') { S.bcTab = 'watched'; const pos = el.selectionStart; route(true, true).then(() => { const i = $('#bc-q'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }); } else renderBodyList(); return; }
   if (el.id === 'bc-sort') { S.bcSort = el.value; renderBodyList(); return; }
@@ -1726,7 +1952,39 @@ document.addEventListener('change', async (e) => {
   if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved', 'clock'); }
 });
 
+async function afterFriendChange() {
+  renderChrome();
+  if (/^#\/(friends|u\/)/.test(location.hash)) await route(true, true); else renderFriendSearch();
+}
 document.addEventListener('submit', async (e) => {
+  if (e.target.classList?.contains('review-form')) {
+    e.preventDefault();
+    const id = e.target.dataset.id; const fd = new FormData(e.target);
+    const text = String(fd.get('text') || '').trim(); if (!text) { toast('Write something first', 'x'); return; }
+    try {
+      const rating = status(id)?.rating || 0;
+      await store.saveReview(id, { text, spoiler: !!fd.get('spoiler'), rating });
+      await setStatus(id, { rv: true });
+      const c = reviewCache.get(String(id)) || { reviews: [], friendsSeen: [] };
+      c.reviews = [...c.reviews.filter((r) => r.uid !== S.user.uid), { uid: S.user.uid, name: S.profile.name || S.user.name, handle: S.social?.handle || '', text, spoiler: !!fd.get('spoiler'), vis: S.social?.privacy?.reviews || 'public', rating, at: Date.now() }];
+      reviewCache.set(String(id), c); S.reviewEdit = null; S.reviewOpen = null;
+      toast('Review posted', 'check'); rerenderReviews(id);
+    } catch (err) { console.error(err); toast('Could not save your review. Try again.', 'x'); }
+    return;
+  }
+  if (e.target.dataset?.form === 'social') {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const handle = String(fd.get('handle') || '').trim().replace(/^@/, '').toLowerCase();
+    if (handle && !/^[a-z0-9_]{3,20}$/.test(handle)) { toast('Usernames are 3 to 20 letters, numbers or _', 'x'); return; }
+    try {
+      const reviewed = [...S.mine.entries()].filter(([, st]) => st.rv).map(([id]) => id);
+      await store.saveSocial({ handle, name: S.profile.name, privacy: { profile: fd.get('pv'), reviews: fd.get('rv') } }, reviewed);
+      S.social = await store.getSocial(); reviewCache.clear();
+      toast('Privacy and username saved'); route(true, true);
+    } catch (err) { toast(err?.message || 'That did not save.', 'x'); }
+    return;
+  }
   if (e.target.classList?.contains('kill-form')) {
     e.preventDefault();
     if (!needUser()) return;
@@ -1746,6 +2004,7 @@ document.addEventListener('submit', async (e) => {
     } else if (form.dataset.form === 'settings') {
       const patch = { name: (v.name || '').trim() || S.profile.name, services: S.profile.services, hideSeen: !!v.hideSeen };
       await store.saveProfile(patch); Object.assign(S.profile, patch); S.f.hideSeen = patch.hideSeen; toast('Settings saved'); renderChrome();
+      if (store.saveSocial && S.social) store.saveSocial({ name: patch.name }).catch(() => {});
     } else if (form.dataset.form === 'auth') {
       if (S.authTab === 'up') await store.signUpEmail(v.name.trim(), v.email.trim(), v.password);
       else await store.signInEmail(v.email.trim(), v.password);
@@ -1770,12 +2029,13 @@ function renderChrome() {
   const name = S.profile.name || S.user?.name || '';
   const av = (cls = '') => `<span class="avatar ${cls}" style="--ah:${avatarHue(name)}">${esc((name[0] || '?').toUpperCase())}</span>`;
   $('#who').innerHTML = S.user
-    ? `<div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
+    ? `<div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
       <div class="acct-menu" role="menu" ${S.menuOpen ? '' : 'hidden'}>
         <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
         <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
         <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
+        <a role="menuitem" href="#/friends">${icon('users')}Friends${S.requests?.incoming.length ? `<small class="pill-n">${S.requests.incoming.length}</small>` : `<small>${(S.friends || []).length || ''}</small>`}</a>
         <a role="menuitem" class="m-only-item" href="#/nights">${icon('users')}Movie Nights</a>
         ${S.user.isAdmin ? `<a role="menuitem" href="#/admin">${icon('shield')}Admin</a>` : ''}
         ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
@@ -1803,6 +2063,7 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
 
 async function route(keepScroll, quiet) {
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
+  if (!quiet && !keepScroll && $('#detail')?.open) $('#detail').close();
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   S.menuOpen = false;
   const view = views[{ trophies: 'bodycount' }[name] || name || 'tonight'] || views.tonight;
@@ -1824,7 +2085,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast', friends: 'Friends', u: 'Profile' }[name] || '') : ''}`;
 }
 
 async function boot() {
@@ -1840,6 +2101,7 @@ async function boot() {
   store.init(async (u) => {
     S.user = u;
     await loadMine();
+    loadSocial().then(() => renderChrome()).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);
     first = false;

@@ -1035,3 +1035,51 @@ button.person img, button.person .ini { transition: box-shadow .15s; }
 .poster .stamp b { font-size: 9.4cqw; }
 .poster .stamp small { font-size: 5.6cqw; gap: 1.4cqw; }
 .poster .stamp small .ic { width: 6.2cqw; height: 6.2cqw; }
+
+/* ---------- friends, profiles, reviews ---------- */
+.avatar.sm { width: 26px; height: 26px; font-size: .72rem; flex: none; box-shadow: 0 0 0 2px var(--bg-2); }
+.pill-n { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--accent); color: #fff !important; font-size: .72rem; font-weight: 800; margin-left: auto; }
+h2 .pill-n { margin-left: 6px; vertical-align: middle; }
+.acct-btn { position: relative; }
+.acct-dot { position: absolute; top: 2px; left: 28px; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.friends-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
+@media (max-width: 900px) { .friends-grid { grid-template-columns: 1fr; } }
+.person-row { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-radius: 12px; text-decoration: none; color: inherit; }
+.person-row.link:hover { background: var(--bg-2); }
+.person-row > .ic { width: 18px; height: 18px; color: var(--faint); }
+.pr-name { display: grid; flex: 1; min-width: 0; text-decoration: none; color: inherit; }
+.pr-name small { color: var(--muted); font-size: .82rem; }
+.feed-item { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.feed-item:last-child { border-bottom: 0; }
+.feed-body { flex: 1; min-width: 0; display: grid; gap: 2px; font-size: .92rem; }
+.feed-body .skull-row { vertical-align: middle; }
+.feed-thumb { all: unset; cursor: pointer; flex: none; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 22px 0; }
+.stat { padding: 14px 16px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--line); display: grid; gap: 2px; }
+.stat b { font-family: var(--font-display); font-size: 1.8rem; line-height: 1; }
+.stat span { color: var(--muted); font-size: .85rem; }
+.cmp-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .9rem; }
+.cmp-row .linkish { text-align: left; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 560px) { .cmp-row { grid-template-columns: 1fr; gap: 2px; } }
+.review { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-md); background: var(--bg-2); border: 1px solid var(--line); }
+.review.mine { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.rv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .9rem; }
+.rv-head .avatar { width: 28px; height: 28px; font-size: .78rem; }
+.rv-head .faint { margin-left: auto; font-size: .8rem; }
+.rv-movie { display: flex; gap: 10px; align-items: center; }
+.rv-text { font-size: .95rem; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; }
+.rv-text.blur { filter: blur(6px); user-select: none; pointer-events: none; max-height: 4.6em; overflow: hidden; }
+.review-form { display: grid; gap: 10px; }
+.review-form textarea { width: 100%; resize: vertical; min-height: 96px; font: inherit; padding: 10px 12px; border-radius: 12px; }
+.friends-seen { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--accent) 8%, var(--bg-2)); font-size: .9rem; flex-wrap: wrap; }
+.fs-avs { display: inline-flex; }
+.fs-avs .avatar + .avatar { margin-left: -8px; }
+.handle-in { display: flex; align-items: center; gap: 0; }
+.handle-in span { padding: 0 8px 0 12px; color: var(--muted); font-weight: 700; }
+.handle-in input { flex: 1; }
+.linkish.danger, .btn.danger { color: #ff4057; }
+
+@media (max-width: 560px) {
+  .person-row { flex-wrap: wrap; }
+  .person-row > .row { width: 100%; padding-left: 48px; }
+}
