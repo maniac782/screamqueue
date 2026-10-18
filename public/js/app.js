@@ -867,8 +867,21 @@ function openDetail(id) {
   const st = status(m.id);
   const seen = st?.status === 'seen';
   const tr = trendLine(m), rc = reachLine(m);
-  const provs = [...m.pv.map((p) => [p, 'Included']), ...m.fr.map((p) => [p, 'Free with ads'])]
-    .map(([p, kind]) => `<span class="prov">${esc(S.provName.get(p) || 'Service')}<small>${kind}</small></span>`).join('');
+  // One tile per service (channel and ad-tier versions folded together), your services first.
+  const tiles = (ids, kind) => {
+    const groups = serviceGroups().filter((g) => g.ids.some((id) => ids.includes(id))).sort((a, b) => groupOn(b) - groupOn(a));
+    return groups.map((g) => {
+      const mine = groupOn(g);
+      const inner = `${g.logo ? `<img src="https://image.tmdb.org/t/p/w154${g.logo}" alt="" loading="lazy">` : `<span class="ph">${esc(g.label.slice(0, 2))}</span>`}
+        <span class="nm"><b>${esc(g.label)}</b><small>${mine ? 'On your services' : kind}</small></span>${m.wl ? icon('right', 'go') : ''}`;
+      return m.wl ? `<a class="wtw${mine ? ' mine' : ''}" href="${esc(m.wl)}" target="_blank" rel="noopener" title="Watch on ${esc(g.label)}">${inner}</a>` : `<span class="wtw${mine ? ' mine' : ''}">${inner}</span>`;
+    }).join('');
+  };
+  const subT = tiles(m.pv, 'Included with subscription');
+  const freeT = tiles(m.fr, 'Free with ads');
+  const provs = (subT ? `<div class="wtw-group"><span class="wtw-h">Stream</span><div class="wtw-grid">${subT}</div></div>` : '')
+    + (freeT ? `<div class="wtw-group"><span class="wtw-h">Free</span><div class="wtw-grid">${freeT}</div></div>` : '')
+    + (m.rent ? `<div class="wtw-group"><span class="wtw-h">Rent or buy</span><div class="wtw-grid">${m.wl ? `<a class="wtw rent" href="${esc(m.wl)}" target="_blank" rel="noopener"><span class="ph">${icon('play')}</span><span class="nm"><b>See rental prices</b><small>Apple TV, Prime Video, Fandango and more</small></span>${icon('right', 'go')}</a>` : '<span class="muted">Available to rent or buy.</span>'}</div></div>` : '');
   const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
   const fxKeep = [...dlg.querySelectorAll('.fx-layer')];
   dlg.innerHTML = `<div class="sheet">
@@ -892,8 +905,8 @@ function openDetail(id) {
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
       <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
-        <div class="providers">${provs || `<span class="muted">${m.rent ? 'Available to rent or buy.' : 'Not on a streaming service right now.'}</span>`}</div>
-        <span class="fine">Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
+        <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
+        <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
       <div class="linkrow">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${icon('link')}${l}</a>`).join('')}</div>
     </div></div>`;
   fxKeep.forEach((l) => dlg.append(l));

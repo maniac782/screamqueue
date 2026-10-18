@@ -359,7 +359,23 @@ dialog.detail[open]::backdrop { animation: fade .3s ease; }
 .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .actions .date { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; color: var(--muted); }
 .actions .date input { width: auto; min-height: 36px; padding: 6px 10px; }
-.providers { display: flex; flex-wrap: wrap; gap: 8px; }
+.providers { display: grid; gap: 14px; }
+.wtw-group { display: grid; gap: 8px; }
+.wtw-h { font-size: .8rem; font-weight: 700; color: var(--muted); }
+.wtw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr)); gap: 8px; }
+.wtw { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px 8px 8px; border-radius: 14px;
+  background: var(--bg-2); border: 1px solid var(--line); text-decoration: none; color: var(--fg); transition: border-color .2s, transform .15s var(--spring), background .2s; }
+a.wtw:hover { border-color: var(--line-2); background: var(--raised); }
+a.wtw:active { transform: scale(.98); }
+.wtw img, .wtw .ph { width: 44px; height: 44px; border-radius: 11px; object-fit: cover; background: #fff; box-shadow: 0 2px 8px -3px rgba(0,0,0,.5); }
+.wtw .ph { display: grid; place-items: center; background: var(--raised); color: var(--muted); font-weight: 800; }
+.wtw .ph .ic { width: 20px; height: 20px; }
+.wtw .nm { display: grid; min-width: 0; }
+.wtw .nm b { font-size: .95rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wtw .nm small { font-size: .78rem; color: var(--muted); }
+.wtw .go { width: 18px; height: 18px; color: var(--faint); }
+.wtw.mine { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: linear-gradient(90deg, var(--accent-soft), transparent 70%), var(--bg-2); }
+.wtw.mine .nm small { color: var(--accent); font-weight: 700; }
 .prov { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--line); font-weight: 600; font-size: .9rem; }
 .prov small { color: var(--muted); font-weight: 500; }
 .linkrow { display: flex; flex-wrap: wrap; gap: 8px; }
