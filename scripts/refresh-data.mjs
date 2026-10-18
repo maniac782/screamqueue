@@ -95,10 +95,13 @@ let kcError = null;
 function deadMeatVideos() {
   return new Promise((done) => {
     execFile('python3', ['-m', 'yt_dlp', '--flat-playlist', '--dump-single-json', '--no-warnings', '--ignore-errors', DEAD_MEAT],
-      { maxBuffer: 128 * 1024 * 1024, timeout: 240000 }, (err, out) => {
-        if (err && !out) { kcError = String(err.message).replace(/\s+/g, ' ').slice(-300); console.warn('Kill Count videos skipped:', kcError); return done(null); }
+      { maxBuffer: 128 * 1024 * 1024, timeout: 240000 }, (err, out, errOut) => {
         try { done((JSON.parse(out).entries || []).filter((e) => e?.id && e?.title).map((e) => ({ id: e.id, title: e.title }))); }
-        catch { done(null); }
+        catch (e) {
+          kcError = `${err ? String(err.message) : 'no JSON'} | ${String(errOut || '').slice(-300)} | out=${String(out || '').slice(0, 120)}`.replace(/\s+/g, ' ');
+          console.warn('Kill Count videos skipped:', kcError);
+          done(null);
+        }
       });
   });
 }
