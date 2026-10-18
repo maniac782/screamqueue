@@ -11,6 +11,7 @@
 //   MAX_MOVIES       (default 5000)
 
 import { readFile, writeFile, mkdir, rm } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBGENRES, TIERS, GENRE, tagSubgenres, scoreMovies, usCertification } from './lib.mjs';
@@ -87,6 +88,20 @@ async function pages(path, params, count) {
   }
   return all;
 }
+
+// Dead Meat's "Kill Count" videos on YouTube, listed with yt-dlp (no API key needed). Returns [{ id, title }] or null.
+const DEAD_MEAT = 'https://www.youtube.com/@DeadMeatJames/videos';
+function deadMeatVideos() {
+  return new Promise((done) => {
+    execFile('yt-dlp', ['--flat-playlist', '--dump-single-json', '--no-warnings', '--ignore-errors', DEAD_MEAT],
+      { maxBuffer: 128 * 1024 * 1024, timeout: 240000 }, (err, out) => {
+        if (err && !out) { console.warn('Kill Count videos skipped:', String(err.message).slice(0, 200)); return done(null); }
+        try { done((JSON.parse(out).entries || []).filter((e) => e?.id && e?.title).map((e) => ({ id: e.id, title: e.title }))); }
+        catch { done(null); }
+      });
+  });
+}
+const normTitle = (t) => String(t).toLowerCase().replace(/&/g, 'and').replace(/^(the|a|an)\s+/, '').replace(/[^a-z0-9]+/g, '');
 
 const isoDaysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
 // US release dates from TMDB: th = first theatrical (limited or wide), dig = first digital. Omitted when unknown.
@@ -283,6 +298,22 @@ async function main() {
   await writeFile(resolve(ROOT, 'public/data/people-index.json'), JSON.stringify(index));
   console.log(`Wrote cast for ${rows.length} movies and ${people.size} people.`);
 
+  // Match Kill Count videos ("Halloween (1978) KILL COUNT") to movies by title + year. Keep last night's matches if YouTube can't be reached.
+  const vids = await deadMeatVideos();
+  let kcMatched = 0;
+  if (vids) {
+    const byKey = new Map();
+    for (const v of vids) {
+      const m = v.title.match(/^(.*?)\s*\((\d{4})\)\s*kill count/i); if (!m) continue;
+      const k = normTitle(m[1]);
+      for (const y of [+m[2], +m[2] - 1, +m[2] + 1]) if (!byKey.has(`${k}|${y}`)) byKey.set(`${k}|${y}`, v.id);
+    }
+    for (const r of rows) { const id = r.y && byKey.get(`${normTitle(r.t)}|${r.y}`); if (id) { r.kc = id; kcMatched++; } }
+    console.log(`Kill Count: ${vids.length} Dead Meat videos, ${kcMatched} matched to movies.`);
+  } else {
+    for (const r of rows) { const prev = prevById.get(r.id)?.kc; if (prev) { r.kc = prev; kcMatched++; } }
+  }
+
   const scored = scoreMovies(rows).map(({ pop, votes, imdbVotes, traktWatchers, traktPlays, ...m }) => ({
     ...m,
     n: { pop: pop != null ? Math.round(pop) : null, votes, trakt: traktWatchers, plays: traktPlays },
@@ -294,7 +325,7 @@ async function main() {
     generatedAt: new Date().toISOString(),
     sample: false,
     region: REGION,
-    sources: { tmdb: true, trakt: !!TRAKT_ID, omdb: !!OMDB_KEY },
+    sources: { tmdb: true, trakt: !!TRAKT_ID, omdb: !!OMDB_KEY, killCount: vids ? vids.length : 'kept', killCountMatched: kcMatched },
     subgenres: SUBGENRES.map(({ key, label }) => ({ key, label })),
     tiers: TIERS.map(({ key, label }) => ({ key, label })),
     providers: providerList.filter((p, i) => i < 80 || usedProviders.has(p.id)),

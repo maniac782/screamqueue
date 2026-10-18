@@ -23,6 +23,8 @@ jobs:
         with:
           node-version: 22
       - run: npm test
+      - name: Install yt-dlp (lists Dead Meat's Kill Count videos)
+        run: python3 -m pip install --user --quiet yt-dlp || true
       - name: Pull TMDB / Trakt / OMDb data
         run: node scripts/refresh-data.mjs
         env:

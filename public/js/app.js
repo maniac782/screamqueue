@@ -139,13 +139,14 @@ function trailerBtn(m, cls = '') {
     : `<a class="btn trailer ${cls}" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('play')}Find the trailer</a>`;
 }
 // Trailer plays in a pop-up over the page (YouTube's privacy-enhanced player). Closing it removes the player so the sound stops.
-function openTrailer(id) {
-  const m = S.byId.get(String(id)); if (!m?.yt) return;
+function openTrailer(id, which = 'yt') {
+  const m = S.byId.get(String(id)); const vid = m?.[which]; if (!vid) return;
+  const label = which === 'kc' ? 'Kill Count' : 'trailer';
   const dlg = $('#player');
   dlg.innerHTML = `<div class="player-box">
-    <div class="player-head"><b>${esc(m.t)}${m.y ? ` <span class="faint">(${m.y})</span>` : ''}</b><button class="icon-btn" data-act="closeplayer" aria-label="Close trailer">${icon('x')}</button></div>
-    <div class="frame"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(m.yt)}?autoplay=1&playsinline=1&rel=0&modestbranding=1" title="${esc(m.t)} trailer" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
-    <a class="player-yt" href="${esc(trailerUrl(m))}" target="_blank" rel="noopener">${icon('link')}Open on YouTube</a>
+    <div class="player-head"><b>${esc(m.t)}${m.y ? ` <span class="faint">(${m.y})</span>` : ''}${which === 'kc' ? ' <span class="faint">· Kill Count by Dead Meat</span>' : ''}</b><button class="icon-btn" data-act="closeplayer" aria-label="Close ${label}">${icon('x')}</button></div>
+    <div class="frame"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(vid)}?autoplay=1&playsinline=1&rel=0&modestbranding=1" title="${esc(m.t)} ${label}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
+    <a class="player-yt" href="https://www.youtube.com/watch?v=${encodeURIComponent(vid)}" target="_blank" rel="noopener">${icon('link')}Open on YouTube</a>
   </div>`;
   try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); }
 }
@@ -191,7 +192,7 @@ function killHTML(m, k) {
       <h3>Kill count</h3>
       <p class="muted">${k == null ? 'Loading…' : n == null ? 'No one has added a count yet.' : k.verified != null ? `Verified${fans ? `. ${fans} fan${fans === 1 ? '' : 's'} reported` : ''}` : `Reported by ${fans} fan${fans === 1 ? '' : 's'}${hi > lo ? ` (answers range ${lo} to ${hi})` : ''}`}</p>
       <div class="kill-you">${you}</div>
-      <div class="row" style="gap:8px"><a class="btn small" href="${esc(killCountUrl(m))}" target="_blank" rel="noopener">${icon('play')}Watch the Kill Count</a>${admin}</div>
+      <div class="row" style="gap:8px">${m.kc ? `<button class="btn small" data-act="killvid" data-id="${m.id}">${icon('play')}Watch the Kill Count</button>` : `<a class="btn small" href="${esc(killCountUrl(m))}" target="_blank" rel="noopener">${icon('search')}Find a Kill Count video</a>`}${admin}</div>
     </div></div>`;
 }
 function killBlock(m) {
@@ -759,7 +760,7 @@ views.settings = views.profile;
 
 // Sign in
 function signInPrompt(msg) {
-  return `<div class="panel stack auth-card" style="text-align:center;justify-items:center"><span class="logo"><span class="mark">${icon('skull')}</span></span><h2>Sign in to continue</h2><p class="muted">${msg}</p><a class="btn primary" href="#/signin" data-act="gosignin">Sign in or create an account</a></div>`;
+  return `<div class="panel stack auth-card" style="text-align:center;justify-items:center"><img class="logo-full" src="icons/logo-full.jpg" alt="${esc(SITE_NAME)}"><h2>Sign in to continue</h2><p class="muted">${msg}</p><a class="btn primary" href="#/signin" data-act="gosignin">Sign in or create an account</a></div>`;
 }
 views.signin = () => {
   if (S.user) { setTimeout(() => (location.hash = S.afterSignIn || '#/')); return ''; }
@@ -1246,6 +1247,7 @@ const actions = {
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),
   trailer: (el) => openTrailer(el.dataset.id),
+  killvid: (el) => openTrailer(el.dataset.id, 'kc'),
   killedit(el) { S.killEdit = el.dataset.id; const m = S.byId.get(el.dataset.id); const w = $('#detail .kill-wrap'); if (w && m) w.innerHTML = killHTML(m, killCache.get(el.dataset.id)); w?.querySelector('input')?.focus(); },
   async killclear(el) { await store.setKill(el.dataset.id, null); toast('Removed your kill count', 'x'); await reloadKills(el.dataset.id); },
   async killverify(el) { await store.verifyKill(el.dataset.id, el.dataset.k === '' ? null : Number(el.dataset.k)); toast(el.dataset.k === '' ? 'Verification removed' : 'Kill count verified', 'check'); await reloadKills(el.dataset.id); },
@@ -1831,7 +1833,7 @@ async function boot() {
   $('#version').textContent = 'v' + VERSION;
   if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');
   $('#brand').textContent = SITE_NAME;
-  $('#mark').innerHTML = icon('skull');
+  $('#mark').innerHTML = '<img src="icons/logo-96.png" alt="" width="38" height="38">';
   [S.config] = await Promise.all([store.getConfig(), loadData()]);
   applyConfig();
   let first = true;
