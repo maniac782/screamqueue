@@ -1286,3 +1286,32 @@ a.vs-card:hover { border-color: var(--accent); }
 form .btn.danger-btn[type=submit] { background: #d6223b; color: #fff; border-color: #d6223b; }
 .del-list { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 .cal { max-width: 760px; }
+
+/* VS builder */
+.vsb-hits { display: grid; gap: 4px; max-height: 300px; overflow-y: auto; }
+.vsb-hits:empty { display: none; }
+.vsb-hit { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 10px; }
+.vsb-hit:hover, .vsb-hit:focus-visible { background: var(--surface-2, rgba(255,255,255,.05)); }
+.vsb-hit[disabled] { opacity: .5; cursor: default; }
+.vsb-hit .thumb { width: 34px; height: 50px; }
+.vsb-hit > span { display: grid; min-width: 0; }
+.vsb-hit small { color: var(--muted); font-size: .8rem; }
+.vsb-hit > .ic { width: 18px; height: 18px; color: var(--accent); }
+.vsb-status { margin: 0; font-weight: 600; color: var(--muted); }
+.vsb-status.ok { color: #5cd18a; }
+.vsb-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.vsb-e { display: grid; grid-template-columns: 22px 34px 1fr auto; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 12px; }
+.vsb-e.pair:not(:first-child) { margin-top: 8px; }
+.vsb-n { font-family: var(--font-display); font-weight: 800; color: var(--faint); text-align: center; }
+.vsb-e .thumb { width: 34px; height: 50px; }
+.vsb-main { display: grid; gap: 2px; min-width: 0; }
+.vsb-main input { padding: 6px 10px; }
+.vsb-main small { color: var(--faint); font-size: .78rem; }
+.vsb-btns { display: flex; gap: 4px; }
+.vsb-btns .icon-btn { width: 30px; height: 30px; }
+.vsb-btns [data-dir="-1"] .ic { transform: rotate(90deg); } .vsb-btns [data-dir="1"] .ic { transform: rotate(90deg); }
+/* Pick for Me card quick actions */
+.pick-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.14); }
+.pick-rate { display: inline-flex; align-items: center; gap: 8px; }
+.pick-rate .fine { color: rgba(255,255,255,.7); }
+.pick-card .skulls .sk-val { color: #fff; }

@@ -750,6 +750,14 @@ function renderPick(animate) {
       ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
       <div class="row">${m.sg.slice(0, 4).map(sgTag).join('')}</div>
       <div class="row"><button class="btn primary" data-act="repick">${icon('dice')}Pick another</button>${queueBtn(m)}<button class="btn" data-act="open" data-id="${m.id}">Details</button></div>
+      ${(() => {
+        const st = status(m.id), seen = st?.status === 'seen' || !!st?.wasSeen;
+        return `<div class="pick-acts">
+          <button class="btn small glass" data-act="seen" data-id="${m.id}" aria-pressed="${st?.status === 'seen'}">${icon(st?.status === 'seen' ? 'check' : 'eye')}${st?.status === 'seen' ? 'Seen' : st?.wasSeen ? 'Log rewatch' : 'Seen it'}</button>
+          <span class="pick-rate"><span class="fine">${seen ? 'Your rating' : 'Seen it? Rate it'}</span>${skullPicker(m, st?.rating || 0)}</span>
+          ${!st || st.status === 'nope' ? `<button class="btn small glass" data-act="nope" data-id="${m.id}" data-pick="1">${icon('nope')}Not interested</button>` : ''}
+        </div>`;
+      })()}
     </div></div>`;
 }
 views.pick = () => {
@@ -1546,18 +1554,84 @@ function vsEntry(line) {
   const hits = S.movies.filter((m) => titleKey(m.t) === k && (!y || m.y === y)).sort((a, b) => b.reach - a.reach);
   return { l: label.replace(/\(\d{4}\)\s*$/, '').trim() || q, m: hits[0]?.id ?? null };
 }
+// Famous horror characters, so a matchup can be built by typing a name. [name, movie title, year, kind]
+// The movie gives the entry its picture; characters whose movie isn't on the site are skipped.
+const VS_PEOPLE = [
+  ['Michael Myers', 'Halloween', 1978, 'killer'], ['Jason Voorhees', 'Friday the 13th Part 2', 1981, 'killer'], ['Pamela Voorhees', 'Friday the 13th', 1980, 'killer'],
+  ['Freddy Krueger', 'A Nightmare on Elm Street', 1984, 'killer'], ['Ghostface', 'Scream', 1996, 'killer'], ['Leatherface', 'The Texas Chain Saw Massacre', 1974, 'killer'],
+  ['Chucky', "Child's Play", 1988, 'killer'], ['Tiffany Valentine', 'Bride of Chucky', 1998, 'killer'], ['Pinhead', 'Hellraiser', 1987, 'killer'], ['Candyman', 'Candyman', 1992, 'killer'],
+  ['Jigsaw', 'Saw', 2004, 'killer'], ['Pennywise', 'It', 2017, 'killer'], ['Art the Clown', 'Terrifier', 2016, 'killer'], ['Samara Morgan', 'The Ring', 2002, 'killer'],
+  ['Sadako', 'Ringu', 1998, 'killer'], ['Kayako', 'Ju-on: The Grudge', 2002, 'killer'], ['Norman Bates', 'Psycho', 1960, 'killer'], ['Jack Torrance', 'The Shining', 1980, 'killer'],
+  ['Pazuzu', 'The Exorcist', 1973, 'killer'], ['Annabelle', 'Annabelle', 2014, 'killer'], ['Valak', 'The Nun', 2018, 'killer'], ['Pearl', 'Pearl', 2022, 'killer'],
+  ['M3GAN', 'M3GAN', 2022, 'killer'], ['The Babadook', 'The Babadook', 2014, 'killer'], ['The Tall Man', 'Phantasm', 1979, 'killer'], ['Victor Crowley', 'Hatchet', 2006, 'killer'],
+  ['Esther', 'Orphan', 2009, 'killer'], ['Carrie White', 'Carrie', 1976, 'killer'], ['Damien Thorn', 'The Omen', 1976, 'killer'], ['The Creeper', 'Jeepers Creepers', 2001, 'killer'],
+  ['Bughuul', 'Sinister', 2012, 'killer'], ['The Grabber', 'The Black Phone', 2022, 'killer'], ['The Xenomorph', 'Alien', 1979, 'killer'], ['The Thing', 'The Thing', 1982, 'killer'],
+  ['Count Orlok', 'Nosferatu', 1922, 'killer'], ['Count Dracula', 'Dracula', 1931, 'killer'], ["Frankenstein's Monster", 'Frankenstein', 1931, 'killer'], ['Harry Warden', 'My Bloody Valentine', 1981, 'killer'],
+  ['Jennifer Check', "Jennifer's Body", 2009, 'killer'], ['Krampus', 'Krampus', 2015, 'killer'], ['The Strangers', 'The Strangers', 2008, 'killer'], ['The Leprechaun', 'Leprechaun', 1993, 'killer'],
+  ['Sam', "Trick 'r Treat", 2007, 'killer'], ['Longlegs', 'Longlegs', 2024, 'killer'], ['Mick Taylor', 'Wolf Creek', 2005, 'killer'], ['Billy Loomis', 'Scream', 1996, 'killer'],
+  ['Hannibal Lecter', 'The Silence of the Lambs', 1991, 'killer'], ['Patrick Bateman', 'American Psycho', 2000, 'killer'], ['Mother', 'Mama', 2013, 'killer'], ['The Smile Entity', 'Smile', 2022, 'killer'],
+  ['Laurie Strode', 'Halloween', 1978, 'final'], ['Sidney Prescott', 'Scream', 1996, 'final'], ['Nancy Thompson', 'A Nightmare on Elm Street', 1984, 'final'], ['Ellen Ripley', 'Alien', 1979, 'final'],
+  ['Sally Hardesty', 'The Texas Chain Saw Massacre', 1974, 'final'], ['Alice Hardy', 'Friday the 13th', 1980, 'final'], ['Ginny Field', 'Friday the 13th Part 2', 1981, 'final'],
+  ['Kirsty Cotton', 'Hellraiser', 1987, 'final'], ['Jess Bradford', 'Black Christmas', 1974, 'final'], ['Julie James', 'I Know What You Did Last Summer', 1997, 'final'],
+  ['Erin', "You're Next", 2013, 'final'], ['Dani Ardor', 'Midsommar', 2019, 'final'], ['Grace', 'Ready or Not', 2019, 'final'], ['Sienna Shaw', 'Terrifier 2', 2022, 'final'],
+  ['Maxine Minx', 'X', 2022, 'final'], ['Tree Gelbman', 'Happy Death Day', 2017, 'final'], ['Thomasin', 'The Witch', 2015, 'final'], ['Mia Allen', 'Evil Dead', 2013, 'final'],
+  ['Ash Williams', 'The Evil Dead', 1981, 'final'], ['Chris Washington', 'Get Out', 2017, 'final'], ['Clarice Starling', 'The Silence of the Lambs', 1991, 'final'], ['Ginger Fitzgerald', 'Ginger Snaps', 2000, 'final'],
+];
+let vsPeople = null;
+function vsPeopleList() {
+  if (vsPeople) return vsPeople;
+  vsPeople = VS_PEOPLE.map(([l, t, y, kind]) => {
+    const k = titleKey(t);
+    const m = S.movies.find((x) => titleKey(x.t) === k && x.y === y) || S.movies.find((x) => titleKey(x.t) === k && Math.abs((x.y || 0) - y) <= 1);
+    return m ? { l, m: m.id, kind } : null;
+  }).filter(Boolean);
+  return vsPeople;
+}
+// The builder keeps its entries here while you work on it.
+S.vsb = { entries: [], q: '' };
+const VS_SIZES = [2, 4, 8, 16];
+function vsbResults() {
+  const q = S.vsb.q.trim().toLowerCase(); if (q.length < 2) return '';
+  const have = new Set(S.vsb.entries.map((e) => `${e.l}|${e.m}`));
+  const ppl = vsPeopleList().filter((p) => p.l.toLowerCase().includes(q) || S.byId.get(String(p.m))?.t.toLowerCase().includes(q)).slice(0, 8);
+  const mov = S.movies.filter((m) => m.t.toLowerCase().includes(q)).sort((a, b) => (b.t.toLowerCase().startsWith(q) - a.t.toLowerCase().startsWith(q)) || b.reach - a.reach).slice(0, 8);
+  const row = (l, m, sub, kind) => `<button type="button" class="vsb-hit" data-act="vsbadd" data-l="${esc(l)}" data-id="${m.id}" data-kind="${kind}" ${have.has(`${l}|${m.id}`) ? 'disabled' : ''}>${thumb(m)}<span><b>${esc(l)}</b><small>${esc(sub)}</small></span>${icon(have.has(`${l}|${m.id}`) ? 'check' : 'plus')}</button>`;
+  const out = [...ppl.map((p) => { const m = S.byId.get(String(p.m)); return row(p.l, m, `${p.kind === 'final' ? 'Final girl' : 'Killer'} · ${m.t} (${m.y})`, p.kind); }),
+    ...mov.map((m) => row(m.t, m, `Movie · ${m.y ?? ''}`, 'movie'))];
+  return out.length ? out.join('') : '<p class="muted" style="margin:0">No matches. You can still add it as text below.</p>';
+}
+function vsbList() {
+  const E = S.vsb.entries, n = E.length;
+  const next = VS_SIZES.find((x) => x >= n) || 16;
+  const ok = VS_SIZES.includes(n);
+  return `<p class="vsb-status ${ok ? 'ok' : ''}">${n ? (ok ? `${n === 2 ? 'A single matchup' : `A bracket of ${n}`}. Ready to create.` : `${n} added. Add ${next - n} more for ${next === 2 ? 'a matchup' : `a bracket of ${next}`}${n > 2 && n < next ? `, or remove ${n - VS_SIZES.filter((x) => x < n).pop()} for ${VS_SIZES.filter((x) => x < n).pop()}` : ''}.`) : 'Add 2 for a single matchup, or 4, 8 or 16 for a bracket.'}</p>
+    ${n ? `<ol class="vsb-list">${E.map((e, i) => { const m = e.m && S.byId.get(String(e.m)); return `<li class="vsb-e${i % 2 ? '' : ' pair'}">
+      <span class="vsb-n">${i + 1}</span>${m ? thumb(m) : '<span class="thumb"></span>'}
+      <span class="vsb-main"><input type="text" value="${esc(e.l)}" maxlength="60" data-vsb="${i}" aria-label="Name for entry ${i + 1}"><small>${m ? `${esc(m.t)} (${m.y ?? '?'})` : 'No picture'}</small></span>
+      <span class="vsb-btns"><button type="button" class="icon-btn" data-act="vsbmove" data-k="${i}" data-dir="-1" aria-label="Move up" ${i ? '' : 'disabled'}>${icon('left')}</button><button type="button" class="icon-btn" data-act="vsbmove" data-k="${i}" data-dir="1" aria-label="Move down" ${i < n - 1 ? '' : 'disabled'}>${icon('right')}</button><button type="button" class="icon-btn" data-act="vsbdel" data-k="${i}" aria-label="Remove">${icon('x')}</button></span></li>`; }).join('')}</ol>
+    <p class="fine" style="margin:0">Pairs go in order: 1 vs 2, 3 vs 4, and so on.</p>` : ''}`;
+}
+function renderVsb() { const r = $('#vsb-hits'); if (r) r.innerHTML = vsbResults(); const l = $('#vsb-list'); if (l) l.innerHTML = vsbList(); }
 async function adminVsHTML() {
   const list = await store.listVs().catch(() => []);
   const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  S.after = renderVsb;
   return `<div class="two-col">
     <form class="panel stack" id="vs-form" onsubmit="return false" style="gap:12px">
       <h2>New matchup or bracket</h2>
       <label class="field">Title<input type="text" name="title" maxlength="80" placeholder="Slasher showdown"></label>
-      <div class="fb-row"><label class="field">Category<select name="cat">${Object.entries(VS_CATS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
-        <label class="field">Type<select name="size"><option value="2">Single matchup (2)</option><option value="4">Bracket of 4</option><option value="8">Bracket of 8</option><option value="16">Bracket of 16</option></select></label></div>
-      <label class="field">Entries, one per line, in bracket order (1st vs 2nd, 3rd vs 4th…)
-        <textarea name="entries" rows="8" placeholder="Michael Myers = Halloween (1978)&#10;Ghostface = Scream (1996)&#10;The Exorcist&#10;Hereditary"></textarea></label>
-      <p class="fine" style="margin:0">Add "= Movie title (year)" to show that movie's picture. Lines without it are looked up by name.</p>
+      <label class="field">Category<select name="cat">${Object.entries(VS_CATS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+      <div class="stack" style="gap:8px"><b>Add entries</b>
+        <label class="search"><span class="sr">Search killers, final girls or movies</span>${icon('search')}<input type="search" id="vsb-q" value="${esc(S.vsb.q)}" placeholder="Search a killer, final girl or movie" autocomplete="off"></label>
+        <div class="vsb-hits" id="vsb-hits"></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap"><span class="fine">Quick fill:</span>
+          <button type="button" class="btn small ghost" data-act="vsbfill" data-k="killer">8 iconic killers</button>
+          <button type="button" class="btn small ghost" data-act="vsbfill" data-k="final">8 final girls</button>
+          <button type="button" class="btn small ghost" data-act="vsbfill" data-k="top">8 crowd favorites</button>
+          <button type="button" class="btn small ghost" data-act="vsbfill" data-k="text">Add as text</button>
+          ${S.vsb.entries.length ? '<button type="button" class="btn small ghost" data-act="vsbshuffle">Shuffle</button><button type="button" class="btn small ghost" data-act="vsbclear">Clear</button>' : ''}</div>
+      </div>
+      <div id="vsb-list"></div>
       <div class="fb-row"><label class="field">Voting opens<input type="datetime-local" name="start" value="${now}"></label>
         <label class="field">Each round lasts (hours)<input type="number" name="hours" min="1" max="336" value="24"></label></div>
       <p class="error" id="vs-err" hidden></p>
@@ -2312,17 +2386,38 @@ const actions = {
     try { if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ url, title: document.title }); return; } await navigator.clipboard.writeText(url); toast('Link copied', 'link'); }
     catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
   },
+  vsbadd(el) {
+    S.vsb.entries.push({ l: el.dataset.l, m: Number(el.dataset.id) || null });
+    const cat = $('#vs-form [name=cat]');
+    if (cat && S.vsb.entries.length === 1) cat.value = { killer: 'killers', final: 'final girls', movie: 'movies' }[el.dataset.kind] || cat.value;
+    renderVsb(); $('#vsb-q')?.focus();
+  },
+  vsbdel(el) { S.vsb.entries.splice(Number(el.dataset.k), 1); renderVsb(); },
+  vsbmove(el) { const i = Number(el.dataset.k), j = i + Number(el.dataset.dir), E = S.vsb.entries; if (j < 0 || j >= E.length) return; [E[i], E[j]] = [E[j], E[i]]; renderVsb(); },
+  vsbshuffle() { const E = S.vsb.entries; for (let i = E.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [E[i], E[j]] = [E[j], E[i]]; } renderVsb(); },
+  vsbclear() { S.vsb.entries = []; renderVsb(); },
+  vsbfill(el) {
+    const k = el.dataset.k, cat = $('#vs-form [name=cat]'), title = $('#vs-form [name=title]');
+    if (k === 'text') { const q = S.vsb.q.trim(); if (!q) { toast('Type a name in the search box first', 'search'); $('#vsb-q')?.focus(); return; } S.vsb.entries.push({ l: q, m: null }); S.vsb.q = ''; $('#vsb-q').value = ''; renderVsb(); return; }
+    const pool = k === 'top' ? S.movies.filter((m) => m.tier === 'favorite').sort((a, b) => b.reach - a.reach).slice(0, 40).map((m) => ({ l: m.t, m: m.id }))
+      : vsPeopleList().filter((p) => p.kind === k).filter((p, i, a) => a.findIndex((x) => x.l === p.l) === i);
+    const pick = pool.slice().sort(() => Math.random() - 0.5).slice(0, 8);
+    S.vsb.entries = pick.map(({ l, m }) => ({ l, m }));
+    if (cat) cat.value = { killer: 'killers', final: 'final girls', top: 'movies' }[k];
+    if (title && !title.value) title.value = { killer: 'Slasher showdown', final: 'Final girl face-off', top: 'Crowd favorites bracket' }[k];
+    renderVsb();
+  },
   async vscreate() {
     const f = $('#vs-form'); if (!f) return;
-    const title = f.querySelector('[name=title]').value.trim(), cat = f.querySelector('[name=cat]').value, size = Number(f.querySelector('[name=size]').value);
-    const lines = f.querySelector('[name=entries]').value.split('\n').map((x) => x.trim()).filter(Boolean);
+    const title = f.querySelector('[name=title]').value.trim(), cat = f.querySelector('[name=cat]').value;
+    const entries = S.vsb.entries.map((e) => ({ l: e.l.trim() || 'Untitled', m: e.m ?? null })), size = entries.length;
     const err = (m) => { const e = $('#vs-err'); e.textContent = m; e.hidden = false; };
     if (!title) return err('Give it a title.');
-    if (lines.length !== size) return err(`A ${size === 2 ? 'single matchup' : `${size}-way bracket`} needs exactly ${size} entries, one per line. You have ${lines.length}.`);
-    const entries = lines.map(vsEntry);
+    if (!VS_SIZES.includes(size)) return err(`Add 2 entries for a single matchup, or 4, 8 or 16 for a bracket. You have ${size}.`);
     const start = f.querySelector('[name=start]').value ? new Date(f.querySelector('[name=start]').value).getTime() : Date.now();
     const dur = Math.round(Number(f.querySelector('[name=hours]').value || 24) * 3600000);
     const id = await store.createVs({ title, cat, size, rounds: Math.log2(size), start, dur, entries });
+    S.vsb = { entries: [], q: '' };
     toast('Matchup created', 'trophy'); location.hash = `#/vs/${id}`;
   },
   async vsdel(el) {
@@ -2464,6 +2559,7 @@ const actions = {
     if (st) return; // only for movies not already on your lists
     await setStatus(id, { status: 'nope' });
     toast('Hidden. You won\'t see it in shelves or picks', 'nope', undoTo(id, prev));
+    if (el.dataset.pick) { actions.repick(); return; } // on Pick for Me, go straight to another pick
     if (!$('#detail').open) await sendOff(id, 'remove');
     await refreshAll(); if ($('#detail').open) refreshDetail();
   },
@@ -2825,6 +2921,8 @@ document.addEventListener('change', async (e) => {
 let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'vsb-q') { S.vsb.q = el.value; const r = $('#vsb-hits'); if (r) r.innerHTML = vsbResults(); return; }
+  if (el.dataset.vsb != null) { const e = S.vsb.entries[Number(el.dataset.vsb)]; if (e) e.l = el.value; return; }
   if (el.id === 'adm-q') { S.adm.q = el.value; renderAdminList(); return; }
   if (el.id === 'adm-sort') { S.adm.sort = el.value; try { localStorage.setItem('sq-adm-sort', el.value); } catch { /* ignore */ } renderAdminList(); return; }
   if (el.id === 'fr-q') { clearTimeout(frTimer); frTimer = setTimeout(renderFriendSearch, 250); return; }
