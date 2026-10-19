@@ -545,14 +545,14 @@ function recommend() {
   recMemo = { key, out };
   return out;
 }
-// Halloween classics: shown from mid-September to early November. The Halloween Fun movies (Hocus Pocus,
+// Halloween classics: shown in September and October. The Halloween Fun movies (Hocus Pocus,
 // Beetlejuice...) mixed with the horror movies that are about Halloween itself, best known first.
 const HALLOWEEN_HORROR = [['Halloween', 1978], ["Trick 'r Treat", 2007], ['Halloween III: Season of the Witch', 1982], ['Halloween', 2018], ['Hocus Pocus', 1993],
   ['Night of the Demons', 1988], ['Terrifier', 2016], ['Halloween II', 1981], ['The Houses October Built', 2014], ['Tales of Halloween', 2015], ['Hell Fest', 2018],
   ['Trick', 2019], ['The Guest', 2014], ['Halloween Kills', 2021], ['Satan\'s Little Helper', 2004], ['Pumpkinhead', 1988], ['Sleepy Hollow', 1999], ['The Lost Boys', 1987]];
 function halloweenShelf() {
   const t = today(), md = t.slice(5);
-  if (md < '09-15' || md > '11-07') return [];
+  if (!['09', '10'].includes(md.slice(0, 2))) return []; // September and October only
   const hz = HALLOWEEN_HORROR.map(([title, y]) => S.movies.find((m) => m.t === title && m.y === y)).filter(Boolean);
   const fun = S.movies.filter((m) => m.sg.includes('fun')).sort((a, b) => b.reach - a.reach);
   const mixed = [];
