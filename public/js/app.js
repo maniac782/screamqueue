@@ -1581,8 +1581,27 @@ function vsTonightHTML() {
   if (!store.listVs) return '';
   if (!S.vsTonight || Date.now() - S.vsTonight.at > 60000) { if (!S.vsLoading) { S.vsLoading = true; vsTonight().finally(() => { S.vsLoading = false; }); } }
   const T = S.vsTonight; if (!T?.v && !T?.br) return '';
-  return `<section class="shelf vs-tonight" data-key="vs"><div class="shelf-head"><div><h2>${T.v ? esc(T.v.title) : 'VS'}</h2><p class="muted">${T.v ? `Today's matchup. Closes in ${untilText(vsPhase(T.v).ends)}.` : ''}</p></div><div class="shelf-nav"><a class="btn small ghost" href="#/vs">${T.br ? `${esc(T.br.title)}: ${roundName(T.br, vsPhase(T.br).r)}` : 'All matchups'}</a></div></div>
-    ${T.v ? `<div class="panel vs-panel">${vsMatch(T.v, T.res.rounds[0].pairs[0], T.res, true)}</div>` : ''}</section>`;
+  const brLink = T.br ? `<a class="vsh-link" href="#/vs/${T.br.id}">${icon('trophy')}${esc(T.br.title)}: ${esc(roundName(T.br, vsPhase(T.br).r))} is open</a>` : '';
+  if (!T.v) return `<section class="shelf" data-key="vs"><div class="vsh vsh-slim">${brLink}<a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div></section>`;
+  const v = T.v, p = T.res.rounds[0].pairs[0], mine = T.res.mine[p.mk];
+  const tot = (p.t?.a || 0) + (p.t?.b || 0);
+  const side = (k) => {
+    const e = v.entries[p[k]], m = e.m && S.byId.get(String(e.m));
+    const n = p.t?.[k] || 0, pct = tot ? Math.round((n / tot) * 100) : 0;
+    const pic = m ? `${art(m)}${S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w342${m.poster}" alt="" loading="lazy">` : ''}` : `<span class="vs-blank">${esc(e.l.slice(0, 1))}</span>`;
+    return `<button class="vsh-side${mine === k ? ' mine' : ''}${mine && mine !== k ? ' other' : ''}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${k}" aria-pressed="${mine === k}" aria-label="Vote for ${esc(e.l)}">
+      <span class="vsh-pic">${pic}<span class="vsh-shade"></span>
+        ${mine === k ? `<span class="vsh-mine">${icon('check')}Your pick</span>` : ''}
+        <span class="vsh-name">${mine ? `<span class="vsh-pct"><b>${pct}%</b><i style="--w:${pct}%"></i></span>` : ''}<b>${esc(e.l)}</b>${m && m.t !== e.l ? `<small>${esc(m.t)}${m.y ? ` (${m.y})` : ''}</small>` : m?.y ? `<small>${m.y}</small>` : ''}</span>
+      </span></button>`;
+  };
+  return `<section class="shelf" data-key="vs"><div class="vsh">
+    <div class="vsh-top"><span class="vsh-badge">${icon('trophy')}VS · Today's matchup</span><span class="vsh-time">${icon('clock')}Closes in ${esc(untilText(vsPhase(v).ends))}</span></div>
+    <h2 class="vsh-q">${esc(v.title)}</h2>
+    <p class="vsh-sub">${mine ? `You voted. ${tot} vote${tot === 1 ? '' : 's'} so far; tap the other side to change yours.` : 'Tap the one you pick. Everyone\'s votes show after you vote.'}</p>
+    <div class="vsh-duel">${side('a')}<span class="vsh-vs">VS</span>${side('b')}</div>
+    <div class="vsh-foot">${brLink}<a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div>
+  </div></section>`;
 }
 
 // Admin: a line is "Label" or "Label = Movie title (year)"; with no "=", the label itself is looked up as a movie.
