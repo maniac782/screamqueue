@@ -2845,7 +2845,53 @@ document.addEventListener('click', async (e) => {
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
 $('#player')?.addEventListener('click', (e) => { if (e.target.id === 'player') e.target.close(); });
 $('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
-$('#formdlg')?.addEventListener('click', (e) => { if (e.target.id === 'formdlg') e.target.close(); });
+$('#formdlg')?.addEventListener('click', (e) => { if (e.target.id === 'formdlg' && !e.target.dataset.locked) e.target.close(); });
+// The welcome step can't be skipped with Escape.
+$('#formdlg')?.addEventListener('cancel', (e) => { if (e.target.dataset.locked) e.preventDefault(); });
+$('#formdlg')?.addEventListener('close', (e) => { delete e.target.dataset.locked; });
+
+// ---------- Welcome: pick a username and display name ----------
+// Shown once, the first time someone signs in (and to earlier accounts that never chose). Nothing about them is
+// public until they finish it, so a real name from Google only shows if they type it here.
+function openSetup() {
+  if ($('#formdlg')?.open) return;
+  const h = S.social?.handle || '', nm = S.social && !S.social.missing ? (S.profile.name || '') : '';
+  openForm(`<form class="stack fb-form" data-form="setup" novalidate>
+    <div class="fb-head"><div><h2>Welcome to ${esc(SITE_NAME)}</h2><p class="muted">Pick how other people will see you. Your email and the name on your Google account are never shown unless you type them here.</p></div></div>
+    <label class="field">Username<span class="handle-in"><span>@</span><input type="text" name="handle" maxlength="20" autocomplete="off" autocapitalize="none" spellcheck="false" value="${esc(h)}" placeholder="nightowl_13" autofocus></span></label>
+    <p class="fine" id="setup-h" style="margin:-6px 0 0">3 to 20 letters, numbers or _. Friends find you by this.</p>
+    <label class="field">Display name<input type="text" name="name" maxlength="40" value="${esc(nm)}" placeholder="Optional. Leave blank to use your username"></label>
+    <label class="field">Who can see my Body Count, ratings and queue<select name="pv">${Object.entries(PRIVACY).map(([k, l]) => `<option value="${k}" ${(S.social?.privacy?.profile || 'friends') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+    <p class="error" hidden></p>
+    <div class="fb-foot"><span class="fine">You can change all of this later in Profile.</span><button class="btn primary" type="submit">Let's go</button></div>
+  </form>`);
+  $('#formdlg').dataset.locked = '1';
+  const inp = $('#formdlg [name=handle]'), note = $('#setup-h');
+  let t = 0;
+  inp.addEventListener('input', () => {
+    inp.value = inp.value.toLowerCase().replace(/[^a-z0-9_]/g, '');
+    clearTimeout(t);
+    const v = inp.value;
+    if (v.length < 3) { note.textContent = '3 to 20 letters, numbers or _. Friends find you by this.'; note.className = 'fine'; return; }
+    t = setTimeout(async () => { const free = await store.handleFree(v).catch(() => true); if (inp.value !== v) return; note.textContent = free ? `@${v} is available` : `@${v} is taken. Try another.`; note.className = free ? 'fine ok-text' : 'fine err-text'; }, 300);
+  });
+}
+async function submitSetup(f) {
+  const err = f.querySelector('.error'), btn = f.querySelector('[type=submit]');
+  const fail = (m, el) => { err.textContent = m; err.hidden = false; el?.focus(); };
+  const handle = f.handle.value.trim().toLowerCase(), name = f.name.value.trim().slice(0, 40) || handle;
+  if (!/^[a-z0-9_]{3,20}$/.test(handle)) return fail('Pick a username: 3 to 20 letters, numbers or _.', f.handle);
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    if (!(await store.handleFree(handle))) throw new Error(`@${handle} is taken. Try another.`);
+    await store.saveSocial({ handle, name, privacy: { profile: f.pv.value } });
+    await store.saveProfile({ name, setup: true });
+    S.profile.name = name; S.profile.setup = true;
+    delete $('#formdlg').dataset.locked; $('#formdlg').close();
+    await loadSocial(); renderChrome(); route(true, true);
+    toast(`You're @${handle}. Welcome!`, 'skull');
+  } catch (e) { btn.disabled = false; btn.textContent = 'Let\'s go'; fail(e?.message || 'That didn\'t save. Try again.', f.handle); }
+}
 
 // ---------- Send feedback and Contact ----------
 // Both save to the database; the site owner reads them on the Admin page.
@@ -3055,7 +3101,8 @@ async function afterFriendChange() {
   if (/^#\/(friends|u\/)/.test(location.hash)) await route(true, true); else renderFriendSearch();
 }
 document.addEventListener('submit', async (e) => {
-  if (e.target.classList?.contains('fb-form') && !e.target.dataset.form?.startsWith('del')) { e.preventDefault(); await submitForm(e.target); return; }
+  if (e.target.classList?.contains('fb-form') && ['feedback', 'contact'].includes(e.target.dataset.form)) { e.preventDefault(); await submitForm(e.target); return; }
+  if (e.target.dataset?.form === 'setup') { e.preventDefault(); await submitSetup(e.target); return; }
   if (e.target.dataset?.form === 'delacct') {
     e.preventDefault();
     const f = e.target, err = f.querySelector('.error'), btn = f.querySelector('[type=submit]'), step = f.querySelector('#del-step');
@@ -3230,7 +3277,7 @@ async function boot() {
   store.init(async (u) => {
     S.user = u;
     await loadMine();
-    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); }).catch(() => {});
+    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); if (u && !S.profile.setup) openSetup(); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);
     first = false;

@@ -1343,3 +1343,5 @@ svg.stamp svg { color: currentColor; }
 }
 @media (max-width: 389px) { .logo .beta { display: none; } }
 .logo .mark { flex: none; }
+.ok-text { color: #5cd18a !important; }
+.err-text { color: #ff4057 !important; }

@@ -84,7 +84,7 @@ export const store = {
   async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
   async signOut() { await A.signOut(auth); },
 
-  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen, notify: { friends: true, streaming: true, ...(d.notify || {}) } }; },
+  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen, setup: !!d.setup, notify: { friends: true, streaming: true, ...(d.notify || {}) } }; },
   async saveProfile(patch) {
     await F.updateDoc(userDoc(), patch);
     if (patch.name && current) current.name = patch.name;
@@ -147,9 +147,10 @@ export const store = {
   async getSocial() {
     const snap = await F.getDoc(F.doc(db, 'profiles', uid())).catch(() => null);
     let d = snap?.data();
-    // Everyone gets a profile card on first visit so friends can find them, with a username taken from
-    // their display name (dani, dani2, ...) until they pick their own.
-    if (snap && (!snap.exists() || !d?.handle)) {
+    // New people get no public card until they've picked a username and display name (the welcome step),
+    // so a real name from Google is never shown without them choosing it.
+    if (snap && !snap.exists()) return { handle: '', av: '', photo: '', privacy: { profile: 'friends', reviews: 'public' }, missing: true };
+    if (snap && !d?.handle) {
       const nm = d?.name || current?.name || '';
       const handle = await this.claimDefaultHandle(nm).catch(() => '');
       d = { name: nm, nameLower: nm.toLowerCase(), handle, privacy: { profile: 'friends', reviews: 'public', ...(d?.privacy || {}) }, at: Date.now() };
@@ -175,6 +176,7 @@ export const store = {
     }
     return '';
   },
+  async handleFree(h) { const s = await F.getDoc(F.doc(db, 'usernames', h)).catch(() => null); return !s?.exists() || s.data().uid === uid(); },
   async saveSocial({ handle, privacy, name }, reviewedIds = []) {
     const prev = await this.getSocial();
     const h = (handle || '').toLowerCase();

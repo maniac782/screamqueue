@@ -92,7 +92,8 @@ export const store = {
   async resetPassword() {},
   async signOut() { load().signedIn = false; save(); emitUser(); },
 
-  async getProfile() { return { notify: { friends: true, streaming: true }, ...structuredClone(load().profile) }; },
+  async getProfile() { return { setup: true, notify: { friends: true, streaming: true }, ...structuredClone(load().profile) }; },
+  async handleFree(h) { return !['finalgirl', 'ghostface_fan', 'creepshow', 'midnightmovies'].includes(h); },
   async saveProfile(patch) { Object.assign(load().profile, patch); save(); emitUser(); },
 
   async loadMyMovies() { return new Map(Object.entries(load().movies)); },
