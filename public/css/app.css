@@ -1331,3 +1331,17 @@ svg.stamp .st-in { fill: none; stroke: currentColor; stroke-width: 1.6; }
 svg.stamp .st-t { fill: currentColor; font-family: var(--font-display); font-weight: 800; font-size: 24px; letter-spacing: 1px; }
 svg.stamp .st-r { fill: currentColor; font-family: var(--font-display); font-weight: 800; font-size: 16px; }
 svg.stamp svg { color: currentColor; }
+/* Phones: the two sides sit next to each other (picture on top, name under it) so the whole matchup fits on screen. */
+@media (max-width: 640px) {
+  .vs-match { position: relative; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .vs-vs { position: absolute; z-index: 3; left: 50%; top: 38%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; background: var(--bg, #0f1013); border: 2px solid var(--accent); box-shadow: 0 6px 18px -6px rgba(0,0,0,.7); }
+  .vs-side { grid-template-columns: 1fr; grid-template-rows: auto; gap: 8px; padding: 8px; align-content: start; }
+  .vs-pic { grid-row: auto; width: 100%; aspect-ratio: 1 / 1; }
+  .vs-name b { font-size: 1rem; }
+  .vs-name small { font-size: .8rem; }
+  .vs-pct { padding-top: 9px; }
+  .vs-pct b { font-size: 1.1rem; }
+  .vs-panel { padding: 12px; }
+  .vs-tonight .vs-panel { padding: 12px; }
+}
