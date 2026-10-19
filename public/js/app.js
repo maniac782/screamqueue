@@ -3173,6 +3173,8 @@ async function route(keepScroll, quiet) {
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
   if (!quiet && !keepScroll && $('#detail')?.open) $('#detail').close();
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
+  // The home page doesn't need "#/" in the address, so links copied from it are clean (screamqueue.web.app/).
+  if (!name && location.hash) history.replaceState(history.state, '', location.pathname + location.search);
   S.menuOpen = false;
   const view = views[{ trophies: 'bodycount' }[name] || name || 'tonight'] || views.tonight;
   renderChrome();
