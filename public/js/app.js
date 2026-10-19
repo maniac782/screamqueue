@@ -2590,7 +2590,13 @@ const actions = {
     S.p.current = m ? m.id : false;
     if (m) S.p.recent = [m.id, ...S.p.recent].slice(0, 12);
     renderPick(true);
-    if (window.innerWidth < 900) $('#pick-result')?.scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'start' });
+    // On phones, bring the card into view just below the sticky header (not under it).
+    const el = $('#pick-result');
+    if (el && window.innerWidth < 900) {
+      const head = $('header.top')?.getBoundingClientRect().bottom || 0;
+      const y = window.scrollY + el.getBoundingClientRect().top - head - 12;
+      if (Math.abs(window.scrollY - y) > 4) window.scrollTo({ top: Math.max(0, y), behavior: reduceMotion() ? 'auto' : 'smooth' });
+    }
   },
   qtab(el) { S.qTab = el.dataset.k; route(true); },
   async join(el) { await store.joinNight(el.dataset.id); toast('You joined the movie night', 'users'); },
