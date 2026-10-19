@@ -37,10 +37,54 @@ export const store = {
     const cred = await A.createUserWithEmailAndPassword(auth, email, password);
     if (name) await A.updateProfile(cred.user, { displayName: name });
   },
+  // How this account signs in, so deleting it can ask for the right confirmation.
+  signInMethod() { return auth.currentUser?.providerData?.[0]?.providerId === 'password' ? 'password' : 'google'; },
+  // Delete the account and everything stored with it. Sign in again first (Firebase only lets a recent sign-in
+  // delete itself), then remove the data, then the sign-in. progress(text) reports each step.
+  async deleteAccount(password, progress = () => {}) {
+    const u = auth.currentUser; if (!u) throw new Error('Not signed in');
+    progress('Checking it\'s you…');
+    if (this.signInMethod() === 'password') await A.reauthenticateWithCredential(u, A.EmailAuthProvider.credential(u.email, password));
+    else await A.reauthenticateWithPopup(u, new A.GoogleAuthProvider());
+    const me = u.uid;
+    const refs = [];
+    const del = async (list) => { for (let i = 0; i < list.length; i += 400) { const b = F.writeBatch(db); list.slice(i, i + 400).forEach((r) => b.delete(r)); await b.commit(); } };
+    progress('Removing your movies, ratings and reviews…');
+    const mv = await F.getDocs(F.collection(db, 'users', me, 'movies'));
+    for (const d of mv.docs) {
+      refs.push(d.ref);
+      if (d.data().status === 'seen' || d.data().wasSeen || d.data().rv) refs.push(F.doc(db, 'reviews', d.id, 'by', me), F.doc(db, 'kills', d.id, 'votes', me));
+    }
+    await del(refs.splice(0));
+    progress('Removing friends and requests…');
+    const [fr, inc, out] = await Promise.all([F.getDocs(F.collection(db, 'friends', me, 'list')), F.getDocs(F.collection(db, 'requests', me, 'from')), F.getDocs(F.collection(db, 'sent', me, 'to'))]);
+    for (const d of fr.docs) refs.push(d.ref, F.doc(db, 'friends', d.id, 'list', me));
+    for (const d of inc.docs) refs.push(d.ref, F.doc(db, 'sent', d.id, 'to', me));
+    for (const d of out.docs) refs.push(d.ref, F.doc(db, 'requests', d.id, 'from', me));
+    await del(refs.splice(0));
+    progress('Leaving movie nights…');
+    const nights = await F.getDocs(F.query(F.collection(db, 'nights'), F.where('members', 'array-contains', me)));
+    for (const d of nights.docs) {
+      const n = d.data();
+      if (n.owner === me) await F.deleteDoc(d.ref);
+      else {
+        const votes = { ...(n.votes || {}) }; delete votes[me];
+        const names = { ...(n.memberNames || {}) }; delete names[me];
+        await F.updateDoc(d.ref, { members: n.members.filter((x) => x !== me), memberNames: names, votes }).catch((e) => console.warn('leave night', e));
+      }
+    }
+    progress('Removing your profile…');
+    const card = (await F.getDoc(F.doc(db, 'profiles', me)).catch(() => null))?.data();
+    if (card?.handle) refs.push(F.doc(db, 'usernames', card.handle));
+    refs.push(F.doc(db, 'profiles', me), F.doc(db, 'users', me));
+    await del(refs.splice(0));
+    progress('Deleting your sign-in…');
+    await A.deleteUser(u);
+  },
   async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
   async signOut() { await A.signOut(auth); },
 
-  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen }; },
+  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen, notify: { friends: true, streaming: true, ...(d.notify || {}) } }; },
   async saveProfile(patch) {
     await F.updateDoc(userDoc(), patch);
     if (patch.name && current) current.name = patch.name;
@@ -51,6 +95,14 @@ export const store = {
     return new Map(snap.docs.map((d) => [d.id, d.data()]));
   },
   async setMovie(id, data) { await F.setDoc(F.doc(db, 'users', uid(), 'movies', String(id)), { ...data, at: Date.now() }); },
+  // Many movies at once (Letterboxd import), 400 per batch write.
+  async importMovies(entries) {
+    for (let i = 0; i < entries.length; i += 400) {
+      const b = F.writeBatch(db);
+      for (const [id, data] of entries.slice(i, i + 400)) b.set(F.doc(db, 'users', uid(), 'movies', String(id)), { ...data, at: Date.now() });
+      await b.commit();
+    }
+  },
   async removeMovie(id) { await F.deleteDoc(F.doc(db, 'users', uid(), 'movies', String(id))); },
 
   async listNights() {
@@ -253,6 +305,31 @@ export const store = {
     catch { return { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' }; }
   },
   async saveConfig(full) { await F.setDoc(F.doc(db, 'config', 'site'), full); },
+  // ---------- VS matchups and brackets ----------
+  // vs/{id}: { title, cat, entries: [{ l: label, m: movie id or null }], size, rounds, start, dur, by, at }
+  // vs/{id}/m/{r1m0}/votes/{uid}: { pick: 'a'|'b', r, at }. Tallies are count queries, so nobody can edit a total.
+  async listVs() {
+    const snap = await F.getDocs(F.query(F.collection(db, 'vs'), F.orderBy('start', 'desc'), F.limit(60)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+  async getVs(id) { const d = await F.getDoc(F.doc(db, 'vs', id)); return d.exists() ? { id: d.id, ...d.data() } : null; },
+  async createVs(data) { const ref = await F.addDoc(F.collection(db, 'vs'), { ...data, by: uid(), at: Date.now() }); return ref.id; },
+  async deleteVs(id) { await F.deleteDoc(F.doc(db, 'vs', id)); },
+  async tallyVs(id, mk) {
+    const col = F.collection(db, 'vs', id, 'm', mk, 'votes');
+    const [a, b] = await Promise.all(['a', 'b'].map((p) => F.getCountFromServer(F.query(col, F.where('pick', '==', p))).then((c) => c.data().count).catch(() => 0)));
+    return { a, b };
+  },
+  async myVotesVs(id, mks) {
+    const me = auth.currentUser; if (!me) return {};
+    const out = {};
+    await Promise.all(mks.map(async (mk) => { const d = await F.getDoc(F.doc(db, 'vs', id, 'm', mk, 'votes', me.uid)).catch(() => null); if (d?.exists()) out[mk] = d.data().pick; }));
+    return out;
+  },
+  async voteVs(id, mk, r, pick) {
+    await F.setDoc(F.doc(db, 'vs', id, 'm', mk, 'votes', auth.currentUser.uid), { pick, r, at: Date.now() });
+  },
+
   // Send feedback (signed in) and Contact (anyone). Only admins can read them, on the Admin page.
   async sendFeedback(d) { await F.addDoc(F.collection(db, 'feedback'), { ...d, uid: uid(), t: Date.now() }); },
   async sendContact(d) { await F.addDoc(F.collection(db, 'contact'), { ...d, t: Date.now() }); },

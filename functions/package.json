@@ -1,0 +1,14 @@
+{
+  "name": "screamqueue-functions",
+  "private": true,
+  "description": "Server functions for Scream Queue: friend request, contact and queue-streaming emails.",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.1.0",
+    "nodemailer": "^6.9.16"
+  }
+}

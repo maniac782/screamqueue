@@ -307,6 +307,23 @@ async function main() {
   await writeFile(resolve(ROOT, 'public/data/people-index.json'), JSON.stringify(index));
   console.log(`Wrote cast for ${rows.length} movies and ${people.size} people.`);
 
+  // Newly streaming: providers a movie gained since last night, kept for 21 days (ns: { d: date, p: [provider ids] }).
+  // The site shows these from your queue on Tonight, and the email job (functions/) sends a daily note about them.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nsCutoff = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10);
+  let nsNew = 0;
+  for (const r of rows) {
+    const prev = prevById.get(r.id);
+    const nowP = [...r.pv, ...r.fr];
+    if (prev) {
+      const before = new Set([...(prev.pv || []), ...(prev.fr || [])]);
+      const added = nowP.filter((x) => !before.has(x));
+      if (added.length && !previous.sample) { r.ns = { d: todayStr, p: added }; nsNew++; continue; }
+    }
+    if (prev?.ns && prev.ns.d >= nsCutoff) { const still = prev.ns.p.filter((x) => nowP.includes(x)); if (still.length) r.ns = { d: prev.ns.d, p: still }; }
+  }
+  console.log(`Newly streaming tonight: ${nsNew} movies.`);
+
   // "People who liked this also liked": TMDB's recommendations, kept only when they're on the site (top 12).
   const onSite = new Set(rows.map((r) => r.id));
   for (const r of rows) r.rec = r.rec.filter((id) => onSite.has(id)).slice(0, 12);

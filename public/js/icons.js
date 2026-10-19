@@ -10,6 +10,7 @@ const P = {
   chat: '<path d="M5 5h14a1.5 1.5 0 0 1 1.5 1.5v9A1.5 1.5 0 0 1 19 17H10l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5v-9A1.5 1.5 0 0 1 5 5z"/><path d="M8 9.5h8M8 12.5h5"/>',
   mail: '<rect x="3.5" y="5.5" width="17" height="13" rx="2"/><path d="m4 7 8 6 8-6"/>',
   check: '<path d="m5 12.5 4.2 4.2L19 7"/>',
+  nope: '<circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   tv: '<rect x="3" y="5" width="18" height="12" rx="2.5"/><path d="M8 21h8M12 17v4"/>',
   down: '<path d="m7 10 5 5 5-5"/>',

@@ -32,11 +32,13 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fmt = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K' : String(n));
 const status = (id) => S.mine.get(String(id));
 const isSeen = (m) => status(m.id)?.status === 'seen';
+const isNope = (m) => status(m.id)?.status === 'nope'; // "Not interested": kept out of shelves, Browse and picks
 const everSeen = (m) => { const st = status(m.id); return st?.status === 'seen' || !!st?.wasSeen; };
 const onMine = (m) => S.profile.services.some((p) => m.pv.includes(p) || m.fr.includes(p));
 const SAMPLE = () => !!S.data?.sample;
 const hue = (k) => (SG_HUE[k] || [350])[0];
-const today = () => new Date().toISOString().slice(0, 10);
+// Today's date where you are (not UTC, which flips to tomorrow in the evening in the US).
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const avatarHue = (name) => [...(name || '')].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -352,6 +354,7 @@ function quickBar(m, name) {
       <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon('bookmark', q ? 'filled' : '')}</button>
       <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen || rewatch}" title="${rewatch ? 'Watched the rewatch? Log it' : seen ? 'Seen. Click to unmark' : 'Mark as seen'}" aria-label="${rewatch ? 'Log your rewatch' : seen ? 'Unmark as seen' : 'Mark as seen'}">${icon('eye')}</button>
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
+      ${st && st.status !== 'nope' ? '' : `<button class="qa-b qa-nope" data-act="nope" data-id="${m.id}" data-qa="1" aria-pressed="${st?.status === 'nope'}" title="${st ? 'Hidden. Click to show it again' : 'Not interested'}" aria-label="${st ? 'Show this movie again' : 'Not interested'}">${icon('nope')}</button>`}
     </div>
     <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div>`;
 }
@@ -466,6 +469,7 @@ let recMemo = null;
 function weightOf(st) { return st.rating ? (st.rating - 2.75) / 2.25 : 0.35; }
 function tasteProfile() {
   const seen = [...S.mine.entries()].filter(([, st]) => st.status === 'seen' || st.wasSeen).map(([id, st]) => ({ m: S.byId.get(String(id)), st })).filter((x) => x.m);
+  const nopes = [...S.mine.entries()].filter(([, st]) => st.status === 'nope').map(([id]) => S.byId.get(String(id))).filter(Boolean);
   const T = { n: seen.length, sg: new Map(), dir: new Map(), cast: new Map(), dec: new Map(), col: new Map(), rec: new Map(), recWhy: new Map() };
   const add = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
   for (const { m, st } of seen) {
@@ -481,6 +485,11 @@ function tasteProfile() {
       const best = T.recWhy.get(String(id));
       if (!best || best.v < v) T.recWhy.set(String(id), { v, m });
     });
+  }
+  // Not interested counts as a mild "no" for that movie's subgenres, director and decade.
+  for (const m of nopes) {
+    m.sg.forEach((k) => add(T.sg, k, -0.4));
+    m.dir.forEach((d) => add(T.dir, d, -0.4));
   }
   return T;
 }
@@ -526,6 +535,14 @@ function recommend() {
   recMemo = { key, out };
   return out;
 }
+// Queued movies that started streaming in the last 21 days (on your services, if you've set them), newest first.
+function queueNowStreaming() {
+  const mine = S.profile.services;
+  return S.movies.filter((m) => m.ns && status(m.id)?.status === 'queue').map((m) => {
+    const p = mine.length ? m.ns.p.filter((x) => mine.includes(x)) : m.ns.p;
+    return p.length ? { m, d: m.ns.d, sub: `New on ${[...new Set(p.map((x) => brandOf(S.provName.get(x) || "")).filter(Boolean))].slice(0, 2).join(', ')}` } : null;
+  }).filter(Boolean).sort((a, b) => b.d.localeCompare(a.d));
+}
 const recScore = (m) => recommend().by.get(String(m.id))?.score ?? -1;
 // The movie you most recently rated 4+ that has picks of its own, for a "Because you loved…" shelf.
 function lovedAnchor() {
@@ -566,7 +583,8 @@ views.tonight = () => {
   const forYou = recs?.list.slice(0, 18) || [];
   const anchor = S.user ? lovedAnchor() : null;
   const fPicks = S.user ? friendPicks() : [];
-  const pool = S.movies.filter((m) => !isSeen(m));
+  const newOnStreaming = S.user ? queueNowStreaming() : [];
+  const pool = S.movies.filter((m) => !isSeen(m) && !isNope(m));
   const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
   const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
@@ -577,7 +595,7 @@ views.tonight = () => {
   const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
   const inTheaters = pool.filter((m) => theaterStatus(m) === 'in').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
   // the 18 most talked-about upcoming releases, then shown soonest first
-  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon').sort((a, b) => b.buzz - a.buzz).slice(0, 18).sort((a, b) => a.th.localeCompare(b.th));
+  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon' && !isNope(m)).sort((a, b) => b.buzz - a.buzz).slice(0, 18).sort((a, b) => a.th.localeCompare(b.th));
   const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach).slice(0, 18);
   const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a))).slice(0, 18);
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
@@ -598,7 +616,15 @@ views.tonight = () => {
     </div>
   </section>` : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
+  ${(() => {
+    const t = today(); const mo = t.slice(5, 7), d = Number(t.slice(8, 10));
+    if (!S.user || !(mo === '10' || (mo === '09' && d >= 20))) return '';
+    const C = challengeStats(Number(t.slice(0, 4)));
+    return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
+  })()}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
+  ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '<a class="btn small ghost" href="#/queue">Your queue</a>', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
+  ${vsTonightHTML()}
   ${!S.user ? '' : forYou.length >= 4 ? shelf('Picked for you', 'Based on everything in your Body Count and how you rated it.', forYou.map((x) => x.m), '', '<a class="btn small ghost" href="#/browse" data-act="foryou">See more</a>', (m) => recs.by.get(String(m.id))?.why)
     : recs && recs.n < MIN_FOR_PICKS ? `<section class="shelf" data-key="picked for you"><div class="shelf-head"><div><h2>Picked for you</h2><p class="muted">Mark ${MIN_FOR_PICKS - recs.n} more movie${MIN_FOR_PICKS - recs.n === 1 ? '' : 's'} you've seen and rate them with skulls, and this shelf fills in with picks for your taste.</p></div><div class="shelf-nav"><a class="btn small" href="#/checklist">${icon('skull')}Check off ones you've seen</a></div></div></section>` : ''}
   ${fPicks.length >= 2 ? shelf('Your friends liked these', 'Rated well by your friends, and you haven\'t seen them yet.', fPicks.map((x) => x.m), '', '<a class="btn small ghost" href="#/friends">Friends</a>', (m) => fPicks.find((x) => x.m.id === m.id)?.sub) : ''}
@@ -624,7 +650,7 @@ function filtered() {
     (!f.tier.size || f.tier.has(m.tier)) &&
     (!f.mine || onMine(m)) &&
     (!f.provider || m.pv.includes(Number(f.provider)) || m.fr.includes(Number(f.provider))) &&
-    (!f.hideSeen || !isSeen(m)) &&
+    (!f.hideSeen || !isSeen(m)) && !isNope(m) &&
     (!f.decade || (m.y && Math.floor(m.y / 10) * 10 === Number(f.decade))) &&
     (!f.tom || (tom(m) ?? -1) >= Number(f.tom)));
   const by = {
@@ -686,7 +712,7 @@ function pickOne() {
   const tiers = { taste: ['favorite', 'known', 'cult', 'deep', 'fresh'], crowd: ['favorite', 'known', 'fresh'], different: ['known', 'cult', 'fresh'], deep: ['cult', 'deep'], any: ['favorite', 'known', 'cult', 'deep', 'fresh'] }[mix];
   // "My taste" draws from your best-matching movies only (top 80 that fit the filters, or every queued one).
   const top = mix === 'taste' ? new Set(taste.by.size ? [...taste.by.values()].filter((x) => (!p.sg.size || x.m.sg.some((k) => p.sg.has(k))) && (!p.mine || onMine(x.m))).sort((a, b) => b.score - a.score).slice(0, 80).map((x) => String(x.m.id)) : []) : null;
-  let pool = S.movies.filter((m) => !isSeen(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
+  let pool = S.movies.filter((m) => !isSeen(m) && !isNope(m) && tiers.includes(m.tier) && (m.tier !== 'fresh' || mix !== 'crowd' || m.buzz >= 70) && !m.flags.includes('soon') &&
     (!top || top.has(String(m.id)) || (p.queueOnly && status(m.id)?.status === 'queue')) &&
     (!p.sg.size || m.sg.some((k) => p.sg.has(k))) &&
     (!p.mine || onMine(m)) &&
@@ -897,6 +923,83 @@ function saveServicesSoon() {
   svcSaveTimer = setTimeout(async () => { await store.saveProfile({ services: S.profile.services }); toast('Services saved'); }, 600);
 }
 
+// Letterboxd import
+views.import = () => {
+  if (!S.user) return signInPrompt('Sign in to import your Letterboxd history.');
+  const I = S.imp || {};
+  S.after = () => $('#lb-file')?.addEventListener('change', (e) => readLetterboxd(e.target.files));
+  const steps = `<ol class="steps">
+      <li>On Letterboxd, open <a href="https://letterboxd.com/settings/data/" target="_blank" rel="noopener">Settings, then Data</a>, and press <b>Export your data</b>. You get a .zip file.</li>
+      <li>Choose that .zip here (or the watched.csv, ratings.csv and watchlist.csv files inside it).</li>
+      <li>Check what matched, then press Import. Nothing is saved until you do.</li></ol>`;
+  let body = '';
+  if (I.busy) body = `<p class="muted">${esc(I.busy)}</p>`;
+  else if (I.error) body = `<p class="error">${esc(I.error)}</p>`;
+  else if (I.done) body = `<div class="ok-box">${icon('check')}<div><b>Imported.</b> ${I.done.seen} movie${I.done.seen === 1 ? '' : 's'} added to your Body Count${I.done.rated ? ` (${I.done.rated} with ratings)` : ''}${I.done.queue ? `, ${I.done.queue} to your queue` : ''}.${I.done.skipped ? ` ${I.done.skipped} you'd already logged here ${I.done.skipped === 1 ? 'was' : 'were'} left as ${I.done.skipped === 1 ? 'it was' : 'they were'}.` : ''}</div></div>
+    <div class="row" style="gap:8px"><a class="btn primary" href="#/bodycount">${icon('skull')}See your Body Count</a><a class="btn" href="#/">See your picks</a></div>`;
+  else if (I.found) {
+    const f = I.found;
+    const newSeen = f.seen.filter((x) => !status(x.m.id) || status(x.m.id).status === 'queue' || status(x.m.id).status === 'nope');
+    const newQ = f.queue.filter((x) => !status(x.m.id));
+    body = `<div class="imp-sum">
+      <div class="adm-stat"><span>Watched on Letterboxd</span><b>${f.counts.watched}</b></div>
+      <div class="adm-stat"><span>Horror movies matched</span><b>${f.seen.length}</b></div>
+      <div class="adm-stat"><span>Rated</span><b>${f.seen.filter((x) => x.rating).length}</b></div>
+      <div class="adm-stat"><span>Watchlist matches</span><b>${f.queue.length}</b></div></div>
+      <p class="muted">Only horror movies on ${esc(SITE_NAME)} can be matched, so most comedies, dramas and so on are left out. Ratings carry over as skulls (★★★½ becomes 3½ skulls). Watch dates come from your diary, or the day you logged the movie on Letterboxd.</p>
+      <form class="stack" data-form="lbimport" style="gap:10px">
+        <label class="row" style="gap:10px"><input type="checkbox" name="seen" checked> Add ${newSeen.length} watched movie${newSeen.length === 1 ? '' : 's'} to my Body Count${f.seen.length - newSeen.length ? ` <span class="faint">(${f.seen.length - newSeen.length} already there)</span>` : ''}</label>
+        <label class="row" style="gap:10px"><input type="checkbox" name="rate" checked> Use my Letterboxd ratings (won't replace ratings I've already given here)</label>
+        <label class="row" style="gap:10px"><input type="checkbox" name="queue" ${newQ.length ? 'checked' : 'disabled'}> Add ${newQ.length} watchlist movie${newQ.length === 1 ? '' : 's'} to my queue</label>
+        <button class="btn primary" type="submit" style="justify-self:start">${icon('plus')}Import</button>
+      </form>
+      <details><summary class="muted">See the matched movies</summary><div class="imp-list">${f.seen.slice(0, 400).map((x) => `<span>${esc(x.m.t)} <span class="faint">(${x.m.y ?? '?'})</span>${x.rating ? ` ${skullRow(x.rating)}` : ''}</span>`).join('')}${f.queue.map((x) => `<span>${esc(x.m.t)} <span class="faint">(${x.m.y ?? '?'}) · watchlist</span></span>`).join('')}</div></details>`;
+  }
+  return `<div class="page-head"><h1>Import from Letterboxd</h1><p class="muted">Bring your horror history over in about a minute.</p></div>
+  <div class="panel stack" style="max-width:820px;gap:18px">${steps}
+    <label class="btn" style="justify-self:start">${icon('plus')}Choose your Letterboxd export<input type="file" id="lb-file" accept=".zip,.csv,application/zip,text/csv" multiple hidden></label>
+    ${body}</div>`;
+};
+async function readLetterboxd(fileList) {
+  const files = [...(fileList || [])]; if (!files.length) return;
+  S.imp = { busy: 'Reading your export…' }; route(true, true);
+  try {
+    const { unzip, readExport } = await import('./letterboxd.js');
+    const texts = {};
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name) || f.type.includes('zip')) Object.assign(texts, await unzip(await f.arrayBuffer()));
+      else texts[f.name] = await f.text();
+    }
+    S.imp = { found: readExport(texts, S.data.movies) };
+  } catch (e) { console.warn(e); S.imp = { error: e?.message || 'Couldn\'t read that file.' }; }
+  route(true, true);
+}
+async function runImport(form) {
+  const f = S.imp?.found; if (!f) return;
+  const fd = new FormData(form);
+  const doSeen = !!fd.get('seen'), doRate = !!fd.get('rate'), doQ = !!fd.get('queue');
+  const entries = []; let rated = 0, skipped = 0, nSeen = 0, nQ = 0;
+  const snap = (m) => ({ title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null, poster: m.poster || null });
+  if (doSeen) for (const x of f.seen) {
+    const st = status(x.m.id);
+    if (st && st.status === 'seen') { if (doRate && x.rating && !st.rating) { entries.push([x.m.id, { ...st, rating: x.rating }]); rated++; } else skipped++; continue; }
+    const rating = doRate && x.rating ? x.rating : (st?.rating || 0);
+    if (rating) rated++;
+    entries.push([x.m.id, { ...(st || {}), ...snap(x.m), status: st?.status === 'queue' ? 'queue' : 'seen', ...(st?.status === 'queue' ? { wasSeen: true } : {}), rating, seenOn: x.on || x.logged || '', imported: 'letterboxd' }]);
+    nSeen++;
+  }
+  if (doQ) for (const x of f.queue) if (!status(x.m.id)) { entries.push([x.m.id, { ...snap(x.m), status: 'queue', imported: 'letterboxd' }]); nQ++; }
+  if (!entries.length) { toast('Nothing new to import', 'check'); return; }
+  S.imp = { busy: `Saving ${entries.length} movies…` }; route(true, true);
+  try {
+    await store.importMovies(entries.map(([id, d]) => { const { at, ...rest } = d; return [id, rest]; }));
+    for (const [id, d] of entries) S.mine.set(String(id), { ...d, at: Date.now() });
+    S.imp = { done: { seen: nSeen, rated, queue: nQ, skipped } };
+    toast(`Imported ${nSeen + nQ} movies`, 'check');
+  } catch (e) { console.warn(e); S.imp = { error: 'Saving didn\'t finish. Try again; movies already saved won\'t be doubled.' }; }
+  renderChrome(); route(true, true);
+}
+
 // Profile
 views.profile = (sub) => {
   if (!S.user) return signInPrompt('Sign in to save your name and streaming services.');
@@ -928,6 +1031,25 @@ views.profile = (sub) => {
         <label class="field">Who can read my reviews<select name="rv">${['public', 'friends'].map((k) => `<option value="${k}" ${(S.social?.privacy?.reviews || 'public') === k ? 'selected' : ''}>${k === 'public' ? 'Everyone' : 'Friends only'}</option>`).join('')}</select></label>
         <div class="row" style="gap:8px"><button class="btn primary" type="submit">Save</button><a class="btn ghost" href="#/u/${esc(S.social?.handle || S.user.uid)}">${icon('eye')}See my profile</a><a class="btn ghost" href="#/friends">${icon('users')}Friends</a></div>
       </form>` : ''}
+      ${S.config.emailOn ? `<section class="panel stack" style="gap:12px">
+        <h2>Emails</h2>
+        <p class="muted" style="margin:0">Sent to ${esc(S.user.email || 'your sign-in address')}. At most one a day about streaming.</p>
+        <label class="row" style="gap:10px"><input type="checkbox" data-act="notify" data-k="friends" ${S.profile.notify?.friends !== false ? 'checked' : ''}> When someone sends me a friend request</label>
+        <label class="row" style="gap:10px"><input type="checkbox" data-act="notify" data-k="streaming" ${S.profile.notify?.streaming !== false ? 'checked' : ''}> When a movie in my queue starts streaming${S.profile.services.length ? ' on my services' : ''}</label>
+      </section>` : ''}
+      ${(() => {
+        const hidden = [...S.mine.entries()].filter(([, st]) => st.status === 'nope').map(([id, st]) => ({ m: S.byId.get(String(id)), st })).filter((x) => x.m).sort((a, b) => b.st.at - a.st.at);
+        return `<section class="panel stack" style="gap:12px" id="hidden">
+        <h2>Not interested</h2>
+        <p class="muted" style="margin:0">${hidden.length ? `${hidden.length} movie${hidden.length === 1 ? '' : 's'} you've hidden. They stay out of shelves, Browse and Pick for Me, and count as a "no" for your picks.` : 'Use the ⊘ button on any poster to hide movies you never want to see suggested.'}</p>
+        ${hidden.length ? `<div class="list">${hidden.map(({ m }) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="nope" data-id="${m.id}">Show again</button></div>`).join('')}</div>` : ''}
+      </section>`;
+      })()}
+      <section class="panel stack" style="gap:12px">
+        <h2>Import from Letterboxd</h2>
+        <p class="muted" style="margin:0">Bring over your watched movies, ratings and watchlist so your Body Count and picks are ready right away.</p>
+        <a class="btn" href="#/import" style="justify-self:start">${icon('plus')}Import my Letterboxd history</a>
+      </section>
       <section class="panel stack" style="gap:14px">
         <h2>Appearance</h2>
         <div class="tabs" role="group" aria-label="Theme">${['system', 'dark', 'light'].map((t) => `<button data-act="theme" data-k="${t}" aria-selected="${theme === t}">${{ system: 'Match device', dark: 'Dark', light: 'Light' }[t]}</button>`).join('')}</div>
@@ -935,6 +1057,7 @@ views.profile = (sub) => {
       <section class="panel stack" style="gap:12px">
         <h2>Account</h2>
         <div class="row"><a class="btn" href="#/bodycount">${icon('skull')}Your Body Count</a><button class="btn ghost" type="button" data-act="signout">Sign out</button>${store.demo ? '<button class="btn ghost" type="button" data-act="resetdemo">Reset demo data</button>' : ''}</div>
+        <div class="danger-zone"><div><b>Delete my account</b><p class="muted" style="margin:2px 0 0;font-size:.9rem">Removes your Body Count, ratings, queue, reviews, friends and profile for good, then your sign-in.</p></div><button class="btn small danger-btn" type="button" data-act="delacct">Delete account…</button></div>
       </section>
     </div>
   </div>`;
@@ -990,6 +1113,9 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>Your public card.</b> Your display name, username, profile picture (an icon you pick or a photo you upload) and privacy settings. Any signed-in user can see your card, for example in a search or on the Friends page.</li>
       <li><b>Friends.</b> Friend requests you send or receive, and your friends list.</li>
       <li><b>Reviews and kill counts.</b> Reviews you write (with your name, username and rating) and the kill counts you submit.</li>
+      <li><b>VS votes.</b> Your pick in each VS matchup, with your account ID, so each account votes once. Only the totals are shown.</li>
+      <li><b>Letterboxd imports.</b> Your Letterboxd export is read in your browser and never uploaded. Only the horror movies that match ones on the site are saved, as part of your movies.</li>
+      <li><b>Email settings.</b> Which emails you want (friend requests, queue movies arriving on streaming). Emails go to the address you sign in with.</li>
       <li><b>Movie nights.</b> Movie nights you start or join, the movies suggested and the votes.</li>
       <li><b>Feedback.</b> If you use Send feedback, your message is saved with the page you were on, your browser type, the site version and your account ID. Only the site's owner can read it.</li>
       <li><b>Contact messages.</b> If you use Contact, your message, the email address and name you give, and the page and browser you were on are saved. Only the site's owner can read them, and your address is only used to reply.</li>
@@ -1012,7 +1138,7 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>Google Fonts</b> supplies the site's fonts.</li>
     </ul>
     <h2>Removing your data</h2>
-    <p>You can take any movie off your lists, delete your reviews, remove friends, and set your profile to private at any time. To delete your account and everything stored with it, use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> and choose "Privacy or my data". It will be done within 30 days.</p>
+    <p>You can take any movie off your lists, delete your reviews, remove friends, and set your profile to private at any time. To delete your account and everything stored with it, go to <a href="#/profile">Profile</a> and press <b>Delete account</b>. It happens right away: your movies, ratings, reviews, kill counts, friends, profile card and sign-in are removed, movie nights you started are deleted and you leave the ones you joined. Feedback you've sent stays with the site's owner, and VS votes stay in the totals without your name. If you can't sign in anymore, use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> and choose "Privacy or my data", and it will be done within 30 days.</p>
     <h2>Changes</h2>
     <p>If this policy changes, the date at the top will change too.</p>
     <h2>Questions</h2>
@@ -1035,13 +1161,14 @@ views.admin = async () => {
   const { users, feedback, contact } = A.data;
   const week = Date.now() - 7 * DAY;
   const tiles = [['Users', users ? users.length : '—'], ['Active this week', users ? users.filter((u) => u.lastSeen > week).length : '—'], ['New this week', users ? users.filter((u) => u.created > week).length : '—'], ['Public profiles', users ? users.filter((u) => u.privacy === 'public').length : '—']];
-  const tabs = [['users', 'Users'], ['feedback', `Feedback${feedback?.length ? ` (${feedback.length})` : ''}`], ['contact', `Contact${contact?.length ? ` (${contact.length})` : ''}`], ['site', 'Site settings']];
+  const tabs = [['users', 'Users'], ['feedback', `Feedback${feedback?.length ? ` (${feedback.length})` : ''}`], ['contact', `Contact${contact?.length ? ` (${contact.length})` : ''}`], ['vs', 'VS'], ['site', 'Site settings']];
   const head = `<div class="adm-head"><div class="page-head"><h1>Admin</h1></div>
   <div class="adm-stats">${tiles.map(([l, v]) => `<div class="adm-stat"><span>${l}</span><b>${v}</b></div>`).join('')}</div>
   <div class="adm-bar"><div class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" data-act="admtab" data-k="${k}" aria-selected="${A.tab === k}">${l}</button>`).join('')}</div>
-    ${A.tab === 'site' ? '' : `<label class="search adm-q"><span class="sr">Search</span>${icon('search')}<input type="search" id="adm-q" value="${esc(A.q)}" placeholder="${A.tab === 'users' ? 'Name, @username or email' : 'Message, name or page'}" autocomplete="off"></label>`}
+    ${A.tab === 'site' || A.tab === 'vs' ? '' : `<label class="search adm-q"><span class="sr">Search</span>${icon('search')}<input type="search" id="adm-q" value="${esc(A.q)}" placeholder="${A.tab === 'users' ? 'Name, @username or email' : 'Message, name or page'}" autocomplete="off"></label>`}
     <button class="btn small ghost" data-act="admreload" title="Loaded ${esc(new Date(A.data.at).toLocaleTimeString())}">Refresh</button></div></div>`;
   if (A.tab === 'users') { S.after = renderAdminList; return `${head}<div class="adm-body"><div class="adm-sortrow"><label class="row" style="gap:8px">Sort by <select id="adm-sort">${ADM_SORTS.map(([k, l]) => `<option value="${k}" ${A.sort === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label><span class="faint" id="adm-n"></span></div><div id="adm-list"></div></div>`; }
+  if (A.tab === 'vs') return `${head}${await adminVsHTML()}`;
   if (A.tab === 'feedback' || A.tab === 'contact') { S.after = renderAdminList; return `${head}<div id="adm-list"></div>`; }
   const stats = { users: users ? users.length : '—' };
   const c = S.config;
@@ -1057,6 +1184,7 @@ views.admin = async () => {
       <p class="muted">${stats.users} account${stats.users === 1 ? '' : 's'}.</p></div>
     <div class="panel stack"><h2>Site settings</h2>
       <label class="row" style="gap:10px"><input type="checkbox" id="adm-posters" ${c.showPosters ? 'checked' : ''}> Show TMDB poster art instead of generated artwork</label>
+      <label class="row" style="gap:10px"><input type="checkbox" id="adm-email" ${c.emailOn ? 'checked' : ''}> Email notifications are set up (shows the email settings in everyone's Profile)</label>
       <p class="muted" style="font-size:.88rem">Posters belong to the studios. TMDB's API terms allow showing them with TMDB credit. Off by default.</p>
       <label class="field">Announcement (leave blank for none)<input type="text" id="adm-announce" maxlength="160" value="${esc(c.announcement || '')}"></label>
     </div>
@@ -1194,9 +1322,290 @@ function computeBadges(seen) {
     { ic: 'flame', name: 'Opening Night', desc: 'Watched a movie within 30 days of release', have: early, need: 1 },
     { ic: 'play', name: 'Marathoner', desc: 'Three movies logged on the same day', have: marathon, need: 3 },
     { ic: 'skull', name: 'Critic', desc: 'Rated 25 movies', have: rated, need: 25 },
-    { ic: 'trophy', name: 'Spooky Season', desc: '31 movies watched this October', have: oct, need: 31 },
+    { ic: 'trophy', name: '31 Days of Horror', desc: '31 movies watched this October', have: oct, need: 31, href: '#/challenge' },
   ];
 }
+// ---------- Year in review ----------
+function yearStats(year) {
+  const all = seenList();
+  const seen = all.filter((x) => x.on && x.on.slice(0, 4) === String(year));
+  const prev = all.filter((x) => x.on && x.on.slice(0, 4) === String(year - 1)).length;
+  const months = Array.from({ length: 12 }, (_, i) => seen.filter((x) => Number(x.on.slice(5, 7)) === i + 1).length);
+  const sgCount = {}; for (const x of seen) for (const k of x.sg) sgCount[k] = (sgCount[k] || 0) + 1;
+  const topSg = Object.entries(sgCount).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => ({ k, n, label: S.sgLabel.get(k) || k }));
+  const rated = seen.filter((x) => x.st.rating);
+  const avg = rated.length ? rated.reduce((s, x) => s + x.st.rating, 0) / rated.length : null;
+  const fav = rated.slice().sort((a, b) => b.st.rating - a.st.rating || (b.on || '').localeCompare(a.on || ''))[0] || null;
+  const worst = rated.length >= 4 ? rated.slice().sort((a, b) => a.st.rating - b.st.rating || (b.on || '').localeCompare(a.on || ''))[0] : null;
+  const dirs = {}; for (const x of seen) for (const d of x.m?.dir || []) dirs[d] = (dirs[d] || 0) + 1;
+  const topDir = Object.entries(dirs).sort((a, b) => b[1] - a[1])[0];
+  const decs = {}; for (const x of seen) if (x.y) { const d = Math.floor(x.y / 10) * 10; decs[d] = (decs[d] || 0) + 1; }
+  const topDec = Object.entries(decs).sort((a, b) => b[1] - a[1])[0];
+  const deepest = seen.filter((x) => x.m).sort((a, b) => a.m.reach - b.m.reach)[0] || null;
+  const oldest = seen.filter((x) => x.y).sort((a, b) => a.y - b.y)[0] || null;
+  const perDay = {}; for (const x of seen) perDay[x.on] = (perDay[x.on] || 0) + 1;
+  const bigDay = Object.entries(perDay).sort((a, b) => b[1] - a[1])[0];
+  const busiest = months.indexOf(Math.max(...months));
+  return { year, seen, n: seen.length, prev, hours: Math.round(seen.reduce((s, x) => s + (x.rt || 0), 0) / 60), months, topSg, avg, rated: rated.length, fav, worst, topDir: topDir && topDir[1] >= 2 ? topDir : null, topDec, deepest, oldest, bigDay: bigDay && bigDay[1] >= 2 ? bigDay : null, busiest: Math.max(...months) ? busiest : -1, sgCount: Object.keys(sgCount).length };
+}
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+views.year = (arg) => {
+  if (!S.user) return signInPrompt('Sign in to see your year in horror.');
+  const year = Number(arg) || Number(today().slice(0, 4));
+  const Y = yearStats(year);
+  const years = [...new Set(seenList().map((x) => x.on && Number(x.on.slice(0, 4))).filter(Boolean))].sort((a, b) => b - a);
+  const nav = years.length > 1 ? `<div class="tabs" role="tablist">${years.map((y) => `<a role="tab" href="#/year/${y}" aria-selected="${y === year}">${y}</a>`).join('')}</div>` : '';
+  if (!Y.n) return `<div class="page-head"><h1>Your ${year} in Horror</h1>${nav}</div><div class="empty">${icon('skull')}<span>No movies logged with a watch date in ${year} yet. Mark movies as seen (or import from Letterboxd) and this fills in.</span></div>`;
+  const max = Math.max(...Y.months, 1);
+  const mini = (x, label) => x ? `<button class="yr-movie" data-act="open" data-id="${x.id}">${x.m ? thumb(x.m) : ''}<span><small>${label}</small><b>${esc(x.t)}</b><span class="faint">${x.y ?? ''}${x.st.rating ? ` · ${fmtRating(x.st.rating)} skulls` : ''}</span></span></button>` : '';
+  const diff = Y.prev ? Math.round(((Y.n - Y.prev) / Y.prev) * 100) : null;
+  return `<div class="page-head"><h1>Your ${year} in Horror</h1>${nav}</div>
+  <div class="yr">
+    <section class="yr-hero panel">
+      <div class="bc-count"><b>${Y.n}</b><span>horror movie${Y.n === 1 ? '' : 's'} survived</span></div>
+      <p class="muted">${Y.hours} hours of horror${Y.avg != null ? `, an average of ${Y.avg.toFixed(1)} skulls` : ''}, ${Y.sgCount} subgenre${Y.sgCount === 1 ? '' : 's'}.${diff != null ? ` That's ${diff >= 0 ? `${diff}% more` : `${-diff}% fewer`} than ${year - 1}.` : ''}</p>
+      <div class="row" style="gap:8px"><button class="btn primary" data-act="yrshare" data-k="${year}">${icon('link')}Share image</button><a class="btn ghost" href="#/challenge">${icon('trophy')}31 Days of Horror</a></div>
+    </section>
+    <section class="panel stack"><h2>Month by month</h2>
+      <div class="yr-bars">${Y.months.map((n, i) => `<div class="yr-bar${i === Y.busiest ? ' top' : ''}" title="${MONTHS[i]}: ${n}"><i style="height:${Math.round((n / max) * 100)}%"></i><b>${n || ''}</b><span>${MONTHS[i][0]}</span></div>`).join('')}</div>
+      ${Y.busiest >= 0 ? `<p class="muted" style="margin:0">Busiest month: ${new Date(2000, Y.busiest, 1).toLocaleDateString('en-US', { month: 'long' })}, with ${Y.months[Y.busiest]}.${Y.bigDay ? ` Biggest day: ${shortDate(Y.bigDay[0])}, ${Y.bigDay[1]} movies.` : ''}</p>` : ''}
+    </section>
+    <section class="panel stack"><h2>Your kind of horror</h2>
+      <div class="yr-sg">${Y.topSg.map((x, i) => `<div class="yr-sgi"><span class="n">${i + 1}</span>${sgIcon(x.k)}<b>${esc(x.label)}</b><span class="faint">${x.n} movie${x.n === 1 ? '' : 's'}</span></div>`).join('')}</div>
+      <p class="muted" style="margin:0">${[Y.topDir && `Most-watched director: <b>${esc(Y.topDir[0])}</b> (${Y.topDir[1]})`, Y.topDec && `Favorite decade: <b>${Y.topDec[0]}s</b>`].filter(Boolean).join(' · ')}</p>
+    </section>
+    <section class="panel stack"><h2>Highlights</h2>
+      <div class="yr-movies">${mini(Y.fav, 'Top rated')}${mini(Y.worst && Y.worst.id !== Y.fav?.id ? Y.worst : null, 'Least favorite')}${mini(Y.deepest, 'Deepest cut')}${mini(Y.oldest, 'Oldest')}</div>
+    </section>
+  </div>`;
+};
+// A 1080×1350 picture of the year, for Instagram, texts and so on.
+async function yearImage(year) {
+  const Y = yearStats(year);
+  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  try { await document.fonts.ready; } catch { /* ignore */ }
+  const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#1a0a10'); bg.addColorStop(1, '#0b0b0f'); g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const glow = g.createRadialGradient(W * 0.8, 120, 10, W * 0.8, 120, 700); glow.addColorStop(0, 'rgba(255,46,77,.35)'); glow.addColorStop(1, 'rgba(255,46,77,0)'); g.fillStyle = glow; g.fillRect(0, 0, W, H);
+  const disp = "'Bricolage Grotesque', 'Segoe UI', sans-serif", body = "'Figtree', 'Segoe UI', sans-serif";
+  g.fillStyle = '#ff4057'; g.font = `800 40px ${disp}`; g.fillText('SCREAM QUEUE', 80, 120);
+  g.fillStyle = '#fff'; g.font = `800 84px ${disp}`; g.fillText(`My ${year} in Horror`, 80, 220);
+  g.font = `800 300px ${disp}`; g.fillStyle = '#ff4057'; g.fillText(String(Y.n), 70, 520);
+  g.fillStyle = '#fff'; g.font = `700 46px ${body}`; g.fillText(`horror movie${Y.n === 1 ? '' : 's'} survived`, 84, 590);
+  g.fillStyle = 'rgba(255,255,255,.7)'; g.font = `500 36px ${body}`;
+  g.fillText(`${Y.hours} hours${Y.avg != null ? ` · ${Y.avg.toFixed(1)} skull average` : ''}`, 84, 645);
+  const max = Math.max(...Y.months, 1), bx = 84, by = 900, bw = 62, gap = 14;
+  Y.months.forEach((n, i) => {
+    const h = Math.round((n / max) * 190);
+    g.fillStyle = i === Y.busiest ? '#ff4057' : 'rgba(255,255,255,.22)';
+    g.fillRect(bx + i * (bw + gap), by - h, bw, Math.max(h, 4));
+    g.fillStyle = 'rgba(255,255,255,.6)'; g.font = `600 26px ${body}`; g.textAlign = 'center';
+    g.fillText(MONTHS[i][0], bx + i * (bw + gap) + bw / 2, by + 38); g.textAlign = 'left';
+  });
+  g.fillStyle = '#fff'; g.font = `800 40px ${disp}`; g.fillText('Top subgenres', 84, 1020);
+  g.font = `600 36px ${body}`; g.fillStyle = 'rgba(255,255,255,.85)';
+  Y.topSg.forEach((x, i) => g.fillText(`${i + 1}. ${x.label}  (${x.n})`, 84, 1075 + i * 50));
+  if (Y.fav) {
+    g.fillStyle = '#fff'; g.font = `800 40px ${disp}`; g.fillText('Top rated', 600, 1020);
+    g.font = `600 36px ${body}`; g.fillStyle = 'rgba(255,255,255,.85)';
+    const words = `${Y.fav.t}${Y.fav.y ? ` (${Y.fav.y})` : ''}`.split(' '); let line = '', yy = 1075;
+    for (const w of words) { if (g.measureText(line + w).width > 400) { g.fillText(line.trim(), 600, yy); yy += 46; line = ''; } line += w + ' '; }
+    g.fillText(line.trim(), 600, yy); g.fillStyle = '#ff4057'; g.fillText(`${fmtRating(Y.fav.st.rating)} skulls`, 600, yy + 50);
+  }
+  g.fillStyle = 'rgba(255,255,255,.5)'; g.font = `500 28px ${body}`; g.fillText(location.host || 'screamqueue.web.app', 84, H - 60);
+  return new Promise((res) => c.toBlob(res, 'image/png'));
+}
+
+// ---------- VS matchups and brackets ----------
+// A single matchup is a bracket of 2. Round r runs from start + (r-1)*dur to start + r*dur (the database rules
+// enforce the same window). Winners are worked out from the vote counts once a round ends; a tie goes to the
+// higher seed (the one listed first). Nothing has to be written when a round ends.
+const VS_CATS = { movies: 'Movies', killers: 'Killers & villains', 'final girls': 'Final girls', franchises: 'Franchises', kills: 'Kills' };
+const vsCache = new Map();
+function vsPhase(v, now = Date.now()) {
+  if (now < v.start) return { state: 'soon', r: 0 };
+  const r = Math.floor((now - v.start) / v.dur) + 1;
+  return r > v.rounds ? { state: 'done', r: v.rounds } : { state: 'open', r, ends: v.start + r * v.dur };
+}
+async function resolveVs(v, force) {
+  const c = vsCache.get(v.id);
+  if (c && !force && Date.now() - c.at < 30000) return c.res;
+  const ph = vsPhase(v);
+  const upto = ph.state === 'soon' ? 0 : ph.r;
+  const rounds = [];
+  let alive = v.entries.map((_, i) => i);
+  for (let r = 1; r <= upto; r++) {
+    const pairs = [];
+    for (let i = 0; i < alive.length; i += 2) pairs.push({ mk: `r${r}m${i / 2}`, a: alive[i], b: alive[i + 1] });
+    const closed = ph.state === 'done' || r < ph.r;
+    await Promise.all(pairs.map(async (p) => { p.t = await store.tallyVs(v.id, p.mk).catch(() => ({ a: 0, b: 0 })); if (closed) p.w = p.t.b > p.t.a ? 'b' : 'a'; }));
+    rounds.push({ r, closed, pairs });
+    if (!closed) break;
+    alive = pairs.map((p) => p[p.w]);
+  }
+  const mks = rounds.flatMap((x) => x.pairs.map((p) => p.mk));
+  const mine = await store.myVotesVs(v.id, mks).catch(() => ({}));
+  const champ = ph.state === 'done' ? (rounds.at(-1)?.pairs[0] ? rounds.at(-1).pairs[0][rounds.at(-1).pairs[0].w] : null) : null;
+  const res = { ph, rounds, mine, champ };
+  vsCache.set(v.id, { at: Date.now(), res });
+  return res;
+}
+const roundName = (v, r) => (v.rounds === 1 ? 'Matchup' : r === v.rounds ? 'Final' : r === v.rounds - 1 ? 'Semifinals' : r === v.rounds - 2 && v.rounds >= 3 ? 'Quarterfinals' : `Round ${r}`);
+function untilText(t) {
+  const min = Math.max(1, Math.round((t - Date.now()) / 60000));
+  if (min >= 36 * 60) { const d = Math.round(min / 1440); return `${d} day${d === 1 ? '' : 's'}`; }
+  if (min >= 60) { const h = Math.floor(min / 60), m = min % 60; return m ? `${h} hr ${m} min` : `${h} hr`; }
+  return `${min} min`;
+}
+function vsSide(v, idx, side, p, mine, open) {
+  const e = v.entries[idx]; const m = e.m && S.byId.get(String(e.m));
+  const tot = (p.t?.a || 0) + (p.t?.b || 0); const n = p.t?.[side] || 0;
+  const pct = tot ? Math.round((n / tot) * 100) : 0;
+  const show = !open || !!mine; // results show after you vote, or once it closes
+  const won = p.w === side, lost = p.w && p.w !== side;
+  const pic = m ? `${art(m)}${S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w342${m.poster}" alt="" loading="lazy">` : ''}` : `<span class="vs-blank">${esc(e.l.slice(0, 1))}</span>`;
+  const inner = `<span class="vs-pic">${pic}${won ? `<span class="vs-crown">${icon('trophy')}</span>` : ''}</span>
+    <span class="vs-name"><b>${esc(e.l)}</b>${m && m.t !== e.l ? `<small>${esc(m.t)}${m.y ? ` (${m.y})` : ''}</small>` : m?.y ? `<small>${m.y}</small>` : ''}</span>
+    ${show ? `<span class="vs-pct"><i style="width:${pct}%"></i><b>${pct}%</b><small>${n} vote${n === 1 ? '' : 's'}</small></span>` : ''}`;
+  const cls = `vs-side${mine === side ? ' mine' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}`;
+  return open ? `<button class="${cls}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${side}" aria-pressed="${mine === side}" aria-label="Vote for ${esc(e.l)}">${inner}</button>` : `<div class="${cls}">${inner}</div>`;
+}
+function vsMatch(v, p, res, open) {
+  const mine = res.mine[p.mk];
+  return `<div class="vs-match" data-key="${p.mk}">${vsSide(v, p.a, 'a', p, mine, open)}<span class="vs-vs">VS</span>${vsSide(v, p.b, 'b', p, mine, open)}</div>
+    ${open ? `<p class="fine vs-note">${mine ? 'Your vote is in. Tap the other side to change it.' : 'Tap one to vote. Results show after you vote.'}</p>` : ''}`;
+}
+views.vs = async (id) => {
+  if (id) return vsDetail(id);
+  const list = await store.listVs().catch(() => []);
+  const now = Date.now();
+  const open = list.filter((v) => vsPhase(v, now).state === 'open'), soon = list.filter((v) => vsPhase(v, now).state === 'soon'), done = list.filter((v) => vsPhase(v, now).state === 'done');
+  const singles = open.filter((v) => v.size === 2);
+  const resList = await Promise.all(singles.map((v) => resolveVs(v)));
+  const card = (v) => { const ph = vsPhase(v, now); return `<a class="vs-card" href="#/vs/${v.id}"><span class="tag">${esc(VS_CATS[v.cat] || 'Matchup')}</span><b>${esc(v.title)}</b>
+    <span class="muted">${v.size === 2 ? `${esc(v.entries[0].l)} vs. ${esc(v.entries[1].l)}` : `${v.size}-way bracket`} · ${ph.state === 'open' ? `${v.size > 2 ? `${roundName(v, ph.r)} · ` : ''}closes in ${untilText(ph.ends)}` : ph.state === 'soon' ? `opens in ${untilText(v.start)}` : 'finished'}</span></a>`; };
+  return `<div class="page-head"><h1>VS</h1><p class="muted">Head-to-head horror. Pick a side, then see how everyone else voted. Each round is open for ${list[0] ? `${Math.round(list[0].dur / 3600000)} hours` : '24 hours'}.</p></div>
+  ${singles.length ? `<section class="stack" style="gap:18px">${singles.map((v, i) => `<div class="panel stack vs-panel"><div class="shelf-head"><div><span class="tag">${esc(VS_CATS[v.cat] || 'Matchup')}</span><h2><a href="#/vs/${v.id}">${esc(v.title)}</a></h2></div><span class="muted">Closes in ${untilText(vsPhase(v).ends)}</span></div>${vsMatch(v, resList[i].rounds[0].pairs[0], resList[i], true)}</div>`).join('')}</section>` : ''}
+  ${open.filter((v) => v.size > 2).length ? `<section class="stack"><h2>Brackets</h2><div class="vs-cards">${open.filter((v) => v.size > 2).map(card).join('')}</div></section>` : ''}
+  ${!open.length ? `<div class="empty">${icon('trophy')}<span>No matchups open right now.${soon.length ? ' The next one opens soon.' : ' Check back soon.'}</span></div>` : ''}
+  ${soon.length ? `<section class="stack"><h2>Coming up</h2><div class="vs-cards">${soon.map(card).join('')}</div></section>` : ''}
+  ${done.length ? `<section class="stack"><h2>Results</h2><div class="vs-cards">${done.slice(0, 24).map(card).join('')}</div></section>` : ''}`;
+};
+async function vsDetail(id) {
+  const v = await store.getVs(id).catch(() => null);
+  if (!v) return `<div class="empty">${icon('trophy')}<span>That matchup wasn't found. <a href="#/vs">See all matchups</a></span></div>`;
+  const res = await resolveVs(v);
+  const ph = res.ph;
+  const back = '<a class="back-link" href="#/vs">' + icon('left') + 'All matchups</a>';
+  const head = `${back}<div class="page-head"><span class="tag">${esc(VS_CATS[v.cat] || 'Matchup')}</span><h1>${esc(v.title)}</h1>
+    <p class="muted">${ph.state === 'soon' ? `Voting opens in ${untilText(v.start)}.` : ph.state === 'open' ? `${v.size > 2 ? `${roundName(v, ph.r)}, round ${ph.r} of ${v.rounds}. ` : ''}Voting closes in ${untilText(ph.ends)}.` : 'Voting is over.'}${res.champ != null ? ` Winner: <b>${esc(v.entries[res.champ].l)}</b>.` : ''}</p>
+    <div class="row" style="gap:8px"><button class="btn small ghost" data-act="vsshare" data-id="${v.id}">${icon('link')}Copy link</button></div></div>`;
+  if (ph.state === 'soon') return `${head}<div class="vs-cards">${v.entries.map((e) => `<div class="vs-card"><b>${esc(e.l)}</b>${e.m && S.byId.get(String(e.m)) ? `<span class="muted">${esc(S.byId.get(String(e.m)).t)}</span>` : ''}</div>`).join('')}</div>`;
+  const cur = res.rounds.find((x) => !x.closed);
+  const now = cur ? `<section class="stack" style="gap:16px"><h2>${roundName(v, cur.r)}: vote now</h2>${cur.pairs.map((p) => `<div class="panel vs-panel">${vsMatch(v, p, res, true)}</div>`).join('')}</section>` : '';
+  // the bracket: one column per round, later rounds filled as winners are known
+  const cols = [];
+  for (let r = 1; r <= v.rounds; r++) {
+    const got = res.rounds.find((x) => x.r === r);
+    const n = v.size / 2 ** r;
+    const cells = Array.from({ length: n }, (_, i) => {
+      const p = got?.pairs[i];
+      const slot = (idx, side) => idx == null ? '<span class="br-e tbd">TBD</span>' : `<span class="br-e${p?.w === side ? ' w' : p?.w ? ' l' : ''}${res.mine[p?.mk] === side ? ' me' : ''}">${esc(v.entries[idx].l)}${p && (got.closed || res.mine[p.mk]) ? `<small>${p.t[side]}</small>` : ''}</span>`;
+      return `<div class="br-m">${slot(p?.a, 'a')}${slot(p?.b, 'b')}</div>`;
+    }).join('');
+    cols.push(`<div class="br-col"><h3>${roundName(v, r)}</h3><div class="br-list">${cells}</div></div>`);
+  }
+  const champ = res.champ != null ? `<div class="br-col br-champ"><h3>Champion</h3><div class="br-list"><div class="br-m"><span class="br-e w">${icon('trophy')}${esc(v.entries[res.champ].l)}</span></div></div></div>` : '';
+  if (v.size === 2) {
+    const p = res.rounds[0].pairs[0];
+    return `${head}<div class="panel vs-panel">${vsMatch(v, p, res, ph.state === 'open')}</div>`;
+  }
+  return `${head}${now}<section class="stack"><h2>Bracket</h2><div class="bracket">${cols.join('')}${champ}</div></section>`;
+}
+// The newest open single matchup, for a box on Tonight.
+async function vsTonight() {
+  const list = await store.listVs().catch(() => []);
+  const v = list.find((x) => x.size === 2 && vsPhase(x).state === 'open') || null;
+  const br = list.find((x) => x.size > 2 && vsPhase(x).state === 'open') || null;
+  S.vsTonight = { v, br, res: v ? await resolveVs(v) : null, at: Date.now() };
+  if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
+}
+function vsTonightHTML() {
+  if (!store.listVs) return '';
+  if (!S.vsTonight || Date.now() - S.vsTonight.at > 60000) { if (!S.vsLoading) { S.vsLoading = true; vsTonight().finally(() => { S.vsLoading = false; }); } }
+  const T = S.vsTonight; if (!T?.v && !T?.br) return '';
+  return `<section class="shelf vs-tonight" data-key="vs"><div class="shelf-head"><div><h2>${T.v ? esc(T.v.title) : 'VS'}</h2><p class="muted">${T.v ? `Today's matchup. Closes in ${untilText(vsPhase(T.v).ends)}.` : ''}</p></div><div class="shelf-nav"><a class="btn small ghost" href="#/vs">${T.br ? `${esc(T.br.title)}: ${roundName(T.br, vsPhase(T.br).r)}` : 'All matchups'}</a></div></div>
+    ${T.v ? `<div class="panel vs-panel">${vsMatch(T.v, T.res.rounds[0].pairs[0], T.res, true)}</div>` : ''}</section>`;
+}
+
+// Admin: a line is "Label" or "Label = Movie title (year)"; with no "=", the label itself is looked up as a movie.
+function vsEntry(line) {
+  const [label, ref] = line.split('=').map((x) => x.trim());
+  const q = ref || label;
+  const ym = q.match(/\((\d{4})\)\s*$/); const y = ym ? Number(ym[1]) : null; const k = titleKey(q.replace(/\(\d{4}\)\s*$/, ''));
+  const hits = S.movies.filter((m) => titleKey(m.t) === k && (!y || m.y === y)).sort((a, b) => b.reach - a.reach);
+  return { l: label.replace(/\(\d{4}\)\s*$/, '').trim() || q, m: hits[0]?.id ?? null };
+}
+async function adminVsHTML() {
+  const list = await store.listVs().catch(() => []);
+  const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  return `<div class="two-col">
+    <form class="panel stack" id="vs-form" onsubmit="return false" style="gap:12px">
+      <h2>New matchup or bracket</h2>
+      <label class="field">Title<input type="text" name="title" maxlength="80" placeholder="Slasher showdown"></label>
+      <div class="fb-row"><label class="field">Category<select name="cat">${Object.entries(VS_CATS).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+        <label class="field">Type<select name="size"><option value="2">Single matchup (2)</option><option value="4">Bracket of 4</option><option value="8">Bracket of 8</option><option value="16">Bracket of 16</option></select></label></div>
+      <label class="field">Entries, one per line, in bracket order (1st vs 2nd, 3rd vs 4th…)
+        <textarea name="entries" rows="8" placeholder="Michael Myers = Halloween (1978)&#10;Ghostface = Scream (1996)&#10;The Exorcist&#10;Hereditary"></textarea></label>
+      <p class="fine" style="margin:0">Add "= Movie title (year)" to show that movie's picture. Lines without it are looked up by name.</p>
+      <div class="fb-row"><label class="field">Voting opens<input type="datetime-local" name="start" value="${now}"></label>
+        <label class="field">Each round lasts (hours)<input type="number" name="hours" min="1" max="336" value="24"></label></div>
+      <p class="error" id="vs-err" hidden></p>
+      <button class="btn primary" type="button" data-act="vscreate" style="justify-self:start">${icon('plus')}Create</button>
+    </form>
+    <section class="panel stack"><h2>All matchups</h2>
+      ${list.length ? `<div class="list">${list.map((v) => { const ph = vsPhase(v); return `<div class="list-item"><span><a href="#/vs/${v.id}"><b>${esc(v.title)}</b></a><br><span class="faint">${v.size === 2 ? 'Matchup' : `${v.size}-way bracket`} · ${ph.state === 'open' ? `${roundName(v, ph.r)}, closes in ${untilText(ph.ends)}` : ph.state === 'soon' ? `opens in ${untilText(v.start)}` : 'finished'}</span></span><button class="btn small ghost" data-act="vsdel" data-id="${v.id}">Delete</button></div>`; }).join('')}</div>` : '<p class="muted">None yet.</p>'}
+    </section></div>`;
+}
+
+// ---------- 31 Days of Horror ----------
+// Every October: 31 horror movies in 31 days. Each day of the month gets a square; logging a movie with
+// that watch date fills it. Finishing earns a badge for that year.
+function challengeStats(year) {
+  const oct = seenList().filter((x) => x.on && x.on.startsWith(`${year}-10-`));
+  const byDay = Array.from({ length: 31 }, (_, i) => oct.filter((x) => Number(x.on.slice(8, 10)) === i + 1));
+  return { year, oct, n: oct.length, days: byDay, daysFilled: byDay.filter((d) => d.length).length };
+}
+views.challenge = (arg) => {
+  if (!S.user) return signInPrompt('Sign in to take the 31 Days of Horror challenge.');
+  const t = today(), thisYear = Number(t.slice(0, 4));
+  const year = Number(arg) || thisYear;
+  const C = challengeStats(year);
+  const isNow = year === thisYear && t.slice(5, 7) === '10';
+  const dayNow = isNow ? Number(t.slice(8, 10)) : year < thisYear || (year === thisYear && t.slice(5, 7) > '10') ? 31 : 0;
+  const pace = dayNow ? C.n - dayNow : 0;
+  const statusTxt = C.n >= 31 ? `<b>Challenge complete.</b> ${C.n} movies in October ${year}.` : isNow ? `${31 - C.n} to go with ${31 - dayNow + 1} day${31 - dayNow + 1 === 1 ? '' : 's'} left. ${pace >= 0 ? `You're ${pace ? `${pace} ahead of` : 'right on'} pace.` : `${-pace} behind pace, so a double feature would catch you up.`}` : dayNow ? `October ${year} ended with ${C.n} of 31.` : `Starts October 1. Line up your 31 in your queue.`;
+  const years = [...new Set(seenList().filter((x) => x.on?.slice(5, 7) === '10').map((x) => Number(x.on.slice(0, 4))))].filter((y) => y !== thisYear).sort((a, b) => b - a);
+  const first = new Date(year, 9, 1).getDay(); // calendar starts on Sunday
+  const cells = [...Array(first).fill('<span class="cal-pad"></span>'), ...C.days.map((list, i) => {
+    const d = i + 1, isToday = isNow && d === dayNow, future = isNow && d > dayNow;
+    const m = list[0]?.m;
+    return `<div class="cal-day${list.length ? ' done' : ''}${isToday ? ' today' : ''}${future ? ' future' : ''}"${list.length ? ` title="${esc(list.map((x) => x.t).join(', '))}"` : ''}>
+      ${m && S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w154${m.poster}" alt="" loading="lazy">` : m ? art(m) : ''}
+      <span class="cal-n">${d}</span>${list.length > 1 ? `<span class="cal-x">+${list.length - 1}</span>` : ''}
+      ${list.length ? `<button class="cal-open" data-act="open" data-id="${list[0].id}" aria-label="${esc(list[0].t)}"></button>` : ''}</div>`;
+  })];
+  return `<div class="page-head"><h1>31 Days of Horror</h1><p class="muted">One horror movie for every day of October. Every movie you mark as seen in October counts, on the day you watched it.</p>
+    ${years.length ? `<div class="tabs" role="tablist"><a role="tab" href="#/challenge/${thisYear}" aria-selected="${year === thisYear}">${thisYear}</a>${years.map((y) => `<a role="tab" href="#/challenge/${y}" aria-selected="${y === year}">${y}</a>`).join('')}</div>` : ''}</div>
+  <div class="ch-top panel">
+    <div class="bc-count"><b>${C.n}<small>/31</small></b><span>October ${year}</span></div>
+    <div class="stack" style="gap:10px;flex:1;min-width:220px">${prog(C.n, 31)}<p style="margin:0">${statusTxt}</p>
+      <div class="row" style="gap:8px">${isNow || !dayNow ? `<a class="btn primary" href="#/pick">${icon('dice')}Pick tonight's movie</a>` : ''}<a class="btn ghost" href="#/year/${year}">${icon('star')}Your ${year} in Horror</a></div></div>
+  </div>
+  <div class="cal">${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => `<span class="cal-h">${d}</span>`).join('')}${cells.join('')}</div>
+  <p class="fine">Watched one but forgot to log it? Open the movie and set the "Watched" date.</p>`;
+};
+
 function prog(have, need, h) {
   const pct = Math.min(100, Math.round((have / Math.max(1, need)) * 100));
   return `<div class="prog" role="progressbar" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${Math.min(have, need)}"${h != null ? ` style="--h:${h}"` : ''}><i style="width:${pct}%"></i></div>`;
@@ -1273,7 +1682,7 @@ views.bodycount = () => {
       <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges</button></div>
       <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
-      <a class="btn" href="#/checklist" style="margin-left:auto">${icon("check")}Check off movies</a>
+      <a class="btn ghost" href="#/year" style="margin-left:auto">${icon('star')}Your ${today().slice(0, 4)}</a><a class="btn ghost" href="#/challenge">${icon('trophy')}31 Days</a><a class="btn" href="#/checklist">${icon("check")}Check off movies</a>
     </div>
     <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges</button></div></div>${badgesSection(seen, counts)}`}`;
 };
@@ -1296,7 +1705,7 @@ function badgesSection(seen, counts) {
       const nextStep = b.steps ? b.steps.find((s) => b.have < s) : null;
       return `<div class="badge ${won ? 'won' : step || b.have ? 'part' : ''}">
         <div class="hd"><span class="ico">${icon(b.ic)}</span><b>${esc(b.name)}</b><span class="num">${Math.min(b.have, b.need)} of ${b.need}</span></div>
-        <p>${esc(b.desc)}${step && !won ? `. Next stop: ${nextStep}` : ''}</p>
+        <p>${esc(b.desc)}${step && !won ? `. Next stop: ${nextStep}` : ''}${b.href ? ` <a href="${b.href}">See the calendar</a>` : ''}</p>
         ${prog(b.have, b.need)}</div>`;
     }).join('')}</div>
   </section>
@@ -1452,7 +1861,7 @@ views.friends = async () => {
   const { incoming, outgoing } = S.requests;
   const feed = [];
   await Promise.all(S.friends.map(async (f) => {
-    try { for (const x of await store.recentOf(f.uid, 8)) feed.push({ f, x }); } catch { /* private or gone */ }
+    try { for (const x of await store.recentOf(f.uid, 10)) if (x.status === 'seen' || x.status === 'queue') feed.push({ f, x }); } catch { /* private or gone */ }
   }));
   feed.sort((a, b) => b.x.at - a.x.at);
   const line = ({ f, x }) => {
@@ -1716,7 +2125,7 @@ function openDetail(id) {
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
-        ${st ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : ''}</div>
+        ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}${st ? 'Hidden. Show it again' : 'Not interested'}</button>`}</div>
       <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
         <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
         <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
@@ -1880,7 +2289,63 @@ const actions = {
   goback() { history.back(); },
   closeplayer: () => $('#player').close(),
   feedback() { if (!needUser()) return; openFeedback(); },
+  async yrshare(el) {
+    const year = Number(el.dataset.k), blob = await yearImage(year);
+    const file = new File([blob], `scream-queue-${year}.png`, { type: 'image/png' });
+    if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], title: `My ${year} in Horror` }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Image saved', 'check');
+  },
   foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
+  async vsvote(el) {
+    if (!S.user) { toast('Sign in to vote', 'users'); S.afterSignIn = location.hash; location.hash = '#/signin'; return; }
+    const { id, mk, k } = el.dataset; const r = Number(mk.match(/^r(\d+)/)[1]);
+    el.closest('.vs-match')?.querySelectorAll('.vs-side').forEach((b) => b.setAttribute('aria-pressed', b === el));
+    try { await store.voteVs(id, mk, r, k); }
+    catch (e) { console.warn(e); toast('That vote didn\'t count. The round may have just closed.', 'x'); }
+    vsCache.delete(id); if (S.vsTonight?.v?.id === id) S.vsTonight = null;
+    if (canFx()) burst(null, 'pop', rectOf(el));
+    await route(true, true);
+  },
+  async vsshare(el) {
+    const url = `${location.origin}${location.pathname}#/vs/${el.dataset.id}`;
+    try { if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ url, title: document.title }); return; } await navigator.clipboard.writeText(url); toast('Link copied', 'link'); }
+    catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+  },
+  async vscreate() {
+    const f = $('#vs-form'); if (!f) return;
+    const title = f.querySelector('[name=title]').value.trim(), cat = f.querySelector('[name=cat]').value, size = Number(f.querySelector('[name=size]').value);
+    const lines = f.querySelector('[name=entries]').value.split('\n').map((x) => x.trim()).filter(Boolean);
+    const err = (m) => { const e = $('#vs-err'); e.textContent = m; e.hidden = false; };
+    if (!title) return err('Give it a title.');
+    if (lines.length !== size) return err(`A ${size === 2 ? 'single matchup' : `${size}-way bracket`} needs exactly ${size} entries, one per line. You have ${lines.length}.`);
+    const entries = lines.map(vsEntry);
+    const start = f.querySelector('[name=start]').value ? new Date(f.querySelector('[name=start]').value).getTime() : Date.now();
+    const dur = Math.round(Number(f.querySelector('[name=hours]').value || 24) * 3600000);
+    const id = await store.createVs({ title, cat, size, rounds: Math.log2(size), start, dur, entries });
+    toast('Matchup created', 'trophy'); location.hash = `#/vs/${id}`;
+  },
+  async vsdel(el) {
+    if (!confirm('Delete this matchup? Its votes stop counting.')) return;
+    await store.deleteVs(el.dataset.id); vsCache.delete(el.dataset.id); S.vsTonight = null; toast('Deleted', 'x'); route(true, true);
+  },
+  async notify(el) {
+    const n = { friends: true, streaming: true, ...(S.profile.notify || {}), [el.dataset.k]: el.checked };
+    S.profile.notify = n; await store.saveProfile({ notify: n }); toast(el.checked ? 'You\'ll get those emails' : 'Those emails are off', 'mail');
+  },
+  delacct() {
+    if (!needUser()) return;
+    const pw = store.signInMethod?.() === 'password';
+    openForm(`<form class="stack fb-form" data-form="delacct" novalidate>
+      ${formHead('Delete your account?', 'This can\'t be undone.')}
+      <ul class="del-list"><li>Your Body Count, ratings, watch dates and queue</li><li>Your reviews and kill counts</li><li>Your friends, friend requests and profile card (your username is freed up)</li><li>Movie nights you started; you leave the ones you joined</li><li>Your sign-in</li></ul>
+      <p class="fine" style="margin:0">Feedback you've sent stays with the site's owner. Votes in VS matchups stay in the totals without your name.</p>
+      ${pw ? '<label class="field">Your password<input type="password" name="pw" autocomplete="current-password" required></label>' : '<p class="muted" style="margin:0">You\'ll be asked to sign in with Google once more to confirm.</p>'}
+      <label class="field">Type DELETE to confirm<input type="text" name="confirm" autocomplete="off" autocapitalize="characters" autofocus></label>
+      <p class="error" hidden></p>
+      <div class="fb-foot"><span class="fine" id="del-step"></span><div class="row" style="gap:8px"><button type="button" class="btn ghost" data-act="closeform">Keep my account</button><button class="btn danger-btn" type="submit">Delete everything</button></div></div>
+    </form>`);
+  },
   admtab(el) { S.adm.tab = el.dataset.k; S.adm.q = ''; route(true, true); },
   admreload() { S.adm.stale = true; route(true, true).then(() => toast('Reloaded', 'check')); },
   async admnopic(el) {
@@ -1992,6 +2457,16 @@ const actions = {
     const base = S.ckAll ? S.movies : essentialsList();
     const c = $('#ck-count'); if (c) c.textContent = `${base.filter(everSeen).length} of ${base.length} seen`;
   },
+  async nope(el) {
+    if (!needUser()) return;
+    const id = el.dataset.id, st = status(id), prev = st ? { ...st } : null;
+    if (st?.status === 'nope') { S.mine.delete(String(id)); await store.removeMovie(id); toast('It can show up again', 'eye', undoTo(id, prev)); await refreshAll(); if ($('#detail').open) refreshDetail(); return; }
+    if (st) return; // only for movies not already on your lists
+    await setStatus(id, { status: 'nope' });
+    toast('Hidden. You won\'t see it in shelves or picks', 'nope', undoTo(id, prev));
+    if (!$('#detail').open) await sendOff(id, 'remove');
+    await refreshAll(); if ($('#detail').open) refreshDetail();
+  },
   async forget(el) { if (status(el.dataset.id)?.status === 'seen') await unstamp(el.dataset.id); S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id); refreshAll(); },
   more() { S.f.limit += 60; renderResults(); },
   fsg(el) { toggle(S.f.sg, el.dataset.k); redrawPicker('fsg', S.f.sg); S.f.limit = 60; renderResults(); },
@@ -2072,6 +2547,7 @@ const actions = {
   fixclear(el) { patchConfig((c) => { const f = { ...(c.sgFix || {}) }; delete f[el.dataset.id]; c.sgFix = f; }); },
   async savecfg() {
     S.config.showPosters = $('#adm-posters').checked;
+    S.config.emailOn = $('#adm-email').checked;
     S.config.announcement = $('#adm-announce').value.trim();
     await store.saveConfig({ ...S.config }); toast('Saved for everyone'); renderChrome(); route(true);
   },
@@ -2440,7 +2916,25 @@ async function afterFriendChange() {
   if (/^#\/(friends|u\/)/.test(location.hash)) await route(true, true); else renderFriendSearch();
 }
 document.addEventListener('submit', async (e) => {
-  if (e.target.classList?.contains('fb-form')) { e.preventDefault(); await submitForm(e.target); return; }
+  if (e.target.classList?.contains('fb-form') && !e.target.dataset.form?.startsWith('del')) { e.preventDefault(); await submitForm(e.target); return; }
+  if (e.target.dataset?.form === 'delacct') {
+    e.preventDefault();
+    const f = e.target, err = f.querySelector('.error'), btn = f.querySelector('[type=submit]'), step = f.querySelector('#del-step');
+    if (f.confirm.value.trim().toUpperCase() !== 'DELETE') { err.textContent = 'Type DELETE to confirm.'; err.hidden = false; f.confirm.focus(); return; }
+    if (f.pw && !f.pw.value) { err.textContent = 'Enter your password.'; err.hidden = false; f.pw.focus(); return; }
+    btn.disabled = true; err.hidden = true;
+    try {
+      await store.deleteAccount(f.pw?.value || '', (t) => { step.textContent = t; });
+      $('#formdlg').close(); S.mine = new Map(); S.social = null; S.friends = []; S.friendMovies = null;
+      toast('Your account and everything in it were deleted', 'check'); location.hash = '#/';
+    } catch (e2) {
+      console.warn(e2); btn.disabled = false; step.textContent = '';
+      err.textContent = /wrong-password|invalid-credential/.test(e2?.code || '') ? 'That password isn\'t right.' : /popup-closed|cancelled/.test(e2?.code || '') ? 'Sign-in was canceled, so nothing was deleted.' : /user-mismatch/.test(e2?.code || '') ? 'Sign in with the same Google account you use here.' : 'Something went wrong partway. Try again; anything already removed stays removed.';
+      err.hidden = false;
+    }
+    return;
+  }
+  if (e.target.dataset?.form === 'lbimport') { e.preventDefault(); await runImport(e.target); return; }
   if (e.target.classList?.contains('review-form')) {
     e.preventDefault();
     const id = e.target.dataset.id; const fd = new FormData(e.target);
@@ -2503,7 +2997,7 @@ function setTheme(t) {
 }
 
 // ---------- chrome + router ----------
-const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/friends', 'Friends', 'users'], ['#/nights', 'Movie Nights', 'clock']];
+const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/friends', 'Friends', 'users'], ['#/vs', 'VS', 'trophy'], ['#/nights', 'Movie Nights', 'clock']];
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
@@ -2522,6 +3016,7 @@ function renderChrome() {
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
         <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
         <a role="menuitem" href="#/friends">${icon('users')}Friends${S.requests?.incoming.length ? `<small class="pill-n">${S.requests.incoming.length}</small>` : `<small>${(S.friends || []).length || ''}</small>`}</a>
+        <a role="menuitem" class="m-only-item" href="#/vs">${icon('trophy')}VS matchups</a>
         <a role="menuitem" class="m-only-item" href="#/nights">${icon('users')}Movie Nights</a>
         ${S.user.isAdmin ? `<a role="menuitem" href="#/admin">${icon('shield')}Admin</a>` : ''}
         ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
@@ -2578,7 +3073,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', checklist: 'Checklist', person: 'Cast', friends: 'Friends', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
 }
 
 async function boot() {

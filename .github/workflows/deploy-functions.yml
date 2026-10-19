@@ -1,0 +1,51 @@
+name: Deploy email functions
+
+# Run this by hand (Actions > Deploy email functions > Run workflow) once the project is on the Blaze plan.
+# Needs these GitHub secrets: GMAIL_APP_PASSWORD (a Gmail app password), MAIL_FROM (that Gmail address),
+# CONTACT_TO (where Contact messages go). The service account needs these extra roles: Cloud Functions Admin,
+# Service Account User, Cloud Scheduler Admin, Secret Manager Admin, Service Usage Admin,
+# Artifact Registry Administrator, Eventarc Admin, Cloud Build Editor.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['functions/**']
+
+jobs:
+  functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check setup
+        id: check
+        env:
+          PW: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: |
+          if [ -z "$PW" ]; then echo "::notice title=Skipped::Email isn't set up yet (no GMAIL_APP_PASSWORD secret)."; echo "go=false" >> "$GITHUB_OUTPUT"; else echo "go=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Install function dependencies
+        if: steps.check.outputs.go == 'true'
+        run: cd functions && npm install --no-audit --no-fund
+      - name: Deploy
+        if: steps.check.outputs.go == 'true'
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SCREAMQUEUE }}
+          PW: ${{ secrets.GMAIL_APP_PASSWORD }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          CONTACT_TO: ${{ secrets.CONTACT_TO }}
+        run: |
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          printf 'MAIL_FROM=%s\nCONTACT_TO=%s\nSITE_URL=https://screamqueue.web.app\n' "$MAIL_FROM" "$CONTACT_TO" > functions/.env
+          printf '%s' "$PW" | npx -y firebase-tools@latest functions:secrets:set GMAIL_APP_PASSWORD --data-file - --project screamqueue --non-interactive --force
+          set +e
+          npx -y firebase-tools@latest deploy --only functions --project screamqueue --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/deploy.log"
+          code=${PIPESTATUS[0]}
+          rm -f "$RUNNER_TEMP/sa.json" functions/.env
+          if [ "$code" != "0" ]; then
+            msg=$(grep -v '^npm warn' "$RUNNER_TEMP/deploy.log" | tail -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Deploy failed::$msg"
+            exit "$code"
+          fi

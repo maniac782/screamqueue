@@ -58,7 +58,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn() && (uid == me() || isAdmin());
       allow create, update: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['name', 'services', 'createdAt', 'lastSeen', 'hideSeen']);
+        && request.resource.data.keys().hasOnly(['name', 'services', 'createdAt', 'lastSeen', 'hideSeen', 'notify'])
+        && (!('notify' in request.resource.data) || request.resource.data.notify.keys().hasOnly(['friends', 'streaming']));
       allow delete: if signedIn() && uid == me();
 
       match /movies/{movieId} {
@@ -76,6 +77,7 @@ service cloud.firestore {
         && request.resource.data.privacy.profile in ['public', 'friends', 'private']
         && request.resource.data.privacy.reviews in ['public', 'friends']
         && (request.resource.data.handle == '' || getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.handle)).data.uid == me());
+      allow delete: if signedIn() && uid == me();
       // Admins can take down an uploaded profile photo (nothing else).
       allow update: if isAdmin() && changed().hasOnly(['av', 'photo']) && request.resource.data.av == '' && request.resource.data.photo == '';
     }
@@ -130,6 +132,24 @@ service cloud.firestore {
       }
     }
 
+    // VS matchups and brackets: admins create them, everyone can see them. Signed-in people vote once per match
+    // (they can change their pick), and only while that match's round is open. Totals are count queries over votes.
+    match /vs/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+      match /m/{mk}/votes/{uid} {
+        allow read: if true;
+        allow create, update: if signedIn() && uid == me()
+          && request.resource.data.keys().hasOnly(['pick', 'r', 'at'])
+          && request.resource.data.pick in ['a', 'b']
+          && request.resource.data.r is int
+          && mk.matches('^r' + string(request.resource.data.r) + 'm[0-9]+$')
+          && request.time.toMillis() >= get(/databases/$(database)/documents/vs/$(id)).data.start + (request.resource.data.r - 1) * get(/databases/$(database)/documents/vs/$(id)).data.dur
+          && request.time.toMillis() < get(/databases/$(database)/documents/vs/$(id)).data.start + request.resource.data.r * get(/databases/$(database)/documents/vs/$(id)).data.dur;
+        allow delete: if signedIn() && (uid == me() || isAdmin());
+      }
+    }
+
     // Movie nights: shared shortlist + voting. Knowing the night's link lets a signed-in person join.
     match /nights/{nightId} {
       allow get: if signedIn();
@@ -147,6 +167,11 @@ service cloud.firestore {
             && changed().hasOnly(['candidates', 'votes', 'memberNames'])
             && request.resource.data.votes.diff(resource.data.votes).affectedKeys().hasOnly([me()])
             && request.resource.data.memberNames.diff(resource.data.memberNames).affectedKeys().hasOnly([me()]))
+        // Members can leave (deleting their account does this), taking their vote and name with them.
+        || (me() in resource.data.members && resource.data.owner != me()
+            && changed().hasOnly(['members', 'memberNames', 'votes'])
+            && request.resource.data.members == resource.data.members.removeAll([me()])
+            && !(me() in request.resource.data.votes) && !(me() in request.resource.data.memberNames))
         // Anyone signed in with the link can add themselves.
         || (!(me() in resource.data.members)
             && changed().hasOnly(['members', 'memberNames'])

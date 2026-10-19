@@ -33,6 +33,24 @@ function load() {
 function save() { try { localStorage.setItem(KEY, JSON.stringify(mem)); } catch { /* storage unavailable */ } }
 
 const DAY = 86400000;
+
+// Demo VS: one open matchup and an 8-movie bracket in round 2, with made-up votes from other fans.
+function vsAll() {
+  const m = load();
+  if (!m.vs) {
+    const now = Date.now();
+    m.vs = {
+      vs1: { id: 'vs1', title: 'Which one scared you more?', cat: 'movies', size: 2, rounds: 1, start: now - DAY / 3, dur: DAY, entries: [{ l: 'The Exorcist', m: 9552 }, { l: 'Hereditary', m: 493922 }] },
+      vs2: { id: 'vs2', title: 'Slasher showdown', cat: 'killers', size: 8, rounds: 3, start: now - DAY * 1.4, dur: DAY,
+        entries: [{ l: 'Michael Myers', m: 948 }, { l: 'Ghostface', m: 4232 }, { l: 'Freddy Krueger', m: 377 }, { l: 'Jason Voorhees', m: 4488 }, { l: 'Leatherface', m: 30497 }, { l: 'Chucky', m: 10585 }, { l: 'Candyman', m: 9529 }, { l: 'Art the Clown', m: 420634 }] },
+      vs3: { id: 'vs3', title: 'Best final girl movie', cat: 'final girls', size: 2, rounds: 1, start: now - DAY * 5, dur: DAY, entries: [{ l: 'Laurie Strode', m: 948 }, { l: 'Sidney Prescott', m: 4232 }] },
+    };
+    m.vsVotes = {};
+    save();
+  }
+  return m;
+}
+const fakeTally = (id, mk) => { let h = 0; for (const c of id + mk) h = (h * 31 + c.charCodeAt(0)) >>> 0; return { a: 20 + (h % 60), b: 20 + ((h >> 8) % 60) }; };
 const DEMO_PEOPLE = {
   pal1: { name: 'Sample friend A', handle: 'finalgirl', av: 'pd:orlok', privacy: { profile: 'friends', reviews: 'public' }, movies: {
     '493922': { status: 'seen', rating: 4.5, seenOn: '2026-10-01', at: Date.now() - DAY * 2, rv: true },
@@ -74,10 +92,11 @@ export const store = {
   async resetPassword() {},
   async signOut() { load().signedIn = false; save(); emitUser(); },
 
-  async getProfile() { return structuredClone(load().profile); },
+  async getProfile() { return { notify: { friends: true, streaming: true }, ...structuredClone(load().profile) }; },
   async saveProfile(patch) { Object.assign(load().profile, patch); save(); emitUser(); },
 
   async loadMyMovies() { return new Map(Object.entries(load().movies)); },
+  async importMovies(entries) { for (const [id, data] of entries) load().movies[String(id)] = { ...data, at: Date.now() }; save(); },
   async setMovie(id, data) { load().movies[String(id)] = { ...data, at: Date.now() }; save(); },
   async removeMovie(id) { delete load().movies[String(id)]; save(); },
 
@@ -145,6 +164,13 @@ export const store = {
   async getConfig() { return structuredClone(load().config); },
   async saveConfig(patch) { Object.assign(load().config, patch); save(); },
   async adminStats() { return { users: 1 }; },
+  async listVs() { return Object.values(vsAll().vs).sort((a, b) => b.start - a.start).map((x) => structuredClone(x)); },
+  async getVs(id) { const x = vsAll().vs[id]; return x ? structuredClone(x) : null; },
+  async createVs(data) { const id = 'vs' + Date.now(); vsAll().vs[id] = { id, ...data, at: Date.now() }; save(); return id; },
+  async deleteVs(id) { delete vsAll().vs[id]; save(); },
+  async tallyVs(id, mk) { const t = fakeTally(id, mk); const mine = vsAll().vsVotes[`${id}|${mk}`]; if (mine) t[mine]++; return t; },
+  async myVotesVs(id, mks) { const v = vsAll().vsVotes; return Object.fromEntries(mks.filter((mk) => v[`${id}|${mk}`]).map((mk) => [mk, v[`${id}|${mk}`]])); },
+  async voteVs(id, mk, r, pick) { vsAll().vsVotes[`${id}|${mk}`] = pick; save(); },
   async adminUsers() {
     const me = load(), sc = social(), mine = Object.values(me.movies || {});
     const out = [{ uid: 'demo', name: me.profile.name, handle: sc.handle, av: sc.av || '', photo: sc.photo || '', privacy: sc.privacy.profile, created: Date.now() - DAY * 20, lastSeen: Date.now(), services: me.profile.services.length, admin: true,
@@ -157,5 +183,7 @@ export const store = {
   async sendContact(d) { (load().contact ||= []).unshift({ id: 'c' + Date.now(), ...d, t: Date.now() }); save(); },
   async listInbox(kind) { return structuredClone(load()[kind] || []); },
   async clearInbox(kind, id) { load()[kind] = (load()[kind] || []).filter((x) => x.id !== id); save(); },
+  signInMethod() { return 'password'; },
+  async deleteAccount(password, progress = () => {}) { progress('Removing everything…'); await new Promise((r) => setTimeout(r, 400)); this.resetDemo(); },
   resetDemo() { mem = null; try { localStorage.removeItem(KEY); } catch { /* ignore */ } load(); emitUser(); },
 };
