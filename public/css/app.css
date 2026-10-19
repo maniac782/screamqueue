@@ -1315,3 +1315,9 @@ form .btn.danger-btn[type=submit] { background: #d6223b; color: #fff; border-col
 .pick-rate { display: inline-flex; align-items: center; gap: 8px; }
 .pick-rate .fine { color: rgba(255,255,255,.7); }
 .pick-card .skulls .sk-val { color: #fff; }
+/* iPhone Safari squeezed the stamp to one letter (its texture mask then hid the rest): size it to its text. */
+.stamp { width: max-content; max-width: none; white-space: nowrap; }
+.stamp b, .stamp small { white-space: nowrap; }
+.poster .stamp b { font-size: 10.5cqw; }
+.poster .stamp small { font-size: 8.5cqw; gap: 1.6cqw; }
+.poster .stamp small .ic { width: 8.5cqw; height: 8.5cqw; }
