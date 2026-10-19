@@ -2467,8 +2467,13 @@ const actions = {
     el.closest('.vs-match')?.querySelectorAll('.vs-side').forEach((b) => b.setAttribute('aria-pressed', b === el));
     try { await store.voteVs(id, mk, r, k); }
     catch (e) { console.warn(e); toast('That vote didn\'t count. The round may have just closed.', 'x'); }
-    vsCache.delete(id); if (S.vsTonight?.v?.id === id || S.vsTonight?.br?.id === id) S.vsTonight = null;
     if (canFx()) burst(null, 'pop', rectOf(el));
+    // Refresh just this matchup's numbers and redraw in place (no emptying the box first, so nothing jumps).
+    vsCache.delete(id);
+    const T = S.vsTonight;
+    if (T?.v?.id === id) T.res = await resolveVs(T.v, true);
+    if (T?.br?.id === id) T.brRes = await resolveVs(T.br, true);
+    renderChrome();
     await route(true, true);
   },
   async vsshare(el) {
