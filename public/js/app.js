@@ -1546,7 +1546,15 @@ async function vsTonight() {
   const v = list.find((x) => x.size === 2 && vsPhase(x).state === 'open') || null;
   const br = list.find((x) => x.size > 2 && vsPhase(x).state === 'open') || null;
   S.vsTonight = { v, br, res: v ? await resolveVs(v) : null, at: Date.now() };
+  renderChrome();
   if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
+}
+// Is there an open matchup today that you haven't voted on? (lights the dot on the phone VS button)
+function vsUnvoted() {
+  if (!S.vsTonight && !S.vsLoading && store.listVs && S.data) { S.vsLoading = true; vsTonight().finally(() => { S.vsLoading = false; }); }
+  const T = S.vsTonight; if (!T?.v || !T.res) return false;
+  const p = T.res.rounds[0]?.pairs[0];
+  return !!p && vsPhase(T.v).state === 'open' && !T.res.mine[p.mk];
 }
 function vsTonightHTML() {
   if (!store.listVs) return '';
@@ -3123,7 +3131,7 @@ function renderChrome() {
   const av = (cls = '') => renderAvatar(name, myCard(), cls);
   const nReq = S.requests?.incoming.length || 0;
   $('#who').innerHTML = S.user
-    ? `<a class="icon-btn m-friends" href="#/friends" aria-label="Friends${nReq ? `, ${nReq} new request${nReq === 1 ? '' : 's'}` : ''}">${icon('users')}${nReq ? `<b class="nav-n">${nReq}</b>` : ''}</a><div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
+    ? `<a class="icon-btn m-vs" href="#/vs" aria-label="VS matchups${vsUnvoted() ? ', one is waiting for your vote' : ''}">${icon('trophy')}${vsUnvoted() ? '<i class="vs-dot"></i>' : ''}</a><a class="icon-btn m-friends" href="#/friends" aria-label="Friends${nReq ? `, ${nReq} new request${nReq === 1 ? '' : 's'}` : ''}">${icon('users')}${nReq ? `<b class="nav-n">${nReq}</b>` : ''}</a><div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
       <div class="acct-menu" role="menu" ${S.menuOpen ? '' : 'hidden'}>
         <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
         <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
