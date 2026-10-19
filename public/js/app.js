@@ -1584,24 +1584,13 @@ async function vsDetail(id) {
   if (ph.state === 'soon') return `${head}<div class="vs-cards">${v.entries.map((e) => `<div class="vs-card"><b>${esc(e.l)}</b>${e.m && S.byId.get(String(e.m)) ? `<span class="muted">${esc(S.byId.get(String(e.m)).t)}</span>` : ''}</div>`).join('')}</div>`;
   const cur = res.rounds.find((x) => !x.closed);
   const now = cur ? `<section class="stack" style="gap:16px"><h2>${roundName(v, cur.r)}: vote now</h2>${cur.pairs.map((p) => `<div class="panel vs-panel">${vsMatch(v, p, res, true)}</div>`).join('')}</section>` : '';
-  // the bracket: one column per round, later rounds filled as winners are known
-  const cols = [];
-  for (let r = 1; r <= v.rounds; r++) {
-    const got = res.rounds.find((x) => x.r === r);
-    const n = v.size / 2 ** r;
-    const cells = Array.from({ length: n }, (_, i) => {
-      const p = got?.pairs[i];
-      const slot = (idx, side) => idx == null ? '<span class="br-e tbd">TBD</span>' : `<span class="br-e${p?.w === side ? ' w' : p?.w ? ' l' : ''}${res.mine[p?.mk] === side ? ' me' : ''}">${esc(v.entries[idx].l)}${p && (got.closed || res.mine[p.mk]) ? `<small>${p.t[side]}</small>` : ''}</span>`;
-      return `<div class="br-m">${slot(p?.a, 'a')}${slot(p?.b, 'b')}</div>`;
-    }).join('');
-    cols.push(`<div class="br-col"><h3>${roundName(v, r)}</h3><div class="br-list">${cells}</div></div>`);
-  }
-  const champ = res.champ != null ? `<div class="br-col br-champ"><h3>Champion</h3><div class="br-list"><div class="br-m"><span class="br-e w">${icon('trophy')}${esc(v.entries[res.champ].l)}</span></div></div></div>` : '';
   if (v.size === 2) {
     const p = res.rounds[0].pairs[0];
     return `${head}<div class="panel vs-panel">${vsMatch(v, p, res, ph.state === 'open')}</div>`;
   }
-  return `${head}${now}<section class="stack"><h2>Bracket</h2><div class="bracket">${cols.join('')}${champ}</div></section>`;
+  // The whole tournament, drawn from both sides toward the trophy. On a narrow screen it starts scrolled to the middle.
+  S.after = () => { const w = $('.bk-wrap.full'); if (w && w.scrollWidth > w.clientWidth) w.scrollLeft = (w.scrollWidth - w.clientWidth) / 2; };
+  return `${head}${now}<section class="stack"><h2>Bracket</h2><div class="bk-wrap full">${bracketHTML(v, res, false, false)}</div></section>`;
 }
 // The newest open single matchup, for a box on Tonight.
 async function vsTonight() {

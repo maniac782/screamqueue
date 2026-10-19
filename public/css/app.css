@@ -1499,3 +1499,25 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
   .bk.compact .bk-pic { width: 100%; }
   .bk.compact .bk-col { gap: 12px; }
 }
+
+.bk-mid.only { grid-template-columns: 1fr; justify-items: center; }
+.bk-mid.only .bk-trophy { max-width: none; }
+/* Full bracket page */
+.bk-wrap.full { display: grid; gap: 10px; }
+.bk-heads { display: none; }
+/* the full bracket can use the whole window on wide screens, not just the page column */
+@media (min-width: 900px) {
+  .bk-wrap.full { width: min(calc(100vw - 48px), 1760px); margin-left: calc((100% - min(calc(100vw - 48px), 1760px)) / 2); }
+  .bk-wrap.full .bk { --slot: clamp(130px, calc((min(100vw - 48px, 1760px) - 500px) / 6), 240px); }
+}
+/* Mid-size screens (small laptops, tablets): eight menu items need a tighter header */
+@media (min-width: 861px) and (max-width: 1240px) {
+  .acct-name { display: none; }
+  .nav a { padding-inline: 10px; font-size: .88rem; }
+  .logo #brand { font-size: 1.1rem; }
+}
+@media (min-width: 861px) and (max-width: 1000px) {
+  .logo .beta { display: none; }
+  .nav a { padding-inline: 8px; font-size: .84rem; }
+}
+@media (min-width: 861px) and (max-width: 960px) { .logo #brand { display: none; } }
