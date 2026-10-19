@@ -1622,10 +1622,12 @@ function vsUnvoted() {
 }
 // A two-sided bracket: the left half of the field plays toward the middle from the left, the right half from the
 // right, and the final meets at the trophy. A single matchup is the same picture with one contender per side.
-function bracketHTML(v, res, big) {
+// compact (Tonight): only the round being voted on, on both sides of the trophy, drawn big. The full bracket page
+// shows every round.
+function bracketHTML(v, res, big, compact) {
   const R = v.rounds, ph = res.ph;
-  // Phones only have room for the rounds still in play; the full bracket is a tap away.
-  const minR = window.innerWidth < 640 && R > 2 ? Math.max(1, Math.min(ph.r || 1, R - 1)) : 1;
+  const cr = ph.state === 'open' ? ph.r : R;
+  const minR = compact ? cr : 1, maxR = compact ? cr : R - 1;
   // slots[r] = entry index (or null while unknown) for every position in round r
   const slots = [v.entries.map((_, i) => i)];
   for (let r = 1; r < R; r++) {
@@ -1647,17 +1649,16 @@ function bracketHTML(v, res, big) {
   };
   const col = (r, positions, side) => `<div class="bk-col ${side}">${positions.reduce((out, pos, i) => (i % 2 ? out : out + `<div class="bk-m">${slot(r, pos)}${positions[i + 1] != null ? slot(r, positions[i + 1]) : ''}</div>`), '')}</div>`;
   const left = [], right = [];
-  for (let r = minR; r < R; r++) {
+  for (let r = minR; r <= maxR && r < R; r++) {
     const n = slots[r - 1].length;
     left.push(col(r, Array.from({ length: n / 2 }, (_, i) => i), 'l'));
     right.unshift(col(r, Array.from({ length: n / 2 }, (_, i) => n / 2 + i), 'r'));
   }
   const champ = res.champ != null ? v.entries[res.champ] : null;
-  const center = `<div class="bk-mid">
-      <div class="bk-final">${slot(R, 0)}</div>
-      <div class="bk-trophy${champ ? ' has' : ''}">${icon('trophy')}<span>${champ ? esc(champ.l) : R === 1 ? 'Winner?' : 'Champion?'}</span></div>
-      <div class="bk-final">${slot(R, 1)}</div></div>`;
-  return `<div class="bk${big ? ' big' : ''} r${R}">${left.join('')}${center}${right.join('')}</div>`;
+  const trophy = `<div class="bk-trophy${champ ? ' has' : ''}">${icon('trophy')}<span>${champ ? esc(champ.l) : R === 1 ? 'Winner?' : 'Champion?'}</span>${compact && cr < R ? `<small>${R - cr} more round${R - cr === 1 ? '' : 's'} to go</small>` : ''}</div>`;
+  const center = compact && cr < R ? `<div class="bk-mid only">${trophy}</div>`
+    : `<div class="bk-mid"><div class="bk-final">${slot(R, 0)}</div>${trophy}<div class="bk-final">${slot(R, 1)}</div></div>`;
+  return `<div class="bk${big ? ' big' : ''}${compact ? ' compact' : ''} r${R}">${left.join('')}${center}${right.join('')}</div>`;
 }
 function vsTonightHTML() {
   if (!store.listVs) return '';
@@ -1672,7 +1673,7 @@ function vsTonightHTML() {
     <div class="vsh-top"><span class="vsh-badge">${icon('trophy')}VS${main.rounds > 1 ? ` · ${esc(roundName(main, ph.r))}` : ' · Today\'s matchup'}</span>${ph.state === 'open' ? `<span class="vsh-time">${icon('clock')}Voting closes in ${esc(untilText(ph.ends))}</span>` : ''}</div>
     <h2 class="vsh-q"><a href="#/vs/${main.id}">${esc(main.title)}</a></h2>
     ${status ? `<p class="vsh-sub">${status}</p>` : ''}
-    <div class="bk-wrap">${bracketHTML(main, res, main.rounds === 1)}</div>
+    <div class="bk-wrap">${bracketHTML(main, res, main.rounds === 1, true)}</div>
     <div class="vsh-foot">${T.br && T.v ? `<a class="vsh-link" href="#/vs/${T.v.id}">${icon('trophy')}Also today: ${esc(T.v.title)}</a>` : ''}<a class="vsh-link" href="#/vs/${main.id}">${main.rounds > 1 ? 'Full bracket' : 'Open matchup'} ${icon('right')}</a><a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div>
   </div></section>`;
 }

@@ -1469,3 +1469,33 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 .poster .blood { width: 25%; height: 33.4%; right: 4%; }
 .poster .blood .drop { width: 6px; height: 8px; margin-left: -3px; }
 .toast .toast-alt { background: rgba(255,255,255,.1); color: inherit; }
+/* Bigger, readable bracket on wider screens: slots grow with the window, names wrap instead of being cut off,
+   and the vote share sits under the name. */
+@media (min-width: 641px) {
+  /* The page is at most ~1270px wide; share what's left after the trophy and gaps between the slots. */
+  .bk { --slot: clamp(124px, calc((min(100vw, 1270px) - 470px) / 6), 230px); --gap: 24px; }
+  .bk.r2 { --slot: clamp(150px, calc((min(100vw, 1270px) - 420px) / 4), 260px); }
+  .bk.r4 { --slot: clamp(124px, calc((min(100vw, 1270px) - 520px) / 8), 200px); }
+  .bk-s { grid-template-columns: 42px 1fr; grid-template-rows: auto auto; column-gap: 10px; row-gap: 2px; padding: 7px 10px 7px 7px; font-size: .92rem; min-height: 70px; }
+  .bk-pic { width: 42px; grid-row: 1 / 3; align-self: center; border-radius: 6px; }
+  .bk-n { white-space: normal; overflow: visible; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.2; align-self: end; }
+  .bk-p { grid-column: 2; align-self: start; font-size: .8rem; }
+  .bk-s:not(:has(.bk-p)) .bk-n { grid-row: 1 / 3; align-self: center; }
+  .bk-final .bk-s { width: calc(var(--slot) + 16px); }
+  .bk-trophy .ic { width: 84px; height: 84px; padding: 18px; }
+  .bk-trophy { font-size: .9rem; max-width: 130px; }
+  .bk-tick { width: 16px; height: 16px; }
+}
+
+/* Tonight's bracket shows one round, so it can be big */
+.bk.compact { --slot: clamp(150px, calc((min(100vw, 1270px) - 420px) / 2.6), 300px); }
+.bk.compact .bk-s { min-height: 84px; font-size: 1rem; grid-template-columns: 52px 1fr; }
+.bk.compact .bk-pic { width: 52px; }
+.bk.compact .bk-col { gap: 22px; }
+.bk-trophy small { display: block; color: var(--faint); font-size: .72rem; font-weight: 600; margin-top: 2px; }
+@media (max-width: 640px) {
+  .bk.compact { --slot: clamp(54px, calc((100vw - 170px) / 2), 120px); }
+  .bk.compact .bk-s { min-height: 0; font-size: .7rem; grid-template-columns: 1fr; }
+  .bk.compact .bk-pic { width: 100%; }
+  .bk.compact .bk-col { gap: 12px; }
+}
