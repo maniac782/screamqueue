@@ -1566,7 +1566,8 @@ async function vsTonight() {
   const list = await store.listVs().catch(() => []);
   const v = list.find((x) => x.size === 2 && vsPhase(x).state === 'open') || null;
   const br = list.find((x) => x.size > 2 && vsPhase(x).state === 'open') || null;
-  S.vsTonight = { v, br, res: v ? await resolveVs(v) : null, at: Date.now() };
+  const [res, brRes] = await Promise.all([v ? resolveVs(v) : null, br ? resolveVs(br) : null]);
+  S.vsTonight = { v, br, res, brRes, at: Date.now() };
   renderChrome();
   if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
 }
@@ -1577,30 +1578,60 @@ function vsUnvoted() {
   const p = T.res.rounds[0]?.pairs[0];
   return !!p && vsPhase(T.v).state === 'open' && !T.res.mine[p.mk];
 }
+// A two-sided bracket: the left half of the field plays toward the middle from the left, the right half from the
+// right, and the final meets at the trophy. A single matchup is the same picture with one contender per side.
+function bracketHTML(v, res, big) {
+  const R = v.rounds, ph = res.ph;
+  // Phones only have room for the rounds still in play; the full bracket is a tap away.
+  const minR = window.innerWidth < 640 && R > 2 ? Math.max(1, Math.min(ph.r || 1, R - 1)) : 1;
+  // slots[r] = entry index (or null while unknown) for every position in round r
+  const slots = [v.entries.map((_, i) => i)];
+  for (let r = 1; r < R; r++) {
+    const got = res.rounds.find((x) => x.r === r);
+    slots.push(Array.from({ length: v.size / 2 ** r }, (_, i) => (got?.closed ? got.pairs[i][got.pairs[i].w] : null)));
+  }
+  const pairOf = (r, pos) => res.rounds.find((x) => x.r === r)?.pairs[Math.floor(pos / 2)];
+  const slot = (r, pos) => {
+    const idx = slots[r - 1][pos];
+    if (idx == null) return `<span class="bk-s tbd"><span class="bk-pic"></span><span class="bk-n">TBD</span></span>`;
+    const e = v.entries[idx], m = e.m && S.byId.get(String(e.m));
+    const p = pairOf(r, pos), side = pos % 2 ? 'b' : 'a', open = p && !res.rounds.find((x) => x.r === r).closed && ph.state === 'open';
+    const mine = p && res.mine[p.mk], tot = p ? (p.t?.a || 0) + (p.t?.b || 0) : 0, pct = tot ? Math.round((p.t[side] / tot) * 100) : 0;
+    const won = p?.w === side, lost = p?.w && p.w !== side;
+    const pic = `<span class="bk-pic">${m ? art(m) : `<span class="vs-blank">${esc(e.l[0])}</span>`}${m && S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w154${m.poster}" alt="" loading="lazy">` : ''}${mine === side ? `<i class="bk-tick">${icon('check')}</i>` : ''}</span>`;
+    const inner = `${pic}<span class="bk-n">${esc(e.l)}</span>${(mine || !open) && p ? `<span class="bk-p">${pct}%</span>` : ''}`;
+    const cls = `bk-s${open ? ' live' : ''}${mine === side ? ' mine' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}`;
+    return open ? `<button class="${cls}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${side}" aria-pressed="${mine === side}" title="Vote for ${esc(e.l)}">${inner}</button>` : `<span class="${cls}">${inner}</span>`;
+  };
+  const col = (r, positions, side) => `<div class="bk-col ${side}">${positions.reduce((out, pos, i) => (i % 2 ? out : out + `<div class="bk-m">${slot(r, pos)}${positions[i + 1] != null ? slot(r, positions[i + 1]) : ''}</div>`), '')}</div>`;
+  const left = [], right = [];
+  for (let r = minR; r < R; r++) {
+    const n = slots[r - 1].length;
+    left.push(col(r, Array.from({ length: n / 2 }, (_, i) => i), 'l'));
+    right.unshift(col(r, Array.from({ length: n / 2 }, (_, i) => n / 2 + i), 'r'));
+  }
+  const champ = res.champ != null ? v.entries[res.champ] : null;
+  const center = `<div class="bk-mid">
+      <div class="bk-final">${slot(R, 0)}</div>
+      <div class="bk-trophy${champ ? ' has' : ''}">${icon('trophy')}<span>${champ ? esc(champ.l) : R === 1 ? 'Winner?' : 'Champion?'}</span></div>
+      <div class="bk-final">${slot(R, 1)}</div></div>`;
+  return `<div class="bk${big ? ' big' : ''} r${R}">${left.join('')}${center}${right.join('')}</div>`;
+}
 function vsTonightHTML() {
   if (!store.listVs) return '';
   if (!S.vsTonight || Date.now() - S.vsTonight.at > 60000) { if (!S.vsLoading) { S.vsLoading = true; vsTonight().finally(() => { S.vsLoading = false; }); } }
   const T = S.vsTonight; if (!T?.v && !T?.br) return '';
-  const brLink = T.br ? `<a class="vsh-link" href="#/vs/${T.br.id}">${icon('trophy')}${esc(T.br.title)}: ${esc(roundName(T.br, vsPhase(T.br).r))} is open</a>` : '';
-  if (!T.v) return `<section class="shelf" data-key="vs"><div class="vsh vsh-slim">${brLink}<a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div></section>`;
-  const v = T.v, p = T.res.rounds[0].pairs[0], mine = T.res.mine[p.mk];
-  const tot = (p.t?.a || 0) + (p.t?.b || 0);
-  const side = (k) => {
-    const e = v.entries[p[k]], m = e.m && S.byId.get(String(e.m));
-    const n = p.t?.[k] || 0, pct = tot ? Math.round((n / tot) * 100) : 0;
-    const pic = m ? `${art(m)}${S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w342${m.poster}" alt="" loading="lazy">` : ''}` : `<span class="vs-blank">${esc(e.l.slice(0, 1))}</span>`;
-    return `<button class="vsh-side${mine === k ? ' mine' : ''}${mine && mine !== k ? ' other' : ''}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${k}" aria-pressed="${mine === k}" aria-label="Vote for ${esc(e.l)}">
-      <span class="vsh-pic">${pic}<span class="vsh-shade"></span>
-        ${mine === k ? `<span class="vsh-mine">${icon('check')}Your pick</span>` : ''}
-        <span class="vsh-name">${mine ? `<span class="vsh-pct"><b>${pct}%</b><i style="--w:${pct}%"></i></span>` : ''}<b>${esc(e.l)}</b>${m && m.t !== e.l ? `<small>${esc(m.t)}${m.y ? ` (${m.y})` : ''}</small>` : m?.y ? `<small>${m.y}</small>` : ''}</span>
-      </span></button>`;
-  };
+  const main = T.br || T.v, res = T.br ? T.brRes : T.res, ph = res.ph;
+  const cur = res.rounds.find((x) => !x.closed);
+  const voted = cur ? cur.pairs.filter((p) => res.mine[p.mk]).length : 0, need = cur ? cur.pairs.length : 0;
+  const status = !cur ? '' : main.rounds === 1 ? (voted ? 'You voted. Tap the other side to change it.' : 'Tap a side to vote. Results show after you vote.')
+    : `${roundName(main, cur.r)}: ${voted === need ? 'you\'ve voted in every match. Tap a name to change a vote.' : `tap a name to vote (${voted} of ${need} matches done).`}`;
   return `<section class="shelf" data-key="vs"><div class="vsh">
-    <div class="vsh-top"><span class="vsh-badge">${icon('trophy')}VS · Today's matchup</span><span class="vsh-time">${icon('clock')}Closes in ${esc(untilText(vsPhase(v).ends))}</span></div>
-    <h2 class="vsh-q">${esc(v.title)}</h2>
-    <p class="vsh-sub">${mine ? `You voted. ${tot} vote${tot === 1 ? '' : 's'} so far; tap the other side to change yours.` : 'Tap the one you pick. Everyone\'s votes show after you vote.'}</p>
-    <div class="vsh-duel">${side('a')}<span class="vsh-vs">VS</span>${side('b')}</div>
-    <div class="vsh-foot">${brLink}<a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div>
+    <div class="vsh-top"><span class="vsh-badge">${icon('trophy')}VS${main.rounds > 1 ? ` · ${esc(roundName(main, ph.r))}` : ' · Today\'s matchup'}</span>${ph.state === 'open' ? `<span class="vsh-time">${icon('clock')}Voting closes in ${esc(untilText(ph.ends))}</span>` : ''}</div>
+    <h2 class="vsh-q"><a href="#/vs/${main.id}">${esc(main.title)}</a></h2>
+    ${status ? `<p class="vsh-sub">${status}</p>` : ''}
+    <div class="bk-wrap">${bracketHTML(main, res, main.rounds === 1)}</div>
+    <div class="vsh-foot">${T.br && T.v ? `<a class="vsh-link" href="#/vs/${T.v.id}">${icon('trophy')}Also today: ${esc(T.v.title)}</a>` : ''}<a class="vsh-link" href="#/vs/${main.id}">${main.rounds > 1 ? 'Full bracket' : 'Open matchup'} ${icon('right')}</a><a class="vsh-link" href="#/vs">All matchups ${icon('right')}</a></div>
   </div></section>`;
 }
 
@@ -2436,7 +2467,7 @@ const actions = {
     el.closest('.vs-match')?.querySelectorAll('.vs-side').forEach((b) => b.setAttribute('aria-pressed', b === el));
     try { await store.voteVs(id, mk, r, k); }
     catch (e) { console.warn(e); toast('That vote didn\'t count. The round may have just closed.', 'x'); }
-    vsCache.delete(id); if (S.vsTonight?.v?.id === id) S.vsTonight = null;
+    vsCache.delete(id); if (S.vsTonight?.v?.id === id || S.vsTonight?.br?.id === id) S.vsTonight = null;
     if (canFx()) burst(null, 'pop', rectOf(el));
     await route(true, true);
   },
