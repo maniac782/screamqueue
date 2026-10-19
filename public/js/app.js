@@ -545,6 +545,20 @@ function recommend() {
   recMemo = { key, out };
   return out;
 }
+// Halloween classics: shown from mid-September to early November. The Halloween Fun movies (Hocus Pocus,
+// Beetlejuice...) mixed with the horror movies that are about Halloween itself, best known first.
+const HALLOWEEN_HORROR = [['Halloween', 1978], ["Trick 'r Treat", 2007], ['Halloween III: Season of the Witch', 1982], ['Halloween', 2018], ['Hocus Pocus', 1993],
+  ['Night of the Demons', 1988], ['Terrifier', 2016], ['Halloween II', 1981], ['The Houses October Built', 2014], ['Tales of Halloween', 2015], ['Hell Fest', 2018],
+  ['Trick', 2019], ['The Guest', 2014], ['Halloween Kills', 2021], ['Satan\'s Little Helper', 2004], ['Pumpkinhead', 1988], ['Sleepy Hollow', 1999], ['The Lost Boys', 1987]];
+function halloweenShelf() {
+  const t = today(), md = t.slice(5);
+  if (md < '09-15' || md > '11-07') return [];
+  const hz = HALLOWEEN_HORROR.map(([title, y]) => S.movies.find((m) => m.t === title && m.y === y)).filter(Boolean);
+  const fun = S.movies.filter((m) => m.sg.includes('fun')).sort((a, b) => b.reach - a.reach);
+  const mixed = [];
+  for (let i = 0; i < Math.max(hz.length, fun.length) && mixed.length < 30; i++) { if (hz[i]) mixed.push(hz[i]); if (fun[i]) mixed.push(fun[i]); }
+  return [...new Set(mixed)].filter((m) => !isSeen(m) && !isNope(m)).slice(0, 24);
+}
 // Queued movies that started streaming in the last 21 days (on your services, if you've set them), newest first.
 function queueNowStreaming() {
   const mine = S.profile.services;
@@ -594,6 +608,7 @@ views.tonight = () => {
   const anchor = S.user ? lovedAnchor() : null;
   const fPicks = S.user ? friendPicks() : [];
   const newOnStreaming = S.user ? queueNowStreaming() : [];
+  const spooky = halloweenShelf();
   const pool = S.movies.filter((m) => !isSeen(m) && !isNope(m));
   const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
@@ -633,6 +648,7 @@ views.tonight = () => {
     return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
+  ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '', '<a class="btn small ghost" href="#/browse" data-act="funbrowse">See all</a>') : ''}
   ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '<a class="btn small ghost" href="#/queue">Your queue</a>', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
   ${vsTonightHTML()}
   ${!S.user ? '' : forYou.length >= 4 ? shelf('Picked for you', 'Based on everything in your Body Count and how you rated it.', forYou.map((x) => x.m), '', '<a class="btn small ghost" href="#/browse" data-act="foryou">See more</a>', (m) => recs.by.get(String(m.id))?.why)
@@ -2393,6 +2409,7 @@ const actions = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Image saved', 'check');
   },
+  funbrowse() { S.f.sg = new Set(['fun']); S.f.limit = 60; S.f.sort = 'reach'; location.hash = '#/browse'; },
   foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
   async vsvote(el) {
     if (!S.user) { toast('Sign in to vote', 'users'); S.afterSignIn = location.hash; location.hash = '#/signin'; return; }
