@@ -6,7 +6,7 @@ export const FAMILIES = [
   { key: 'super', label: 'Supernatural', icon: 'ghost', sg: ['ghost', 'occult', 'demonic', 'possession', 'folk', 'cosmic'] },
   { key: 'monsters', label: 'Monsters', icon: 'creature', sg: ['creature', 'scifi', 'zombie', 'vampire', 'werewolf', 'classic'] },
   { key: 'mind', label: 'Mind & Body', icon: 'psych', sg: ['psych', 'body', 'tech'] },
-  { key: 'style', label: 'Style', icon: 'found', sg: ['comedy', 'found', 'anthology'] },
+  { key: 'style', label: 'Style', icon: 'found', sg: ['fun', 'comedy', 'found', 'anthology'] },
 ];
 
 // 24px line icons, one per subgenre.
@@ -34,6 +34,7 @@ const P = {
   anthology: '<rect x="4" y="6.5" width="11" height="14" rx="1.6"/><path d="M8 3.5h10.4A1.6 1.6 0 0 1 20 5.1v12.4"/>',
   scifi: '<ellipse cx="12" cy="11.5" rx="9" ry="3"/><path d="M8 9.6a4 4 0 0 1 8 0M8.4 16.6 7 20M12 17v3.6M15.6 16.6 17 20"/>',
   comedy: '<circle cx="12" cy="12" r="8.6"/><path d="M7.8 13.4h8.4a4.2 4.2 0 0 1-8.4 0z"/><path d="m8.4 9.8 1.4-1.2 1.4 1.2M12.8 9.8l1.4-1.2 1.4 1.2"/>',
+  fun: '<path d="M12 7.2c-5 0-8.2 3.3-8.2 7.1S7 21 12 21s8.2-2.9 8.2-6.7S17 7.2 12 7.2z"/><path d="M12 7.2c-1.6 1.4-2.2 7.9 0 13.8M12 7.2c1.6 1.4 2.2 7.9 0 13.8M12 7.2c0-1.8.6-3.2 2-4.2"/>',
   terror: '<path d="M2.8 12.5h4l2.1-5.2 3.2 10.4 2.5-7.2 1.6 2H21.2"/>',
 };
 

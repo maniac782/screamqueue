@@ -6,7 +6,7 @@ export const SG_HUE = {
   folk: [38, 88], found: [150, 190], creature: [164, 104], zombie: [92, 58], vampire: [344, 296],
   werewolf: [28, 224], body: [322, 352], psych: [258, 188], home: [24, 212], survival: [118, 30],
   cosmic: [232, 282], tech: [186, 216], teen: [304, 200], extreme: [356, 8], classic: [44, 214],
-  anthology: [268, 30], scifi: [194, 158], comedy: [48, 328], terror: [214, 350],
+  anthology: [268, 30], scifi: [194, 158], comedy: [48, 328], fun: [26, 276], terror: [214, 350],
 };
 
 const M = {
@@ -33,6 +33,7 @@ const M = {
   anthology: '<rect x="16" y="26" width="30" height="42" rx="3"/><rect x="54" y="26" width="30" height="42" rx="3"/><rect x="16" y="76" width="30" height="42" rx="3"/><rect x="54" y="76" width="30" height="42" rx="3"/>',
   scifi: '<circle cx="50" cy="60" r="16"/><ellipse cx="50" cy="60" rx="34" ry="8" transform="rotate(-24 50 60)"/><circle cx="20" cy="30" r="1.6" fill="currentColor"/><circle cx="82" cy="100" r="1.6" fill="currentColor"/>',
   comedy: '<path d="M24 66q26 32 52 0"/><circle cx="36" cy="50" r="4" fill="currentColor"/><circle cx="64" cy="50" r="4" fill="currentColor"/>',
+  fun: '<path d="M50 46c-20 0-32 12-32 28s12 30 32 30 32-14 32-30-12-28-32-28z"/><path d="M50 46c-7 6-9 34 0 58M50 46c7 6 9 34 0 58M50 46c0-8 3-14 9-18"/><path d="M36 70l6-6 6 6M52 70l6-6 6 6M38 88q12 8 24 0" stroke-opacity=".8"/>',
   terror: '<path d="M50 20v104M20 72h60" stroke-opacity=".5"/><circle cx="50" cy="72" r="26"/><circle cx="50" cy="72" r="3" fill="currentColor"/>',
   none: '<path d="M38 0h24l22 140H16z" fill="currentColor" fill-opacity=".12" stroke="none"/>',
 };

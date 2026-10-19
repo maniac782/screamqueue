@@ -1215,6 +1215,11 @@ views.admin = async () => {
   <div class="stack">
     <div class="panel stack"><h2>Featured</h2><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
       <label class="search"><span class="sr">Search a title to feature</span>${icon('search')}<input type="search" id="adm-feat-search" placeholder="Search to feature"></label><div id="adm-feat-results" class="list"></div></div>
+    <div class="panel stack"><h2>Add a movie</h2>
+      <p class="muted" style="margin:0;font-size:.9rem">For movies TMDB doesn't call horror that you still want here. Halloween favorites like Hocus Pocus are added automatically. Find the movie on <a href="https://www.themoviedb.org" target="_blank" rel="noopener">themoviedb.org</a> and paste its link (or its number).</p>
+      <div class="row" style="gap:8px"><input type="text" id="adm-extra" placeholder="https://www.themoviedb.org/movie/10439-hocus-pocus" style="flex:1;min-width:200px"><button class="btn small primary" data-act="addextra">${icon('plus')}Add</button></div>
+      <div class="list">${(c.extraMovies || []).map((id) => { const m = S.byId.get(String(id)); return `<div class="list-item">${m ? thumb(m) : ''}<span>${m ? `${esc(m.t)} <span class="faint">${m.y ?? ''}</span>` : `TMDB movie ${id} <span class="faint">· shows up after the next nightly refresh</span>`}</span><button class="btn small ghost" data-act="rmextra" data-id="${id}">Remove</button></div>`; }).join('') || '<p class="muted">None added by hand.</p>'}</div>
+    </div>
     <div class="panel stack"><h2>Hidden from the site</h2><div class="list">${listOf(c.hidden || [], 'unhide')}</div>
       <label class="search"><span class="sr">Search a title to hide</span>${icon('search')}<input type="search" id="adm-hide-search" placeholder="Search to hide"></label><div id="adm-hide-results" class="list"></div></div>
     <button class="btn primary" data-act="savecfg">Save admin changes</button>
@@ -2656,6 +2661,18 @@ const actions = {
   },
   feature(el) { patchConfig((c) => { c.featured = [...new Set([...(c.featured || []), Number(el.dataset.id)])]; }); },
   unfeature(el) { patchConfig((c) => { c.featured = (c.featured || []).filter((x) => String(x) !== el.dataset.id); }); },
+  async addextra() {
+    const v = $('#adm-extra')?.value.trim() || '';
+    const id = Number((v.match(/themoviedb\.org\/movie\/(\d+)/) || v.match(/^(\d+)$/) || [])[1]);
+    if (!id) { toast('Paste a themoviedb.org movie link or number', 'x'); return; }
+    if (S.byId.has(String(id)) && !(S.config.extraMovies || []).includes(id)) { toast(`${S.byId.get(String(id)).t} is already on the site`, 'check'); return; }
+    S.config.extraMovies = [...new Set([...(S.config.extraMovies || []), id])];
+    await store.saveConfig({ ...S.config }); toast('Added. It shows up after the next nightly refresh', 'check'); route(true, true);
+  },
+  async rmextra(el) {
+    S.config.extraMovies = (S.config.extraMovies || []).filter((x) => String(x) !== el.dataset.id);
+    await store.saveConfig({ ...S.config }); toast('Removed after the next nightly refresh', 'x'); route(true, true);
+  },
   hide(el) { patchConfig((c) => { c.hidden = [...new Set([...(c.hidden || []), Number(el.dataset.id)])]; }); },
   unhide(el) { patchConfig((c) => { c.hidden = (c.hidden || []).filter((x) => String(x) !== el.dataset.id); }); },
   fixpick(el) { S.adminFix = el.dataset.id; route(true); },

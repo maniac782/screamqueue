@@ -168,6 +168,33 @@ async function main() {
     if (!seen.has(id)) { seen.add(id); ids.push(id); }
   }
   ids.splice(MAX_MOVIES);
+
+  // Halloween Fun: well-known movies TMDB doesn't call horror but people watch in October (Hocus Pocus, Beetlejuice,
+  // The Addams Family...), found by keyword. Plus any movie the admin added by hand (config/site.extraMovies).
+  // These come on top of the horror list, so they never push horror movies out.
+  const funIds = new Set();
+  try {
+    const kwIds = [];
+    for (const name of ['halloween', 'witch', 'witchcraft', 'haunted house', 'ghost', 'vampire', 'werewolf', 'zombie', 'monster movie', 'trick or treating']) {
+      const r = await tmdb('/search/keyword', { query: name });
+      const hit = (r.results || []).find((k) => k.name.toLowerCase() === name);
+      if (hit) kwIds.push(hit.id);
+    }
+    if (kwIds.length) {
+      const found = await pages('/discover/movie', { with_keywords: kwIds.join('|'), without_genres: [GENRE.horror, GENRE.romance, GENRE.documentary].join(','), include_adult: 'false', language: 'en-US', sort_by: 'vote_count.desc', 'vote_count.gte': 400 }, 6);
+      for (const m of found) if (!seen.has(m.id)) { funIds.add(m.id); seen.add(m.id); ids.push(m.id); }
+    }
+  } catch (e) { console.warn('Halloween Fun skipped:', e.message); }
+  const extraIds = new Set();
+  try {
+    const doc = await getJson('https://firestore.googleapis.com/v1/projects/screamqueue/databases/(default)/documents/config/site');
+    for (const v of doc.fields?.extraMovies?.arrayValue?.values || []) { const id = Number(v.integerValue ?? v.doubleValue ?? v.stringValue); if (id) extraIds.add(id); }
+    const inList = new Set(ids);
+    for (const id of extraIds) if (!inList.has(id)) { seen.add(id); ids.push(id); }
+  } catch (e) { console.warn('Admin extras skipped:', e.message); }
+  console.log(`Halloween Fun: ${funIds.size} movies; added by the admin: ${extraIds.size}.`);
+  const keepAnyway = (d) => funIds.has(d.id) || extraIds.has(d.id);
+  const isHorror = (d) => d.genres?.some((g) => g.id === GENRE.horror);
   console.log(`Fetching details for ${ids.length} movies…`);
 
   const details = await pool(ids, 12, (id) =>
@@ -189,7 +216,7 @@ async function main() {
   if (OMDB_KEY) {
     const need = [];
     for (const d of details) {
-      if (!d || !d.genres?.some((g) => g.id === GENRE.horror)) continue;
+      if (!d || !(isHorror(d) || keepAnyway(d))) continue;
       const imdbId = d.external_ids?.imdb_id || d.imdb_id; if (!imdbId) continue;
       const prev = prevById.get(d.id)?.imdb;
       const y = d.release_date ? Number(d.release_date.slice(0, 4)) : thisYear;
@@ -231,7 +258,7 @@ async function main() {
 
   const rows = [];
   for (const d of details) {
-    if (!d || !d.genres?.some((g) => g.id === GENRE.horror)) continue;
+    if (!d || !(isHorror(d) || keepAnyway(d))) continue;
     if (d.adult) continue;
     const genreIds = d.genres.map((g) => g.id);
     const kwNames = (d.keywords?.keywords || []).map((k) => k.name);
@@ -251,7 +278,7 @@ async function main() {
       castFull: (d.credits?.cast || []).slice(0, 12).map((c) => ({ i: c.id, n: c.name, c: c.character || '', p: c.profile_path || null })),
       dirFull: (d.credits?.crew || []).filter((c) => c.job === 'Director').slice(0, 2).map((c) => ({ i: c.id, n: c.name, p: c.profile_path || null })),
       g: d.genres.map((g) => g.name),
-      sg: tagSubgenres(kwNames, genreIds),
+      sg: isHorror(d) ? tagSubgenres(kwNames, genreIds) : ['fun', ...tagSubgenres(kwNames, genreIds).filter((k) => k !== 'comedy')],
       pv: (wp.flatrate || []).map((p) => p.provider_id),
       fr: [...(wp.free || []), ...(wp.ads || [])].map((p) => p.provider_id),
       rent: (wp.rent || []).length > 0,

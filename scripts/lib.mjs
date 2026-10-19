@@ -1,7 +1,7 @@
 // Pure helpers for the nightly data refresh: subgenre tagging and popularity scoring.
 // Kept separate from refresh-data.mjs so they can be tested without network access.
 
-export const GENRE = { horror: 27, thriller: 53, scifi: 878, comedy: 35, mystery: 9648, fantasy: 14, animation: 16 };
+export const GENRE = { horror: 27, thriller: 53, scifi: 878, comedy: 35, mystery: 9648, fantasy: 14, animation: 16, family: 10751, romance: 10749, documentary: 99 };
 
 // Each subgenre matches TMDB keyword names (lowercased) and/or TMDB genre ids.
 // Order matters only for display. Edit freely; the site reads the list from movies.json.
@@ -30,6 +30,8 @@ export const SUBGENRES = [
   { key: 'scifi',      label: 'Sci-Fi Horror',       kw: /space horror|sci-fi horror/, genre: GENRE.scifi },
   { key: 'comedy',     label: 'Horror Comedy',       kw: /horror comedy|horror spoof|splatstick|parody/, genre: GENRE.comedy },
   // Only keyword-driven: TMDB tags so much horror as "Thriller" that the genre alone tells you little.
+  // Not horror on TMDB but Halloween favorites (Hocus Pocus, Beetlejuice...). Set by the data job, never by keywords.
+  { key: 'fun',        label: 'Halloween Fun' },
   { key: 'terror',     label: 'Thriller & Terror',   kw: /suspense|psychological thriller|survival thriller|cat and mouse|hostage|kidnapping|abduction|siege|held captive|trapped in a room|isolation/ },
 ];
 
