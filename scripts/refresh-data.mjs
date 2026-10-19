@@ -173,17 +173,37 @@ async function main() {
   // The Addams Family...), found by keyword. Plus any movie the admin added by hand (config/site.extraMovies).
   // These come on top of the horror list, so they never push horror movies out.
   const funIds = new Set();
+  // Hand-picked October classics, looked up by title and year.
+  const FUN_PICKS = [
+    ['Hocus Pocus', 1993], ['Hocus Pocus 2', 2022], ['Beetlejuice', 1988], ['Beetlejuice Beetlejuice', 2024], ['The Addams Family', 1991], ['Addams Family Values', 1993],
+    ['The Addams Family', 2019], ['Ghostbusters', 1984], ['Ghostbusters II', 1989], ['Ghostbusters: Afterlife', 2021], ['Ghostbusters: Frozen Empire', 2024], ['Casper', 1995],
+    ['The Nightmare Before Christmas', 1993], ['Corpse Bride', 2005], ['Frankenweenie', 2012], ['ParaNorman', 2012], ['Monster House', 2006], ['Hotel Transylvania', 2012],
+    ['Hotel Transylvania 2', 2015], ['Young Frankenstein', 1974], ['The Witches', 1990], ['Practical Magic', 1998], ['Death Becomes Her', 1992], ['Edward Scissorhands', 1990],
+    ['Halloweentown', 1998], ['Twitches', 2005], ['Hubie Halloween', 2020], ['Haunted Mansion', 2023], ['The Haunted Mansion', 2003], ['Dark Shadows', 2012],
+    ['Wallace & Gromit: The Curse of the Were-Rabbit', 2005], ['Goosebumps', 2015], ['Toy Story of Terror!', 2013], ['It\'s the Great Pumpkin, Charlie Brown', 1966],
+    ['The Adventures of Ichabod and Mr. Toad', 1949], ['Teen Wolf', 1985], ['The Lost Boys', 1987], ['Fright Night', 1985], ['Gremlins', 1984], ['Arsenic and Old Lace', 1944],
+    ['Abbott and Costello Meet Frankenstein', 1948], ['What We Do in the Shadows', 2014], ['Scary Movie', 2000], ['Shaun of the Dead', 2004], ['Zombieland', 2009],
+    ['Hocus Pocus', 1993], ['The Craft', 1996], ['Sleepy Hollow', 1999], ['Coraline', 2009], ['Monster Squad', 1987], ['The Monster Squad', 1987], ['Ernest Scared Stupid', 1991],
+  ];
   try {
+    await pool(FUN_PICKS, 6, async ([title, year]) => {
+      const r = await tmdb('/search/movie', { query: title, year, include_adult: 'false', language: 'en-US' });
+      const hit = (r.results || []).find((m) => (m.release_date || '').startsWith(String(year))) || r.results?.[0];
+      if (hit) funIds.add(hit.id);
+    });
+    // Plus anything well known that TMDB tags with Halloween itself.
     const kwIds = [];
-    for (const name of ['halloween', 'witch', 'witchcraft', 'haunted house', 'ghost', 'vampire', 'werewolf', 'zombie', 'monster movie', 'trick or treating']) {
+    for (const name of ['halloween', 'trick or treating', 'jack-o\'-lantern']) {
       const r = await tmdb('/search/keyword', { query: name });
       const hit = (r.results || []).find((k) => k.name.toLowerCase() === name);
       if (hit) kwIds.push(hit.id);
     }
     if (kwIds.length) {
-      const found = await pages('/discover/movie', { with_keywords: kwIds.join('|'), without_genres: [GENRE.horror, GENRE.romance, GENRE.documentary].join(','), include_adult: 'false', language: 'en-US', sort_by: 'vote_count.desc', 'vote_count.gte': 400 }, 6);
-      for (const m of found) if (!seen.has(m.id)) { funIds.add(m.id); seen.add(m.id); ids.push(m.id); }
+      const found = await pages('/discover/movie', { with_keywords: kwIds.join('|'), without_genres: [GENRE.horror, GENRE.romance, GENRE.documentary].join(','), include_adult: 'false', language: 'en-US', sort_by: 'vote_count.desc', 'vote_count.gte': 300 }, 3);
+      for (const m of found) funIds.add(m.id);
     }
+    const inList = new Set(ids);
+    for (const id of funIds) if (!inList.has(id)) { seen.add(id); ids.push(id); inList.add(id); }
   } catch (e) { console.warn('Halloween Fun skipped:', e.message); }
   const extraIds = new Set();
   try {
