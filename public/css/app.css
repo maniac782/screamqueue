@@ -1321,3 +1321,13 @@ form .btn.danger-btn[type=submit] { background: #d6223b; color: #fff; border-col
 .poster .stamp b { font-size: 10.5cqw; }
 .poster .stamp small { font-size: 8.5cqw; gap: 1.6cqw; }
 .poster .stamp small .ic { width: 8.5cqw; height: 8.5cqw; }
+
+/* SURVIVED stamp, drawn as an SVG: width is a share of the poster, so it looks the same at every size and on every browser. */
+svg.stamp { position: absolute; z-index: 4; left: 50%; top: 42%; width: 64%; height: auto; transform: translate(-50%, -50%) rotate(-14deg);
+  display: block; padding: 0; border: 0; outline: 0; border-radius: 0; background: none; overflow: visible; color: #ff4057; text-shadow: none;
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+svg.stamp .st-bg { fill: rgba(10, 4, 6, .38); stroke: currentColor; stroke-width: 4; }
+svg.stamp .st-in { fill: none; stroke: currentColor; stroke-width: 1.6; }
+svg.stamp .st-t { fill: currentColor; font-family: var(--font-display); font-weight: 800; font-size: 24px; letter-spacing: 1px; }
+svg.stamp .st-r { fill: currentColor; font-family: var(--font-display); font-weight: 800; font-size: 16px; }
+svg.stamp svg { color: currentColor; }

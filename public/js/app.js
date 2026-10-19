@@ -267,6 +267,16 @@ function servicesText(m) {
   return m.rent ? 'Rent or buy' : 'Not streaming';
 }
 
+// The SURVIVED stamp is a small drawing that scales with the poster (iPhone Safari mis-sized the old text version).
+function stampSVG(r) {
+  const skull = icon('skull').replace('<svg ', '<svg x="0" y="-1" width="16" height="16" ');
+  return `<svg class="stamp" viewBox="0 0 140 ${r ? 74 : 58}" role="img" aria-label="Seen${r ? `, rated ${fmtRating(r)}` : ''}">
+    <rect x="3" y="3" width="134" height="${r ? 68 : 52}" rx="10" class="st-bg"/>
+    <rect x="8.5" y="8.5" width="123" height="${r ? 57 : 41}" rx="6" class="st-in"/>
+    <text x="70" y="38" text-anchor="middle" textLength="104" lengthAdjust="spacingAndGlyphs" class="st-t">SURVIVED</text>
+    ${r ? `<g transform="translate(${70 - (String(fmtRating(r)).length * 9 + 20) / 2} 45)">${skull}<text x="20" y="13" class="st-r">${fmtRating(r)}</text></g>` : ''}
+  </svg>`;
+}
 function poster(m, opts = {}) {
   const st = status(m.id);
   const img = S.config.showPosters && m.poster;
@@ -279,7 +289,7 @@ function poster(m, opts = {}) {
     <div class="scrim"></div>
     ${opts.noBadges ? '' : (() => { const th = theaterStatus(m); const label = th === 'in' ? 'In Theaters' : th === 'soon' ? 'Coming Soon' : S.tierLabel.get(m.tier); return `<span class="badge-tier t-${th ? 'th-' + th : m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(label)}</span>`; })()}
     ${queued ? bloodDrip(m.id) : ''}
-    ${stamped ? `<span class="stamp" aria-label="Seen"><b>Survived</b>${st?.rating ? `<small>${icon('skull')}${fmtRating(st.rating)}</small>` : ''}</span>` : ''}
+    ${stamped ? stampSVG(st?.rating) : ''}
     <span class="ttl">${esc(m.t)}<small>${m.y ?? ''}${m.rt ? ` · ${m.rt} min` : ''}</small></span>
   </div>`;
 }
