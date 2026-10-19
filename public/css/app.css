@@ -1444,3 +1444,28 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
   .bk.big .bk-final .bk-s { width: 128px; font-size: .9rem; }
   .bk.big .bk-mid { gap: 10px; }
 }
+
+/* Quick actions and the blood drip without container-width units (Safari got those wrong for posters that start
+   off-screen in a scrolling row, so the buttons ended up out of sight). The layer is exactly the poster's box. */
+.qa-layer { position: absolute; z-index: 6; left: 0; right: 0; top: 0; aspect-ratio: 2 / 3; pointer-events: none; }
+.qa-layer .qa-plus, .qa-layer .qa-rate { pointer-events: auto; }
+.qa-layer .qa { top: auto; bottom: 12px; padding: 0 6px; gap: 6px; }
+.qa-layer .qa .qa-b { width: min(36px, 22%); height: auto; aspect-ratio: 1; }
+.qa-layer .qa .qa-b .ic { width: 50%; height: 50%; min-width: 13px; min-height: 13px; max-width: 18px; max-height: 18px; }
+.qa-layer .qa-plus { top: auto; bottom: 6px; }
+.qa-layer .qa-rate { top: auto; bottom: 8px; }
+.qa-layer .qa-rate .skulls .sk { width: auto; flex: 1 1 0; min-width: 0; }
+.qa-layer .qa-rate .skulls .sk .ic { width: min(20px, 100%); }
+@media (hover: none) {
+  .qa-layer .qa { left: auto; right: 6px; top: auto; bottom: 46px; padding: 0; }
+  .qa-layer .qa .qa-b { width: 36px; }
+}
+@media (max-width: 700px) {
+  .qa-layer .qa-plus { bottom: 4px; }
+  .qa-layer .qa { bottom: 34px; right: 3px; gap: 4px; }
+  .qa-layer .qa .qa-b { width: 28px; }
+  .qa-layer .qa .qa-b .ic { width: 15px; height: 15px; min-width: 0; min-height: 0; }
+}
+.poster .blood { width: 25%; height: 33.4%; right: 4%; }
+.poster .blood .drop { width: 6px; height: 8px; margin-left: -3px; }
+.toast .toast-alt { background: rgba(255,255,255,.1); color: inherit; }

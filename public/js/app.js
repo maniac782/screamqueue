@@ -42,15 +42,19 @@ const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(
 const avatarHue = (name) => [...(name || '')].reduce((s, c) => s + c.charCodeAt(0), 0) % 360;
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-function toast(msg, ic = 'check', undo = null) {
+// alt: an extra button, { label, fn } (used for "Seen before" after marking a movie seen).
+function toast(msg, ic = 'check', undo = null, alt = null) {
   document.querySelectorAll('.toast').forEach((x) => x.remove());
   const t = document.createElement('div');
   t.className = 'toast'; t.setAttribute('role', 'status');
-  t.innerHTML = `${icon(ic)}<span>${esc(msg)}</span>${undo ? '<button class="toast-undo" type="button">Undo</button>' : ''}`;
-  if (undo) t.querySelector('.toast-undo').addEventListener('click', async () => { t.remove(); try { await undo(); } catch (e) { console.error(e); } });
+  t.innerHTML = `${icon(ic)}<span>${esc(msg)}</span>${alt ? `<button class="toast-undo toast-alt" type="button">${esc(alt.label)}</button>` : ''}${undo ? '<button class="toast-undo" type="button">Undo</button>' : ''}`;
+  if (undo) t.querySelector('.toast-undo:not(.toast-alt)').addEventListener('click', async () => { t.remove(); try { await undo(); } catch (e) { console.error(e); } });
+  if (alt) t.querySelector('.toast-alt').addEventListener('click', async () => { t.remove(); try { await alt.fn(); } catch (e) { console.error(e); } });
   document.body.append(t);
-  setTimeout(() => t.remove(), undo ? 5000 : 2600);
+  setTimeout(() => t.remove(), undo || alt ? 6000 : 2600);
 }
+// "Seen before": the movie was watched some other time, so it gets no watch date (keeps it out of October and the year).
+const seenBefore = (id) => ({ label: 'Seen before', fn: async () => { await setStatus(id, { seenOn: '' }); toast('Logged as seen before, with no watch date', 'clock'); refreshDetail(); } });
 // Put a movie back the way it was before a queue/seen tap.
 function undoTo(id, prev) {
   return async () => {
@@ -359,14 +363,16 @@ function card(m, opts) {
 function quickBar(m, name) {
   const st = status(m.id);
   const q = st?.status === 'queue', seen = st?.status === 'seen', rewatch = q && !!st?.wasSeen;
-  return `<button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
+  // Everything sits in a layer the exact size of the poster (positioned with plain percentages: Safari mis-sized the
+  // container-width units we used before for posters that start off-screen in a row, hiding the buttons).
+  return `<div class="qa-layer"><button class="qa-plus" data-act="qaopen" data-id="${m.id}" aria-label="Quick actions for ${esc(name)}" aria-expanded="false">${icon('plus')}</button>
     <div class="qa" role="group" aria-label="Quick actions for ${esc(name)}">
       <button class="qa-b" data-act="queue" data-id="${m.id}" data-qa="1" aria-pressed="${q}" title="${q ? 'Remove from queue' : 'Add to queue'}" aria-label="${q ? 'Remove from queue' : 'Add to queue'}">${icon('bookmark', q ? 'filled' : '')}</button>
       <button class="qa-b" data-act="seen" data-id="${m.id}" data-qa="1" aria-pressed="${seen || rewatch}" title="${rewatch ? 'Watched the rewatch? Log it' : seen ? 'Seen. Click to unmark' : 'Mark as seen'}" aria-label="${rewatch ? 'Log your rewatch' : seen ? 'Unmark as seen' : 'Mark as seen'}">${icon('eye')}</button>
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
       ${st && st.status !== 'nope' ? '' : `<button class="qa-b qa-nope" data-act="nope" data-id="${m.id}" data-qa="1" aria-pressed="${st?.status === 'nope'}" title="${st ? 'Hidden. Click to show it again' : 'Not interested'}" aria-label="${st ? 'Show this movie again' : 'Not interested'}">${icon('nope')}</button>`}
     </div>
-    <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div>`;
+    <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div></div>`;
 }
 
 let shelfN = 0;
@@ -645,7 +651,7 @@ views.tonight = () => {
     const t = today(); const mo = t.slice(5, 7), d = Number(t.slice(8, 10));
     if (!S.user || !(mo === '10' || (mo === '09' && d >= 20))) return '';
     const C = challengeStats(Number(t.slice(0, 4)));
-    return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
+    return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31 days${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
   ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '', '<a class="btn small ghost" href="#/browse" data-act="funbrowse">See all</a>') : ''}
@@ -1290,7 +1296,7 @@ function inboxHTML(kind, list, total = list?.length) {
   const fb = kind === 'feedback';
   if (list == null) return `<section class="panel stack inbox"><p class="muted">Couldn't load these. The database rules may still be publishing.</p></section>`;
   return `<section class="panel stack inbox"><p class="muted" style="margin:0">${fb ? 'From the Send feedback form in the account menu' : 'From the Contact link at the bottom of every page'}, newest first.${list.length !== total ? ` Showing ${list.length} of ${total}.` : ''}</p>
-    ${fb ? '' : '<p class="muted" style="font-size:.88rem">Contact messages aren\'t emailed to you yet (that needs the Blaze plan). Reply opens your email app.</p>'}
+    ${fb ? '' : `<p class="muted" style="font-size:.88rem">${S.config.emailOn ? 'These are also emailed to you.' : 'Turn on email notifications in Site settings to get these by email too.'} Reply opens your email app.</p>`}
     ${list.length ? list.map((x) => `<article class="inbox-item">
       <div class="inbox-head"><span class="tag">${esc(fb ? FB_KINDS[x.kind] || 'Other' : CONTACT_TOPICS[x.topic] || 'General')}</span>
         ${fb ? `<a class="linkish" href="#/u/${esc(x.uid || '')}">${esc(x.name || 'A user')}</a>` : `<b>${esc(x.name || '')}</b> <a href="mailto:${esc(x.email)}">${esc(x.email)}</a>`}
@@ -1351,7 +1357,7 @@ function computeBadges(seen) {
   const perDay = {};
   for (const x of seen) if (x.on) perDay[x.on] = (perDay[x.on] || 0) + 1;
   const marathon = Math.max(0, ...Object.values(perDay));
-  const oct = seen.filter((x) => x.on && x.on.slice(5, 7) === '10' && x.on.slice(0, 4) === today().slice(0, 4)).length;
+  const oct = new Set(seen.filter((x) => x.on && x.on.slice(5, 7) === '10' && x.on.slice(0, 4) === today().slice(0, 4)).map((x) => x.on)).size; // days, not movies
   const covered = new Set(seen.flatMap((x) => x.sg)).size;
   return [
     { ic: 'star', name: 'Horror Essentials', desc: `See all ${ESSENTIALS} of the most widely seen horror movies`, have: essSeen, need: ESSENTIALS, steps: [10, 25, 50, 100] },
@@ -1361,7 +1367,7 @@ function computeBadges(seen) {
     { ic: 'flame', name: 'Opening Night', desc: 'Watched a movie within 30 days of release', have: early, need: 1 },
     { ic: 'play', name: 'Marathoner', desc: 'Three movies logged on the same day', have: marathon, need: 3 },
     { ic: 'skull', name: 'Critic', desc: 'Rated 25 movies', have: rated, need: 25 },
-    { ic: 'trophy', name: '31 Days of Horror', desc: '31 movies watched this October', have: oct, need: 31, href: '#/challenge' },
+    { ic: 'trophy', name: '31 Days of Horror', desc: 'A horror movie on all 31 days of October', have: oct, need: 31, href: '#/challenge' },
   ];
 }
 // ---------- Year in review ----------
@@ -1737,7 +1743,9 @@ async function adminVsHTML() {
 function challengeStats(year) {
   const oct = seenList().filter((x) => x.on && x.on.startsWith(`${year}-10-`));
   const byDay = Array.from({ length: 31 }, (_, i) => oct.filter((x) => Number(x.on.slice(8, 10)) === i + 1));
-  return { year, oct, n: oct.length, days: byDay, daysFilled: byDay.filter((d) => d.length).length };
+  // The challenge counts days with a movie, so catching up on old favorites in one sitting fills one day, not thirty.
+  const d = byDay.filter((x) => x.length).length;
+  return { year, oct, n: d, movies: oct.length, days: byDay, daysFilled: d };
 }
 views.challenge = (arg) => {
   if (!S.user) return signInPrompt('Sign in to take the 31 Days of Horror challenge.');
@@ -1747,7 +1755,8 @@ views.challenge = (arg) => {
   const isNow = year === thisYear && t.slice(5, 7) === '10';
   const dayNow = isNow ? Number(t.slice(8, 10)) : year < thisYear || (year === thisYear && t.slice(5, 7) > '10') ? 31 : 0;
   const pace = dayNow ? C.n - dayNow : 0;
-  const statusTxt = C.n >= 31 ? `<b>Challenge complete.</b> ${C.n} movies in October ${year}.` : isNow ? `${31 - C.n} to go with ${31 - dayNow + 1} day${31 - dayNow + 1 === 1 ? '' : 's'} left. ${pace >= 0 ? `You're ${pace ? `${pace} ahead of` : 'right on'} pace.` : `${-pace} behind pace, so a double feature would catch you up.`}` : dayNow ? `October ${year} ended with ${C.n} of 31.` : `Starts October 1. Line up your 31 in your queue.`;
+  const statusTxt = (C.n >= 31 ? `<b>Challenge complete.</b> A horror movie on all 31 days of October ${year}.` : isNow ? `${31 - C.n} day${31 - C.n === 1 ? '' : 's'} to fill with ${31 - dayNow + 1} day${31 - dayNow + 1 === 1 ? '' : 's'} left. ${C.n >= dayNow ? 'You\'re right on pace.' : C.n + (31 - dayNow + 1) >= 31 ? 'Still doable: one a day from here.' : 'Too many days have passed to fill them all, but every movie still counts toward your year.'}` : dayNow ? `October ${year} ended with ${C.n} of 31 days.` : 'Starts October 1. Line up your 31 in your queue.')
+    + (C.movies ? ` <span class="faint">${C.movies} movie${C.movies === 1 ? '' : 's'} logged in October.</span>` : '');
   const years = [...new Set(seenList().filter((x) => x.on?.slice(5, 7) === '10').map((x) => Number(x.on.slice(0, 4))))].filter((y) => y !== thisYear).sort((a, b) => b - a);
   const first = new Date(year, 9, 1).getDay(); // calendar starts on Sunday
   const cells = [...Array(first).fill('<span class="cal-pad"></span>'), ...C.days.map((list, i) => {
@@ -1758,7 +1767,7 @@ views.challenge = (arg) => {
       <span class="cal-n">${d}</span>${list.length > 1 ? `<span class="cal-x">+${list.length - 1}</span>` : ''}
       ${list.length ? `<button class="cal-open" data-act="open" data-id="${list[0].id}" aria-label="${esc(list[0].t)}"></button>` : ''}</div>`;
   })];
-  return `<div class="page-head"><h1>31 Days of Horror</h1><p class="muted">One horror movie for every day of October. Every movie you mark as seen in October counts, on the day you watched it.</p>
+  return `<div class="page-head"><h1>31 Days of Horror</h1><p class="muted">One horror movie for every day of October. A day fills in when you log a movie watched that day. Movies you mark "Seen before" have no date and don't count.</p>
     ${years.length ? `<div class="tabs" role="tablist"><a role="tab" href="#/challenge/${thisYear}" aria-selected="${year === thisYear}">${thisYear}</a>${years.map((y) => `<a role="tab" href="#/challenge/${y}" aria-selected="${y === year}">${y}</a>`).join('')}</div>` : ''}</div>
   <div class="ch-top panel">
     <div class="bc-count"><b>${C.n}<small>/31</small></b><span>October ${year}</span></div>
@@ -2613,7 +2622,7 @@ const actions = {
     await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today() });
     const leaving = await willVanish(el.dataset.id);
     burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull');
-    toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev));
+    toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev), seenBefore(el.dataset.id));
     if (leaving) await sendOff(el.dataset.id, 'seen');
     await refreshAll();
     const sk = $('#detail').open && $('#detail .skulls'); if (sk && canFx()) sk.animate([{ opacity: 0, transform: 'translateY(8px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.34,1.4,.64,1)' });
@@ -2630,7 +2639,7 @@ const actions = {
     const leaving = !already && await willVanish(el.dataset.id);
     if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull'); }
     if (el.closest('.rate-sheet')) closeRateSheet();
-    if (el.closest('.qa-rate, .rate-sheet') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
+    if (el.closest('.qa-rate, .rate-sheet') || !already) toast(k ? `Rated ${fmtRating(k)} of 5${already ? '' : '. Body Count +1'}` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null), already ? null : seenBefore(el.dataset.id));
     if (leaving) await sendOff(el.dataset.id, 'seen');
     await refreshAll();
     if (canFx()) document.querySelectorAll('#detail .skulls .sk').forEach((b, i) => { if (i < Math.ceil(k)) b.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35) rotate(-8deg)' }, { transform: 'scale(1)' }], { duration: 380, delay: i * 55, easing: 'cubic-bezier(.34,1.4,.64,1)' }); });
