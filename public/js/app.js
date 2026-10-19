@@ -816,17 +816,53 @@ views.pick = () => {
 };
 
 // Queue
+// Sorting for both My Queue tabs (remembered per tab while you're on the site).
+const Q_SORTS = {
+  queue: [['added', 'Recently added'], ['oldest', 'Added longest ago'], ['foryou', 'Best match for you'], ['mine', 'On my services first'], ['rated', 'Highest rated'], ['short', 'Shortest first'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
+  seen: [['recent', 'Most recent'], ['rating', 'Your highest rated'], ['low', 'Your lowest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
+};
+S.qSort = { queue: 'added', seen: 'recent' }; S.qSg = '';
+function sortQueue(rows, tab, k) {
+  const t = (a, b) => a.m.t.localeCompare(b.m.t);
+  const score = (m) => m.imdb?.r ?? m.va ?? 0;
+  const by = {
+    added: (a, b) => b.st.at - a.st.at, oldest: (a, b) => a.st.at - b.st.at,
+    foryou: (a, b) => recScore(b.m) - recScore(a.m) || score(b.m) - score(a.m),
+    mine: (a, b) => onMine(b.m) - onMine(a.m) || b.st.at - a.st.at,
+    rated: (a, b) => score(b.m) - score(a.m) || t(a, b),
+    short: (a, b) => (a.m.rt || 999) - (b.m.rt || 999) || t(a, b),
+    recent: (a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at,
+    rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || t(a, b),
+    low: (a, b) => ((a.st.rating || 99) - (b.st.rating || 99)) || t(a, b),
+    title: t,
+    year: (a, b) => (b.m.date || String(b.m.y || '')).localeCompare(a.m.date || String(a.m.y || '')),
+    old: (a, b) => (a.m.date || String(a.m.y || '9999')).localeCompare(b.m.date || String(b.m.y || '9999')),
+  };
+  return rows.slice().sort(by[k] || by[Q_SORTS[tab][0][0]]);
+}
 views.queue = () => {
   if (!S.user) return signInPrompt('Sign in to keep a watch queue and track what you have seen.');
   const all = [...S.mine.entries()].map(([id, st]) => ({ m: S.byId.get(id), st, id })).filter((x) => x.m);
-  const q = all.filter((x) => x.st.status === 'queue').sort((a, b) => b.st.at - a.st.at);
-  const seen = all.filter((x) => x.st.status === 'seen').sort((a, b) => b.st.at - a.st.at);
+  const q = all.filter((x) => x.st.status === 'queue');
+  const seen = all.filter((x) => x.st.status === 'seen');
   const tab = S.qTab;
-  const rows = tab === 'queue' ? q : seen;
+  const base = tab === 'queue' ? q : seen;
+  const counts = {}; for (const x of base) for (const k of x.m.sg) counts[k] = (counts[k] || 0) + 1;
+  const sgs = S.data.subgenres.filter((x) => counts[x.key]);
+  if (S.qSg && !counts[S.qSg]) S.qSg = '';
+  const rows = sortQueue(base.filter((x) => !S.qSg || x.m.sg.includes(S.qSg)), tab, S.qSort[tab]);
+  const tools = base.length > 1 ? `<div class="row bc-tools">
+      <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
+      <select id="q-sort" aria-label="Sort" style="width:auto">${Q_SORTS[tab].map(([v, l]) => `<option value="${v}" ${S.qSort[tab] === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="q-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.qSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
+      ${S.qSg ? `<span class="faint">${rows.length} of ${base.length}</span>` : ''}
+    </div>` : `<div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>`;
+  const sub = (x) => (tab === 'seen' ? (x.st.rating ? `${fmtRating(x.st.rating)} skulls${x.st.seenOn ? ` · ${shortDate(x.st.seenOn)}` : ''}` : x.st.seenOn ? `Watched ${shortDate(x.st.seenOn)}` : undefined)
+    : S.qSort.queue === 'mine' && onMine(x.m) ? servicesText(x.m) : S.qSort.queue === 'short' && x.m.rt ? `${x.m.rt} min` : S.qSort.queue === 'foryou' ? recommend().by.get(String(x.m.id))?.why : undefined);
   return `<div class="page-head"><h1>My Queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
-  <div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>
+  ${tools}
   ${tab === 'seen' ? '<p class="muted">Badges, milestones and your full watch log live in the <a href="#/bodycount">Body Count</a>.</p>' : ''}
-  ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m)).join('')}</div>` : `<div class="empty">${icon(tab === 'queue' ? 'bookmark' : 'check')}<span>${tab === 'queue' ? 'Your queue is empty. Open any movie and press "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</span></div>`}`;
+  ${rows.length ? `<div class="grid">${rows.map((x) => card(x.m, { sub: sub(x) })).join('')}</div>` : `<div class="empty">${icon(tab === 'queue' ? 'bookmark' : 'check')}<span>${tab === 'queue' ? 'Your queue is empty. Open any movie and press "Add to queue".' : 'Nothing marked as seen yet. Open a movie and press "Seen it".'}</span></div>`}`;
 };
 
 // Movie nights
@@ -2692,7 +2728,7 @@ const actions = {
       if (Math.abs(window.scrollY - y) > 4) window.scrollTo({ top: Math.max(0, y), behavior: reduceMotion() ? 'auto' : 'smooth' });
     }
   },
-  qtab(el) { S.qTab = el.dataset.k; route(true); },
+  qtab(el) { S.qTab = el.dataset.k; S.qSg = ''; route(true); },
   async join(el) { await store.joinNight(el.dataset.id); toast('You joined the movie night', 'users'); },
   async vote(el) {
     const n = S.lastNight; if (!n) return;
@@ -3089,6 +3125,8 @@ document.addEventListener('change', async (e) => {
 let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'q-sort') { S.qSort[S.qTab] = el.value; route(true, true); return; }
+  if (el.id === 'q-sg') { S.qSg = el.value; route(true, true); return; }
   if (el.id === 'vsb-q') { S.vsb.q = el.value; const r = $('#vsb-hits'); if (r) r.innerHTML = vsbResults(); return; }
   if (el.dataset.vsb != null) { const e = S.vsb.entries[Number(el.dataset.vsb)]; if (e) e.l = el.value; return; }
   if (el.id === 'adm-q') { S.adm.q = el.value; renderAdminList(); return; }
