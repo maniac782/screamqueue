@@ -1738,3 +1738,8 @@ button.bkf-s:active { transform: scale(.97); }
 .bkl-champ.has { border-style: solid; border-color: #e9b949; }
 .bkf-pic .bk-tick { inset: 6px 6px auto auto; width: 24px; height: 24px; } .bkf-pic .bk-tick .ic { width: 15px; height: 15px; }
 .bkf-panel { display: grid; gap: 14px; } .bkf-panel[hidden] { display: none; }
+/* While a movie card (or any pop-up) is open, the page behind it stays put. It used to scroll under the blurred backdrop once
+   the card hit its end, which made the background flash. The scrollbar space is kept so nothing shifts sideways. */
+html { scrollbar-gutter: stable; }
+html:has(dialog[open]) { overflow: hidden; }
+dialog { overscroll-behavior: contain; }
