@@ -1981,13 +1981,15 @@ views.bodycount = () => {
       <p class="muted">${Math.round(mins / 60)} hours of horror. Average rating ${avg}. ${Object.keys(counts).length} of ${S.data.subgenres.length} subgenres explored.</p></div>
   </div>
   <div class="bc-bar">
+  <nav class="bc-links" aria-label="Body Count tools">
+    <a class="bc-link" href="#/year">${icon('star')}Your ${today().slice(0, 4)}</a><a class="bc-link" href="#/challenge">${icon('trophy')}31 Days</a><a class="bc-link" href="#/checklist">${icon('check')}Check off movies</a>${catchUpDays().length ? `<button class="bc-link" data-act="fixdates" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}
+  </nav>
     <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
   </div>
   ${tab === 'watched' ? `<div class="row bc-tools">
       <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges</button></div>
       <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
-      ${catchUpDays().length ? `<button class="btn ghost" data-act="fixdates" style="margin-left:auto" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}<a class="btn ghost" href="#/year"${catchUpDays().length ? '' : ' style="margin-left:auto"'}>${icon('star')}Your ${today().slice(0, 4)}</a><a class="btn ghost" href="#/challenge">${icon('trophy')}31 Days</a><a class="btn" href="#/checklist">${icon("check")}Check off movies</a>
     </div>
     <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges</button></div></div>${badgesSection(seen, counts)}`}`;
 };

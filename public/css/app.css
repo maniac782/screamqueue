@@ -1616,3 +1616,14 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
   .top .who { gap: 6px; }
   .top .m-vs, .top .m-friends, .top .acct-btn .avatar { width: 34px; height: 34px; }
 }
+/* Body Count shortcuts: one row of matching pills under the header (2 by 2 on phones), separate from the sort and filter controls */
+.bc-links { display: flex; flex-wrap: wrap; gap: 8px; }
+.bc-link { all: unset; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--raised); color: var(--fg); font-weight: 600; font-size: .88rem; white-space: nowrap; transition: background .2s, border-color .2s; }
+.bc-link:hover { background: var(--surface); border-color: var(--line-2); }
+.bc-link:focus-visible { outline: 2px solid var(--accent); }
+.bc-link .ic { width: 16px; height: 16px; color: var(--accent); }
+@media (max-width: 860px) {
+  .bc-links { display: grid; grid-template-columns: 1fr 1fr; }
+  .bc-links > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+}
