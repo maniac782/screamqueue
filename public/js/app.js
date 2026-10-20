@@ -763,6 +763,63 @@ views.shelf = (slug) => {
   <div class="grid">${sh.list.map((m) => card(m, sh.subOf ? { sub: sh.subOf(m) } : undefined)).join('')}</div>`;
 };
 
+// ---------- Body Count leaderboard ----------
+// Friends: you plus friends whose Body Count you're allowed to see. Everyone: people whose profile is public
+// (their card carries the number, see syncBodyCount).
+const num = (n) => Number(n || 0).toLocaleString('en-US');
+const bcCount = (mv) => { let n = 0; for (const st of mv.values()) if (st.status === 'seen' || st.wasSeen) n++; return n; };
+function syncBodyCount() {
+  if (!S.user || !S.social || S.social.missing || !store.setBodyCount) return;
+  const pub = S.social.privacy?.profile === 'public', n = bcCount(S.mine);
+  const key = pub ? n : -1;
+  if (S.bcSynced === key) return;
+  S.bcSynced = key;
+  store.setBodyCount(n, pub).catch(() => { S.bcSynced = null; });
+}
+function rankRows(rows) {
+  let rank = 0, last = null;
+  return rows.map((r, i) => {
+    if (r.n !== last) { rank = i + 1; last = r.n; }
+    const me = r.uid === S.user?.uid;
+    return `<a class="rk-row${me ? ' me' : ''}${rank <= 3 ? ` top t${rank}` : ''}" href="#/u/${esc(r.handle || r.uid)}">
+      <span class="rk-n">${rank}</span>${av(r.name, '', r.uid)}
+      <span class="rk-name"><b>${esc(r.name || 'Someone')}${me ? ' <span class="you-tag">You</span>' : ''}</b><small>${r.handle ? '@' + esc(r.handle) : ''}</small></span>
+      <span class="rk-bc"><b>${num(r.n)}</b><small>survived</small></span></a>`;
+  }).join('');
+}
+views.ranks = async (tab) => {
+  if (!S.user) return signInPrompt('Sign in to see the Body Count leaderboard.');
+  tab = tab === 'everyone' ? 'everyone' : 'friends';
+  const mine = bcCount(S.mine), pub = S.social?.privacy?.profile === 'public';
+  const tabs = `<div class="tabs" role="tablist">${[['friends', 'Friends'], ['everyone', 'Everyone']].map(([k, l]) => `<a role="tab" href="#/ranks/${k}" aria-selected="${tab === k}">${l}</a>`).join('')}</div>`;
+  const head = `<div class="page-head"><h1>Highest Body Count</h1><p class="muted">Who has survived the most horror movies.</p>${tabs}</div>`;
+  const meRow = { uid: S.user.uid, name: S.profile.name || S.social?.name, handle: S.social?.handle, n: mine };
+  if (tab === 'friends') {
+    if (!S.friends?.length) return `${head}<div class="empty">${icon('users')}<span>Add friends to compare Body Counts. <a href="#/friends">Find people</a></span></div>`;
+    if (!S.friendMovies) { await loadFriendMovies(); }
+    const rows = [meRow];
+    const hidden = [];
+    for (const f of S.friends) {
+      const got = S.friendMovies?.get(f.uid);
+      if (got) rows.push({ uid: f.uid, name: f.name, handle: f.handle, n: bcCount(got.mv) }); else hidden.push(f);
+    }
+    rows.sort((a, b) => b.n - a.n || String(a.name).localeCompare(String(b.name)));
+    return `${head}<div class="rk-list">${rankRows(rows)}</div>
+      ${hidden.length ? `<p class="faint" style="font-size:.88rem">${hidden.length === 1 ? `${esc(hidden[0].name || 'One friend')} keeps their Body Count private.` : `${hidden.length} friends keep their Body Count private.`}</p>` : ''}`;
+  }
+  const top = (await store.topBodyCounts?.(50).catch(() => [])) || [];
+  const rows = top.map((p) => ({ uid: p.uid, name: p.name, handle: p.handle, n: p.bc }));
+  const inTop = rows.some((r) => r.uid === S.user.uid);
+  let you = '';
+  if (!pub) you = `<p class="muted rk-note">${icon('eye')}<span>You're not on this list because your profile isn't public. <a href="#/profile">Change it in Profile</a> to join.</span></p>`;
+  else if (!inTop && mine > 0) {
+    const r = await store.bodyCountRank?.(mine).catch(() => null);
+    you = `<p class="muted rk-note">${icon('podium')}<span>You're ${r ? `#${num(r)}` : 'not in the top 50'} with ${num(mine)}.</span></p>`;
+  }
+  return `${head}${rows.length ? `<div class="rk-list">${rankRows(rows)}</div>` : `<div class="empty">${icon('podium')}<span>No public Body Counts yet.</span></div>`}${you}
+    <p class="faint" style="font-size:.85rem">Only people whose profile is public appear here. The top 50 are shown.</p>`;
+};
+
 // Browse
 function filtered() {
   const f = S.f; const q = f.q.trim().toLowerCase();
@@ -1275,7 +1332,7 @@ views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1>
   </div>`;
 const aboutView = views.about;
 views.about = () => { S.after = S.afterAbout; return aboutView(); };
-views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="muted">Last updated October 19, 2026</p></div>
+views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="muted">Last updated October 20, 2026</p></div>
   <div class="panel stack prose policy" style="max-width:760px;gap:18px">
     <p>${esc(SITE_NAME)} is a free hobby site for finding horror movies to watch and keeping track of what you've seen. It's run by one person, not a company. This page explains what it keeps about you and why.</p>
     <h2>What the site keeps</h2>
@@ -1301,6 +1358,7 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
     <h2>Who can see it</h2>
     <ul>
       <li>Your Body Count, ratings and queue are visible to the people you choose in Profile: anyone signed in, friends only, or just you.</li>
+      <li>If your profile is visible to anyone signed in, your name, username and Body Count number appear on the Everyone leaderboard. Friends see your number on their Friends leaderboard unless your profile is set to just you.</li>
       <li>Your reviews are visible to everyone or friends only, as you choose in Profile.</li>
       <li>Other users never see your email address.</li>
       <li>The site's owner can see stored data through the Firebase console, and only looks when fixing problems or handling a request from you.</li>
@@ -2005,7 +2063,7 @@ views.bodycount = () => {
   </div>
   <div class="bc-bar">
   <nav class="bc-links" aria-label="Body Count tools">
-    <a class="bc-link" href="#/year">${icon('star')}Your ${today().slice(0, 4)}</a><a class="bc-link" href="#/challenge">${icon('trophy')}31 Days</a><a class="bc-link" href="#/checklist">${icon('check')}Check off movies</a>${catchUpDays().length ? `<button class="bc-link" data-act="fixdates" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}
+    <a class="bc-link" href="#/year">${icon('star')}Your ${today().slice(0, 4)}</a><a class="bc-link" href="#/challenge">${icon('trophy')}31 Days</a><a class="bc-link" href="#/ranks">${icon('podium')}Leaderboard</a><a class="bc-link" href="#/checklist">${icon('check')}Check off movies</a>${catchUpDays().length ? `<button class="bc-link" data-act="fixdates" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}
   </nav>
     <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
   </div>
@@ -2364,7 +2422,7 @@ views.friends = async () => {
     const what = x.k === 'skull' ? `gave a ${icon('skull')} to` : 'said "Same" to';
     return `<div class="feed-item">${av(x.name, '', x.from)}<div class="feed-body"><span><a href="#/u/${esc(x.handle || x.from)}" class="linkish">${esc(x.name || 'Someone')}</a> ${what} your ${x.kind === 'r' ? 'review of' : 'pick,'} <b>${esc(t)}</b></span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
-  return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p></div>
+  return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p><a class="btn small" href="#/ranks" style="justify-self:start">${icon('podium')}Body Count leaderboard</a></div>
   <div class="friends-grid">
     <div class="stack" style="gap:24px">
       ${incoming.length ? `<section class="panel stack" style="gap:12px"><h2>Friend requests <span class="pill-n">${incoming.length}</span></h2>
@@ -3668,7 +3726,7 @@ const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
-  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/' && here === '#/shelf') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
+  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/' && here === '#/shelf') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies' || here === '#/ranks')) ? 'aria-current="page"' : '');
   const nReqs = S.requests?.incoming.length || 0;
   $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}${h === '#/friends' && nReqs ? `<b class="nav-n">${nReqs}</b>` : ''}</a>`).join('');
   $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie Nights', 'Nights').replace('My Queue', 'Queue').replace('Pick for Me', 'Pick')}</span></a>`).join('');
@@ -3734,6 +3792,7 @@ async function route(keepScroll, quiet) {
     $('#main').classList.toggle('quiet', !!quiet);
     if (quiet) setHTML($('#main'), html, ['results', 'bc-results']); else $('#main').innerHTML = html;
     after?.();
+    syncBodyCount();
     if (!quiet && rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
@@ -3743,7 +3802,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight', ranks: 'Leaderboard' }[name] || '') : ''}`;
 }
 
 async function boot() {

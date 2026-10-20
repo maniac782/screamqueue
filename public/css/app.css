@@ -1662,3 +1662,26 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 }
 @media (min-width: 861px) { .toolbar { grid-template-columns: minmax(0, 2fr) repeat(4, minmax(0, 1fr)); } }
 .page-head > .back-link { justify-self: start; width: fit-content; }
+/* Body Count leaderboard */
+.page-head > .tabs { justify-self: start; margin-top: 6px; }
+.tabs a { padding: 7px 16px; border-radius: 999px; font-weight: 600; font-size: .9rem; color: var(--muted); text-decoration: none; transition: background .2s, color .2s; }
+.tabs a[aria-selected="true"] { color: var(--fg); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-2); }
+.rk-list { display: grid; gap: 8px; max-width: 720px; }
+.rk-row { display: grid; grid-template-columns: 36px auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--raised); color: var(--fg); text-decoration: none; transition: border-color .2s, background .2s; }
+.rk-row:hover { border-color: var(--line-2); background: var(--surface); }
+.rk-row.me { border-color: var(--accent); background: var(--accent-soft); }
+.rk-n { font-family: var(--font-display); font-weight: 800; font-size: 1.15rem; text-align: center; color: var(--muted); }
+.rk-row.top .rk-n { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 1rem; }
+.rk-row.t1 .rk-n { background: linear-gradient(140deg, #f3c34b, #c98a12); color: #2a1a00; }
+.rk-row.t2 .rk-n { background: linear-gradient(140deg, #d9dde3, #9aa1ab); color: #1b1d22; }
+.rk-row.t3 .rk-n { background: linear-gradient(140deg, #e09a62, #a85d2a); }
+.rk-name { display: grid; min-width: 0; }
+.rk-name b, .rk-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-name small { color: var(--faint); font-size: .8rem; }
+.rk-bc { display: grid; justify-items: end; line-height: 1.1; }
+.rk-bc b { font-family: var(--font-display); font-weight: 800; font-size: 1.3rem; }
+.rk-bc small { color: var(--faint); font-size: .72rem; }
+.you-tag { font-size: .65rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 999px; background: var(--accent); color: #fff; margin-left: 4px; vertical-align: 2px; }
+.rk-note { display: flex; align-items: center; gap: 8px; max-width: 720px; }
+.rk-note .ic { width: 18px; height: 18px; flex: none; }
+@media (max-width: 520px) { .rk-row { gap: 10px; padding: 9px 12px; grid-template-columns: 30px auto minmax(0, 1fr) auto; } }

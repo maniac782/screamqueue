@@ -195,7 +195,9 @@ export const store = {
       if (prev.handle) batch.delete(F.doc(db, 'usernames', prev.handle));
     }
     const nm = name || current?.name || '';
-    batch.set(F.doc(db, 'profiles', uid()), { name: nm, nameLower: nm.toLowerCase(), handle: h || prev.handle || '', privacy: { ...prev.privacy, ...(privacy || {}) }, at: Date.now() }, { merge: true });
+    const pv = { ...prev.privacy, ...(privacy || {}) };
+    // Only public profiles carry their Body Count number on the card (for the Everyone leaderboard).
+    batch.set(F.doc(db, 'profiles', uid()), { name: nm, nameLower: nm.toLowerCase(), handle: h || prev.handle || '', privacy: pv, at: Date.now(), ...(pv.profile === 'public' ? {} : { bc: F.deleteField() }) }, { merge: true });
     await batch.commit();
     if (privacy?.reviews && privacy.reviews !== prev.privacy.reviews) {
       // keep existing reviews in step with the new setting
@@ -216,6 +218,13 @@ export const store = {
     const snap = await F.getDocs(F.query(F.collection(db, 'profiles'), F.where('privacy.profile', '==', 'public'), F.limit(100)));
     return snap.docs.map((d) => ({ uid: d.id, ...d.data() })).sort((a, b) => (b.at || 0) - (a.at || 0));
   },
+  // Leaderboard. profiles/{uid}.bc = how many horror movies they've seen, kept only while their profile is public.
+  async setBodyCount(n, show) { await F.updateDoc(F.doc(db, 'profiles', uid()), { bc: show ? n : F.deleteField() }); },
+  async topBodyCounts(n = 50) {
+    const snap = await F.getDocs(F.query(F.collection(db, 'profiles'), F.orderBy('bc', 'desc'), F.limit(n)));
+    return snap.docs.map((d) => ({ uid: d.id, ...d.data() })).filter((p) => p.privacy?.profile === 'public' && p.bc > 0);
+  },
+  async bodyCountRank(n) { return 1 + (await F.getCountFromServer(F.query(F.collection(db, 'profiles'), F.where('bc', '>', n)))).data().count; },
   async getProfileCard(idOrHandle) {
     let id = idOrHandle;
     if (!/^[A-Za-z0-9]{20,}$/.test(id)) { const u = await F.getDoc(F.doc(db, 'usernames', String(id).toLowerCase())); if (!u.exists()) return null; id = u.data().uid; }

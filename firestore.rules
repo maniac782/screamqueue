@@ -73,7 +73,8 @@ service cloud.firestore {
     match /profiles/{uid} {
       allow read: if signedIn();
       allow write: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'handle', 'privacy', 'at', 'av', 'photo'])
+        && request.resource.data.keys().hasOnly(['name', 'nameLower', 'handle', 'privacy', 'at', 'av', 'photo', 'bc'])
+        && (!('bc' in request.resource.data) || (request.resource.data.bc is int && request.resource.data.bc >= 0 && request.resource.data.bc <= 20000 && request.resource.data.privacy.profile == 'public'))
         && (!('photo' in request.resource.data) || (request.resource.data.photo is string && request.resource.data.photo.size() < 90000))
         && request.resource.data.privacy.profile in ['public', 'friends', 'private']
         && request.resource.data.privacy.reviews in ['public', 'friends']
