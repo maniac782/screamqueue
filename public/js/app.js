@@ -84,7 +84,7 @@ function links(m) {
       ['JustWatch', `https://www.justwatch.com/us/search?q=${encodeURIComponent(m.t)}`],
     ];
   }
-  const out = [['Letterboxd', `https://letterboxd.com/tmdb/${m.id}/`]];
+  const out = [['Letterboxd reviews', `https://letterboxd.com/tmdb/${m.id}/`]];
   if (m.imdb?.id) out.push(['IMDb', `https://www.imdb.com/title/${m.imdb.id}/`]);
   out.push(['TMDB', `https://www.themoviedb.org/movie/${m.id}`]);
   if (m.wl) out.push(['All streaming options', m.wl]);
@@ -325,13 +325,17 @@ function seriesHTML(m) {
   return html;
 }
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
+// Each score opens that site's page for the movie (reviews where the site has them; a search when we don't have its ID).
 function scoreRow(m) {
   const parts = [];
   const t = tom(m);
-  if (t != null) parts.push(`<div class="score"><span class="ico">${t >= 60 ? TOMATO : SPLAT}</span><span><b>${t}%</b><small>Critics on Rotten Tomatoes</small></span></div>`);
-  if (m.imdb?.r) parts.push(`<div class="score"><span class="ico imdb">${icon('star')}</span><span><b>${m.imdb.r}<i>/10</i></b><small>IMDb${m.imdb.v ? `, ${fmt(m.imdb.v)} ratings` : ''}</small></span></div>`);
-  if (m.imdb?.mc != null) parts.push(`<div class="score"><span class="ico mc ${m.imdb.mc >= 61 ? 'hi' : m.imdb.mc >= 40 ? 'mid' : 'lo'}">${m.imdb.mc}</span><span><b>${m.imdb.mc}<i>/100</i></b><small>Metacritic</small></span></div>`);
-  if (!parts.length && m.va) parts.push(`<div class="score"><span class="ico imdb">${icon('star')}</span><span><b>${m.va.toFixed(1)}<i>/10</i></b><small>TMDB users</small></span></div>`);
+  const q = encodeURIComponent(m.t), qy = encodeURIComponent(`${m.t} ${m.y || ''}`.trim());
+  const imdbUrl = m.imdb?.id ? `https://www.imdb.com/title/${m.imdb.id}/reviews/` : `https://www.imdb.com/find/?q=${qy}`;
+  const tile = (href, label, inner) => `<a class="score" href="${esc(href)}" target="_blank" rel="noopener" title="${esc(label)}">${inner}${icon('right', 'go')}</a>`;
+  if (t != null) parts.push(tile(`https://www.rottentomatoes.com/search?search=${q}`, 'See reviews on Rotten Tomatoes', `<span class="ico">${t >= 60 ? TOMATO : SPLAT}</span><span><b>${t}%</b><small>Critics on Rotten Tomatoes</small></span>`));
+  if (m.imdb?.r) parts.push(tile(imdbUrl, 'Read reviews on IMDb', `<span class="ico imdb">${icon('star')}</span><span><b>${m.imdb.r}<i>/10</i></b><small>IMDb${m.imdb.v ? `, ${fmt(m.imdb.v)} ratings` : ''}</small></span>`));
+  if (m.imdb?.mc != null) parts.push(tile(`https://www.metacritic.com/search/${q}/?category=2`, 'See reviews on Metacritic', `<span class="ico mc ${m.imdb.mc >= 61 ? 'hi' : m.imdb.mc >= 40 ? 'mid' : 'lo'}">${m.imdb.mc}</span><span><b>${m.imdb.mc}<i>/100</i></b><small>Metacritic</small></span>`));
+  if (!parts.length && m.va) parts.push(tile(`https://www.themoviedb.org/movie/${m.id}/reviews`, 'Read reviews on TMDB', `<span class="ico imdb">${icon('star')}</span><span><b>${m.va.toFixed(1)}<i>/10</i></b><small>TMDB users</small></span>`));
   return parts.length ? `<div class="scores">${parts.join('')}</div>` : '';
 }
 

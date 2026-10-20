@@ -1685,3 +1685,8 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 .rk-note { display: flex; align-items: center; gap: 8px; max-width: 720px; }
 .rk-note .ic { width: 18px; height: 18px; flex: none; }
 @media (max-width: 520px) { .rk-row { gap: 10px; padding: 9px 12px; grid-template-columns: 30px auto minmax(0, 1fr) auto; } }
+/* Scores link to the site they come from */
+a.score { color: var(--fg); text-decoration: none; transition: border-color .2s, background .2s, transform .15s var(--spring); }
+a.score:hover { border-color: var(--line-2); background: var(--raised); }
+a.score:active { transform: scale(.98); }
+a.score .go { width: 16px; height: 16px; color: var(--faint); margin-left: 2px; }
