@@ -2370,7 +2370,7 @@ views.u = async (key) => {
   // Posters here show their ratings, not your own queue/seen marks (which would look like theirs).
   // On someone else's profile, posters you've seen too get a "You" tag with your own rating.
   const youOf = (id) => { if (isMe) return null; const st = status(id); return st && (st.status === 'seen' || st.wasSeen) ? { rating: st.rating || 0 } : null; };
-  const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, you: youOf(x.id), sub: x.st.rating ? `${isMe ? '' : 'Their rating: '}${fmtRating(x.st.rating)} skulls` : 'Survived' }) : '';
+  const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, you: youOf(x.id), sub: x.st.rating ? `${isMe ? '' : 'Their rating: '}${fmtRating(x.st.rating)} skulls` : undefined }) : ''; // unrated: the usual subgenre line
   const uf = isMe ? 'all' : (S.uFilter || 'all');
   const seenShown = uf === 'both' ? seen.filter((x) => youOf(x.id)) : uf === 'them' ? seen.filter((x) => !youOf(x.id)) : seen;
   const filterBar = !isMe && seen.length ? `<div class="tabs u-filter" role="tablist">${[['all', `All (${seen.length})`], ['both', `You've both seen (${both.length})`], ['them', `Only them (${seen.length - both.length})`]].map(([k, l]) => `<button role="tab" data-act="ufilter" data-k="${k}" aria-selected="${uf === k}">${l}</button>`).join('')}</div>` : '';
