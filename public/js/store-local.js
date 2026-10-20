@@ -50,6 +50,11 @@ function vsAll() {
   }
   return m;
 }
+function demoLists() {
+  const m = load();
+  if (!m.lists) { m.lists = { lpal1: { id: 'lpal1', owner: 'pal1', name: 'Sample friend A', handle: 'finalgirl', title: 'Gateway horror for newbies', desc: 'Scary but not too much. Start here.', items: [4232, 948, 346364, 138843, 1008042], vis: 'public', at: Date.now() - 864e5 * 4, upd: Date.now() - 864e5 } }; save(); }
+  return m.lists;
+}
 const fakeTally = (id, mk) => { let h = 0; for (const c of id + mk) h = (h * 31 + c.charCodeAt(0)) >>> 0; return { a: 20 + (h % 60), b: 20 + ((h >> 8) % 60) }; };
 const DEMO_PEOPLE = {
   pal1: { name: 'Sample friend A', handle: 'finalgirl', av: 'pd:orlok', privacy: { profile: 'friends', reviews: 'public' }, movies: {
@@ -134,6 +139,21 @@ export const store = {
   async getProfileCard(id) { const e = Object.entries(DEMO_PEOPLE).find(([uid, p]) => uid === id || p.handle === id); if (e) return { uid: e[0], ...e[1] }; if (id === 'demo' || id === social().handle) return { uid: 'demo', name: load().profile.name, handle: social().handle, privacy: social().privacy, av: social().av, photo: social().photo }; return null; },
   async friendState(o) { const so = social(); return so.friends.includes(o) ? 'friends' : so.incoming.includes(o) ? 'incoming' : so.outgoing.includes(o) ? 'outgoing' : 'none'; },
   async sendRequest(o) { const so = social(); if (!so.outgoing.includes(o)) so.outgoing.push(o); save(); },
+  async listRx(keys) { const all = (load().rx ||= {}); return new Map(keys.map((k) => [k, Object.entries(all[k] || (k.includes('pal1') ? { pal2: { k: 'skull' } } : {})).map(([uid, v]) => ({ uid, ...v }))])); },
+  async setRx(key, k) { ((load().rx ||= {})[key] ||= {}).demo = { k, at: Date.now() }; save(); },
+  async delRx(key) { delete (load().rx ||= {})[key]?.demo; save(); },
+  async listRxIn() { return [{ id: 'x1', from: 'pal1', name: 'Sample friend A', handle: 'finalgirl', k: 'skull', movie: 493922, kind: 'a', at: Date.now() - 3600e3 }, { id: 'x2', from: 'pal2', name: 'Sample friend B', handle: 'ghostface_fan', k: 'same', movie: 4232, kind: 'r', at: Date.now() - 86400e3 }]; },
+  async getWarnings(id) { const all = (load().cw ||= {}); const mine = all[id] ? [{ uid: 'demo', v: all[id] }] : []; return [...mine, { uid: 'pal1', v: { dog: -1, jump: 1, gore: 1 } }, { uid: 'pal2', v: { dog: -1, jump: 1 } }]; },
+  async setWarning(id, key, val) { const all = (load().cw ||= {}); const v = (all[id] ||= {}); if (val) v[key] = val; else delete v[key]; save(); },
+  async myLists() { return Object.values(load().lists || {}).filter((l) => l.owner === 'demo').map((x) => structuredClone(x)); },
+  async publicLists() { demoLists(); return Object.values(load().lists).filter((l) => l.vis === 'public').map((x) => structuredClone(x)); },
+  async listsOf(o) { demoLists(); return Object.values(load().lists).filter((l) => l.owner === o && l.vis !== 'private').map((x) => structuredClone(x)); },
+  async getList(id) { demoLists(); const l = load().lists[id]; return l ? structuredClone(l) : null; },
+  async createList(data) { demoLists(); const id = 'l' + Date.now(); load().lists[id] = { id, ...data, owner: 'demo', at: Date.now(), upd: Date.now() }; save(); return id; },
+  async updateList(id, patch) { Object.assign(load().lists[id], patch, { upd: Date.now() }); save(); },
+  async deleteList(id) { delete load().lists[id]; save(); },
+  async fanCount(id) { return id === 'lpal1' ? 3 : (load().profile.follows || []).includes(id) ? 1 : 0; },
+  async followList(id, on, follows) { load().profile.follows = follows; save(); },
   async listRequests() { const so = social(); const card = (u) => ({ uid: u, name: DEMO_PEOPLE[u]?.name, handle: DEMO_PEOPLE[u]?.handle }); return { incoming: so.incoming.map(card), outgoing: so.outgoing.map(card) }; },
   async acceptRequest(f) { const so = social(); so.incoming = so.incoming.filter((x) => x !== f); if (!so.friends.includes(f)) so.friends.push(f); save(); },
   async declineRequest(f) { const so = social(); so.incoming = so.incoming.filter((x) => x !== f); save(); },

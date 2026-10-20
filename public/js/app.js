@@ -202,6 +202,34 @@ function killHTML(m, k) {
       <div class="row" style="gap:8px">${m.kc ? `<button class="btn small" data-act="killvid" data-id="${m.id}">${icon('play')}Watch the Kill Count</button>` : `<a class="btn small" href="${esc(killCountUrl(m))}" target="_blank" rel="noopener">${icon('search')}Find a Kill Count video</a>`}${admin}</div>
     </div></div>`;
 }
+// ---------- Content warnings ("Does the dog die?") ----------
+// Fans answer yes or no; the majority shows. Hidden until you ask, since the answers can be spoilers.
+const CW = [
+  ['dog', 'Does a dog die?'], ['cat', 'Does a cat die?'], ['animal', 'Are other animals hurt?'], ['kid', 'Does a child die?'],
+  ['jump', 'Lots of jump scares?'], ['gore', 'Very graphic gore?'], ['sa', 'Sexual assault?'], ['suicide', 'Suicide or self-harm?'],
+  ['spider', 'Spiders?'], ['needle', 'Needles or injections?'], ['trapped', 'Buried alive or trapped in tight spaces?'], ['drown', 'Drowning?'],
+];
+const cwCache = new Map();
+function cwHTML(m) {
+  const votes = cwCache.get(String(m.id));
+  if (!S.cwOpen?.has(String(m.id))) {
+    const n = votes ? CW.filter(([k]) => votes.some((x) => x.v[k])).length : 0;
+    return `<div class="cw-head"><div><h3>Content warnings</h3><p class="muted" style="margin:0;font-size:.88rem">Does the dog die? Jump scares? Answers from fans${n ? ` on ${n} topic${n === 1 ? '' : 's'}` : ''}. May contain spoilers.</p></div><button class="btn small" data-act="cwshow" data-id="${m.id}">${icon('eye')}Show</button></div>`;
+  }
+  if (!votes) return '<p class="muted">Loading…</p>';
+  const mine = votes.find((x) => x.uid === S.user?.uid)?.v || {};
+  const rows = CW.map(([k, q]) => {
+    const yes = votes.filter((x) => x.v[k] === 1).length, no = votes.filter((x) => x.v[k] === -1).length;
+    const ans = yes > no ? `<span class="cw-a yes">Yes <small>${yes} of ${yes + no}</small></span>` : no > yes ? `<span class="cw-a no">No <small>${no} of ${yes + no}</small></span>` : yes ? `<span class="cw-a mixed">Mixed <small>${yes} yes, ${no} no</small></span>` : '<span class="cw-a none">No answers yet</span>';
+    const vote = S.user ? `<span class="cw-vote"><button class="cw-v${mine[k] === 1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="1" aria-pressed="${mine[k] === 1}">Yes</button><button class="cw-v${mine[k] === -1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="-1" aria-pressed="${mine[k] === -1}">No</button></span>` : '';
+    return `<div class="cw-row"><span class="cw-q">${esc(q)}</span>${ans}${vote}</div>`;
+  }).join('');
+  return `<div class="cw-head"><div><h3>Content warnings</h3><p class="muted" style="margin:0;font-size:.88rem">${S.user ? 'Seen it? Tap Yes or No to help others.' : 'Sign in to add your answers.'}</p></div><button class="btn small ghost" data-act="cwhide" data-id="${m.id}">Hide</button></div><div class="cw-list">${rows}</div>`;
+}
+function cwBlock(m) {
+  if (!cwCache.has(String(m.id)) && store.getWarnings) store.getWarnings(m.id).then((x) => { cwCache.set(String(m.id), x); const el = document.querySelector(`#detail[data-id="${m.id}"] .cw-wrap`); if (el) el.innerHTML = cwHTML(m); }).catch(() => cwCache.set(String(m.id), []));
+  return `<div class="cw-wrap">${cwHTML(m)}</div>`;
+}
 function killBlock(m) {
   const k = killCache.get(String(m.id));
   if (!k && store.getKills) store.getKills(m.id).then((x) => { killCache.set(String(m.id), x); const el = document.querySelector(`#detail[data-id="${m.id}"] .kill-wrap`); if (el) el.innerHTML = killHTML(m, x); }).catch(() => {});
@@ -1189,6 +1217,8 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>Your public card.</b> Your display name, username, profile picture (an icon you pick or a photo you upload) and privacy settings. Any signed-in user can see your card, for example in a search or on the Friends page.</li>
       <li><b>Friends.</b> Friend requests you send or receive, and your friends list.</li>
       <li><b>Reviews and kill counts.</b> Reviews you write (with your name, username and rating) and the kill counts you submit.</li>
+      <li><b>Lists.</b> Lists you make (name, description, movies, who can see them) with your name and username, and the lists you follow.</li>
+      <li><b>Reactions and content warnings.</b> Skull and "Same" reactions you give (with your account ID; the person you reacted to sees your name), and your yes/no answers on content warnings (shown only as totals).</li>
       <li><b>VS votes.</b> Your pick in each VS matchup, with your account ID, so each account votes once. Only the totals are shown.</li>
       <li><b>Letterboxd imports.</b> Your Letterboxd export is read in your browser and never uploaded. Only the horror movies that match ones on the site are saved, as part of your movies.</li>
       <li><b>Email settings.</b> Which emails you want (friend requests, queue movies arriving on streaming). Emails go to the address you sign in with.</li>
@@ -1214,7 +1244,7 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>Google Fonts</b> supplies the site's fonts.</li>
     </ul>
     <h2>Removing your data</h2>
-    <p>You can take any movie off your lists, delete your reviews, remove friends, and set your profile to private at any time. To delete your account and everything stored with it, go to <a href="#/profile">Profile</a> and press <b>Delete account</b>. It happens right away: your movies, ratings, reviews, kill counts, friends, profile card and sign-in are removed, movie nights you started are deleted and you leave the ones you joined. Feedback you've sent stays with the site's owner, and VS votes stay in the totals without your name. If you can't sign in anymore, use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> and choose "Privacy or my data", and it will be done within 30 days.</p>
+    <p>You can take any movie off your lists, delete your reviews, remove friends, and set your profile to private at any time. To delete your account and everything stored with it, go to <a href="#/profile">Profile</a> and press <b>Delete account</b>. It happens right away: your movies, ratings, reviews, kill counts, friends, profile card and sign-in are removed, movie nights you started are deleted and you leave the ones you joined. Feedback you've sent stays with the site's owner, and VS votes and reactions you gave stay in the totals without your name. If you can't sign in anymore, use <a href="#/contact" data-act="contact" data-k="privacy">Contact</a> and choose "Privacy or my data", and it will be done within 30 days.</p>
     <h2>Changes</h2>
     <p>If this policy changes, the date at the top will change too.</p>
     <h2>Questions</h2>
@@ -1374,6 +1404,36 @@ function seenList() {
       date: m?.date || st.date || null, on: st.seenOn || '',
     };
   });
+}
+// Days you logged a pile of movies at once: almost always catching up on old favorites, not watching them that day.
+const CATCHUP_MIN = 4;
+function catchUpDays() {
+  const by = new Map();
+  for (const x of seenList()) if (x.on) { if (!by.has(x.on)) by.set(x.on, []); by.get(x.on).push(x); }
+  return [...by].filter(([, l]) => l.length >= CATCHUP_MIN).sort((a, b) => b[1].length - a[1].length);
+}
+function openFixDates() {
+  const days = catchUpDays();
+  if (!days.length) { toast('No catch-up days to fix', 'check'); return; }
+  openForm(`<form class="stack fb-form" data-form="fixdates" novalidate>
+    ${formHead('Fix watch dates', 'Marking a movie seen dates it today. On these days you logged a lot at once, which usually means catching up on movies you\'d seen before. Clear their dates and they stop counting toward 31 Days of Horror and your Year in Horror (they stay in your Body Count).')}
+    <div class="fix-days">${days.map(([d, l]) => `<label class="fix-day"><input type="checkbox" name="d" value="${d}" checked><span><b>${esc(shortDate(d))}</b> · ${l.length} movies<small>${esc(l.slice(0, 5).map((x) => x.t).join(', '))}${l.length > 5 ? ', …' : ''}</small></span></label>`).join('')}</div>
+    <p class="error" hidden></p>
+    <div class="fb-foot"><span class="fine">Movies you really watched on one of these days? Untick that day, or set the date again from the movie's details.</span><div class="row" style="gap:8px"><button type="button" class="btn ghost" data-act="closeform">Cancel</button><button class="btn primary" type="submit">Mark as seen before</button></div></div>
+  </form>`);
+}
+async function submitFixDates(f) {
+  const picked = new Set([...f.querySelectorAll('[name=d]:checked')].map((x) => x.value));
+  const btn = f.querySelector('[type=submit]');
+  if (!picked.size) { $('#formdlg').close(); return; }
+  const list = seenList().filter((x) => picked.has(x.on));
+  btn.disabled = true; btn.textContent = `Saving ${list.length}…`;
+  try {
+    const entries = list.map((x) => { const { at, ...rest } = x.st; return [x.id, { ...rest, seenOn: '' }]; });
+    await store.importMovies(entries);
+    for (const [id, d] of entries) S.mine.set(String(id), { ...d, at: Date.now() });
+    $('#formdlg').close(); toast(`${list.length} movies marked as seen before`, 'check'); route(true, true);
+  } catch (e) { console.warn(e); btn.disabled = false; btn.textContent = 'Mark as seen before'; f.querySelector('.error').textContent = 'That didn\'t save. Try again.'; f.querySelector('.error').hidden = false; }
 }
 function essentialsList() {
   return S.data.movies.filter((m) => m.tier !== 'fresh').slice().sort((a, b) => b.reach - a.reach || (b.n?.votes || 0) - (a.n?.votes || 0)).slice(0, ESSENTIALS);
@@ -1880,7 +1940,7 @@ views.bodycount = () => {
       <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges</button></div>
       <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
-      <a class="btn ghost" href="#/year" style="margin-left:auto">${icon('star')}Your ${today().slice(0, 4)}</a><a class="btn ghost" href="#/challenge">${icon('trophy')}31 Days</a><a class="btn" href="#/checklist">${icon("check")}Check off movies</a>
+      ${catchUpDays().length ? `<button class="btn ghost" data-act="fixdates" style="margin-left:auto" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}<a class="btn ghost" href="#/year"${catchUpDays().length ? '' : ' style="margin-left:auto"'}>${icon('star')}Your ${today().slice(0, 4)}</a><a class="btn ghost" href="#/challenge">${icon('trophy')}31 Days</a><a class="btn" href="#/checklist">${icon("check")}Check off movies</a>
     </div>
     <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges</button></div></div>${badgesSection(seen, counts)}`}`;
 };
@@ -1986,7 +2046,148 @@ async function hydrateAvatars() {
     e.outerHTML = renderAvatar(e.dataset.avName, c, e.dataset.avCls);
   }
 }
-new MutationObserver(() => { clearTimeout(avTimer); avTimer = setTimeout(hydrateAvatars, 60); }).observe(document.body, { childList: true, subtree: true });
+new MutationObserver(() => { clearTimeout(avTimer); avTimer = setTimeout(() => { hydrateAvatars(); hydrateRx(); }, 60); }).observe(document.body, { childList: true, subtree: true });
+
+
+// ---------- Lists ----------
+// Anyone can make lists ("Best 80s slashers"), keep them public, friends-only or private, share the link,
+// and follow other people's. Following keeps them under Lists > Following.
+const LIST_VIS = { public: 'Anyone', friends: 'Friends only', private: 'Just me' };
+const listCache = new Map();
+S.lTab = 'mine';
+function listCard(l) {
+  const posters = (l.items || []).slice(0, 4).map((id) => S.byId.get(String(id))).filter(Boolean);
+  return `<a class="lc" href="#/list/${l.id}">
+    <span class="lc-stack">${posters.map((m, i) => `<span class="lc-p" style="--i:${i}">${art(m)}${S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w154${m.poster}" alt="" loading="lazy">` : ''}</span>`).join('') || `<span class="lc-p empty">${icon('bookmark')}</span>`}</span>
+    <span class="lc-t"><b>${esc(l.title)}</b><small>${(l.items || []).length} movie${(l.items || []).length === 1 ? '' : 's'}${l.owner !== S.user?.uid ? ` · by ${esc(l.name || 'a fan')}` : ` · ${esc(LIST_VIS[l.vis] || '')}`}</small></span></a>`;
+}
+views.lists = async () => {
+  if (!S.user) return signInPrompt('Sign in to make lists and follow other people\'s.');
+  const tab = S.lTab;
+  let body = '';
+  if (tab === 'mine') {
+    const mine = (await store.myLists().catch(() => [])).sort((a, b) => b.upd - a.upd);
+    body = `<form class="panel stack list-new" data-form="newlist" style="gap:10px">
+        <h2>Start a list</h2>
+        <div class="fb-row"><label class="field">Name<input type="text" name="title" maxlength="80" placeholder="Best 80s slashers" required></label>
+          <label class="field">Who can see it<select name="vis">${Object.entries(LIST_VIS).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label></div>
+        <label class="field">Description (optional)<input type="text" name="desc" maxlength="500" placeholder="What ties these together?"></label>
+        <button class="btn primary" type="submit" style="justify-self:start">${icon('plus')}Create list</button></form>
+      ${mine.length ? `<div class="lc-grid">${mine.map(listCard).join('')}</div>` : '<p class="muted">No lists yet. Make one here, or use "Add to list" on any movie.</p>'}`;
+  } else if (tab === 'following') {
+    const ids = S.profile.follows || [];
+    const got = (await Promise.all(ids.map((id) => store.getList(id).catch(() => null)))).filter(Boolean);
+    body = got.length ? `<div class="lc-grid">${got.map(listCard).join('')}</div>` : '<p class="muted">You aren\'t following any lists yet. Find some under Discover, or on your friends\' profiles.</p>';
+  } else {
+    const pub = (await store.publicLists().catch(() => [])).filter((l) => (l.items || []).length).sort((a, b) => b.upd - a.upd);
+    body = pub.length ? `<div class="lc-grid">${pub.map(listCard).join('')}</div>` : '<p class="muted">No public lists yet. Be the first.</p>';
+  }
+  return `<div class="page-head"><h1>Lists</h1><p class="muted">Make lists of horror movies, share them, and follow other people's.</p></div>
+    <div class="tabs" role="tablist">${[['mine', 'Your lists'], ['following', `Following${(S.profile.follows || []).length ? ` (${S.profile.follows.length})` : ''}`], ['discover', 'Discover']].map(([k, l]) => `<button role="tab" data-act="ltab" data-k="${k}" aria-selected="${tab === k}">${l}</button>`).join('')}</div>
+    ${body}`;
+};
+views.list = async (id) => {
+  const l = await store.getList(id).catch(() => null);
+  if (!l) return `<div class="empty">${icon('bookmark')}<span>That list wasn't found. It may be private or deleted. <a href="#/lists">See lists</a></span></div>`;
+  listCache.set(id, l);
+  const own = l.owner === S.user?.uid, follows = (S.profile.follows || []).includes(id);
+  const fans = await store.fanCount(id).catch(() => 0);
+  const items = (l.items || []).map((x) => S.byId.get(String(x))).filter(Boolean);
+  const edit = own && S.lEdit === id;
+  const head = `<a class="back-link" href="#/lists">${icon('left')}Lists</a>
+    <div class="page-head"><h1>${esc(l.title)}</h1>
+      <p class="muted">${own ? `Your list · ${esc(LIST_VIS[l.vis])}` : `By <a class="linkish" href="#/u/${esc(l.handle || l.owner)}">${esc(l.name || 'a fan')}</a>`} · ${items.length} movie${items.length === 1 ? '' : 's'}${fans ? ` · ${fans} follower${fans === 1 ? '' : 's'}` : ''}</p>
+      ${l.desc ? `<p style="max-width:70ch">${esc(l.desc)}</p>` : ''}
+      <div class="row" style="gap:8px">${own ? `<button class="btn small${edit ? ' primary' : ''}" data-act="ledit" data-id="${id}">${icon(edit ? 'check' : 'gear')}${edit ? 'Done editing' : 'Edit list'}</button>` : S.user ? `<button class="btn small${follows ? '' : ' primary'}" data-act="lfollow" data-id="${id}">${icon(follows ? 'check' : 'plus')}${follows ? 'Following' : 'Follow'}</button>` : ''}
+        ${l.vis !== 'private' ? `<button class="btn small ghost" data-act="lshare" data-id="${id}">${icon('link')}Copy link</button>` : ''}</div></div>`;
+  if (edit) {
+    return `${head}<div class="two-col">
+      <form class="panel stack" data-form="editlist" data-id="${id}" style="gap:10px">
+        <h2>Details</h2>
+        <label class="field">Name<input type="text" name="title" maxlength="80" value="${esc(l.title)}" required></label>
+        <label class="field">Description<input type="text" name="desc" maxlength="500" value="${esc(l.desc || '')}"></label>
+        <label class="field">Who can see it<select name="vis">${Object.entries(LIST_VIS).map(([k, lab]) => `<option value="${k}" ${l.vis === k ? 'selected' : ''}>${lab}</option>`).join('')}</select></label>
+        <div class="row" style="gap:8px"><button class="btn primary" type="submit">Save</button><button type="button" class="btn ghost danger-btn" data-act="ldel" data-id="${id}">Delete list</button></div>
+      </form>
+      <section class="panel stack" style="gap:10px"><h2>Movies</h2>
+        <label class="search"><span class="sr">Add a movie</span>${icon('search')}<input type="search" id="l-add" data-id="${id}" placeholder="Search a title to add" autocomplete="off"></label>
+        <div id="l-add-res" class="list"></div>
+        <div class="list">${items.map((m, i) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span>
+          <span class="row" style="gap:4px"><button class="icon-btn" data-act="lmove" data-id="${id}" data-k="${i}" data-dir="-1" aria-label="Move up" ${i ? '' : 'disabled'}>${icon('left')}</button><button class="icon-btn" data-act="lmove" data-id="${id}" data-k="${i}" data-dir="1" aria-label="Move down" ${i < items.length - 1 ? '' : 'disabled'}>${icon('right')}</button><button class="icon-btn" data-act="lrm" data-id="${id}" data-k="${m.id}" aria-label="Remove">${icon('x')}</button></span></div>`).join('') || '<p class="muted">Nothing on it yet. Search above, or use "Add to list" on any movie.</p>'}</div>
+      </section></div>`;
+  }
+  return `${head}${items.length ? `<div class="grid">${items.map((m, i) => card(m, { sub: `#${i + 1}${m.sg.length ? ' · ' + (S.sgLabel.get(m.sg[0]) || '') : ''}` })).join('')}</div>` : `<div class="empty">${icon('bookmark')}<span>${own ? 'Nothing on this list yet. Press "Edit list" to add movies, or use "Add to list" on any movie.' : 'This list is empty.'}</span></div>`}`;
+};
+function listAddResults(id) {
+  const q = ($('#l-add')?.value || '').trim().toLowerCase(), box = $('#l-add-res'); if (!box) return;
+  const l = listCache.get(id); const have = new Set((l?.items || []).map(String));
+  box.innerHTML = q.length < 2 ? '' : S.movies.filter((m) => m.t.toLowerCase().includes(q)).sort((a, b) => b.reach - a.reach).slice(0, 6)
+    .map((m) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small" data-act="ladd" data-id="${id}" data-k="${m.id}" ${have.has(String(m.id)) ? 'disabled' : ''}>${have.has(String(m.id)) ? 'Added' : 'Add'}</button></div>`).join('') || '<p class="muted">No matches.</p>';
+}
+async function saveListItems(id, items) {
+  const l = listCache.get(id); if (!l) return;
+  l.items = items; await store.updateList(id, { items });
+}
+// "Add to list" from a movie's details: tick the lists it belongs on, or start a new one.
+async function openAddToList(movieId) {
+  const mine = (await store.myLists().catch(() => [])).sort((a, b) => b.upd - a.upd);
+  mine.forEach((l) => listCache.set(l.id, l));
+  const m = S.byId.get(String(movieId));
+  openForm(`<form class="stack fb-form" data-form="addtolist" data-mid="${movieId}" novalidate>
+    ${formHead('Add to list', esc(m ? `${m.t}${m.y ? ` (${m.y})` : ''}` : ''))}
+    ${mine.length ? `<div class="atl">${mine.map((l) => `<label class="atl-row"><input type="checkbox" name="l" value="${l.id}" ${(l.items || []).map(String).includes(String(movieId)) ? 'checked' : ''}><span><b>${esc(l.title)}</b><small>${(l.items || []).length} movies · ${esc(LIST_VIS[l.vis])}</small></span></label>`).join('')}</div>` : '<p class="muted" style="margin:0">You don\'t have any lists yet.</p>'}
+    <label class="field">New list<input type="text" name="newtitle" maxlength="80" placeholder="Name a new list (optional)"></label>
+    <div class="fb-foot"><a class="fine" href="#/lists" data-act="closeform">Manage your lists</a><div class="row" style="gap:8px"><button type="button" class="btn ghost" data-act="closeform">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
+  </form>`);
+}
+async function submitAddToList(f) {
+  const mid = Number(f.dataset.mid), want = new Set([...f.querySelectorAll('[name=l]:checked')].map((x) => x.value));
+  const btn = f.querySelector('[type=submit]'); btn.disabled = true;
+  try {
+    for (const [id, l] of listCache) {
+      if (l.owner !== S.user.uid) continue;
+      const has = (l.items || []).map(Number).includes(mid);
+      if (want.has(id) && !has) await saveListItems(id, [...(l.items || []), mid]);
+      if (!want.has(id) && has && f.querySelector(`[name=l][value="${id}"]`)) await saveListItems(id, (l.items || []).filter((x) => Number(x) !== mid));
+    }
+    const nt = f.newtitle.value.trim();
+    if (nt) { const id = await store.createList({ title: nt, desc: '', vis: 'public', items: [mid], name: S.profile.name || '', handle: S.social?.handle || '' }); want.add(id); }
+    $('#formdlg').close();
+    toast(want.size ? `Saved to ${want.size} list${want.size === 1 ? '' : 's'}` : 'Removed from your lists', 'bookmark');
+  } catch (e) { console.warn(e); btn.disabled = false; toast('That didn\'t save. Try again.', 'x'); }
+}
+
+// ---------- Reactions ----------
+// A small bar under a friend's activity or a review: a skull ("great pick") and "Same" (I've seen it / agree).
+// Counts load in one go for everything on screen and are cached for a minute.
+const rxCache = new Map(); // key -> { at, list: [{ uid, k }] }
+function rxBar(key, owner, movie, kind) {
+  return `<span class="rx" data-rx="${esc(key)}" data-owner="${esc(owner)}" data-mid="${esc(String(movie))}" data-kind="${kind}">${rxInner(key, owner)}</span>`;
+}
+function rxName(uid) { if (uid === S.user?.uid) return 'You'; const f = (S.friends || []).find((x) => x.uid === uid); return f?.name || S.cards.get(uid)?.name || 'Someone'; }
+function rxInner(key, owner) {
+  const list = rxCache.get(key)?.list || [];
+  const self = owner === S.user?.uid;
+  const btn = (k, label, ic) => {
+    const who = list.filter((x) => x.k === k), mine = who.some((x) => x.uid === S.user?.uid);
+    const tip = who.length ? who.slice(0, 8).map((x) => rxName(x.uid)).join(', ') : self ? '' : label === 'Same' ? 'I\'ve seen it too / agree' : 'Great pick';
+    return `<button class="rx-b${mine ? ' on' : ''}" ${self ? 'disabled' : `data-act="rx" data-k="${k}"`} title="${esc(tip)}" aria-pressed="${mine}">${ic}${label ? `<span>${label}</span>` : ''}${who.length ? `<b>${who.length}</b>` : ''}</button>`;
+  };
+  if (self && !list.length) return '';
+  return btn('skull', '', icon('skull')) + btn('same', 'Same', '');
+}
+let rxBusy = false;
+async function hydrateRx() {
+  if (rxBusy || !store.listRx || !S.user) return;
+  const els = [...document.querySelectorAll('.rx[data-rx]:not([data-done])')];
+  if (!els.length) return;
+  rxBusy = true;
+  try {
+    const need = [...new Set(els.map((e) => e.dataset.rx))].filter((k) => !rxCache.has(k) || Date.now() - rxCache.get(k).at > 60000);
+    if (need.length) { const got = await store.listRx(need); for (const [k, list] of got) rxCache.set(k, { at: Date.now(), list }); }
+    for (const e of document.querySelectorAll('.rx[data-rx]')) { e.innerHTML = rxInner(e.dataset.rx, e.dataset.owner); e.dataset.done = '1'; }
+  } finally { rxBusy = false; }
+}
 // Shrink an uploaded picture to a 160px square JPEG (small enough to keep in the profile card).
 function squarePhoto(file) {
   return new Promise((resolve, reject) => {
@@ -2027,6 +2228,22 @@ function inviteLink() { return `${location.origin}${location.pathname}#/u/${enco
 // One load at a time: overlapping calls share the same request instead of racing each other.
 let socialLoading = null;
 function loadSocial() { if (!socialLoading) socialLoading = loadSocialNow().finally(() => { socialLoading = null; }); return socialLoading; }
+// Keep the friend request badge live while the site is open.
+let stopReqWatch = null;
+function watchRequests() {
+  stopReqWatch?.(); stopReqWatch = null;
+  if (!S.user || !store.watchRequests) return;
+  let firstSnap = true;
+  stopReqWatch = store.watchRequests((incoming) => {
+    const before = new Set((S.requests?.incoming || []).map((x) => x.uid));
+    S.requests = { ...(S.requests || { outgoing: [] }), incoming };
+    const fresh = incoming.filter((x) => !before.has(x.uid));
+    if (!firstSnap && fresh.length) toast(`${fresh[0].name || 'Someone'} sent you a friend request`, 'users');
+    firstSnap = false;
+    renderChrome();
+    if (location.hash.startsWith('#/friends')) route(true, true);
+  });
+}
 async function loadSocialNow() {
   S.friendMovies = null; // friends may have changed; their lists reload on the next Tonight visit
   if (!S.user || !store.getSocial) { S.social = null; S.friends = []; S.requests = { incoming: [], outgoing: [] }; return; }
@@ -2065,10 +2282,16 @@ views.friends = async () => {
   const line = ({ f, x }) => {
     const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
     const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
-    return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
+    return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small>${rxBar(`a_${f.uid}_${x.id}`, f.uid, x.id, 'a')}</div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
   const everyone = store.listPublic ? (await store.listPublic().catch(() => [])).filter((p) => p.uid !== S.user.uid) : [];
+  const rxIn = store.listRxIn ? await store.listRxIn().catch(() => []) : [];
+  const rxLine = (x) => {
+    const m = S.byId.get(String(x.movie)), t = m?.t || 'a movie';
+    const what = x.k === 'skull' ? `gave a ${icon('skull')} to` : 'said "Same" to';
+    return `<div class="feed-item">${av(x.name, '', x.from)}<div class="feed-body"><span><a href="#/u/${esc(x.handle || x.from)}" class="linkish">${esc(x.name || 'Someone')}</a> ${what} your ${x.kind === 'r' ? 'review of' : 'pick,'} <b>${esc(t)}</b></span><small class="faint">${esc(timeAgo(x.at))}</small></div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
+  };
   return `<div class="page-head"><h1>Friends</h1><p class="muted">See what your friends are watching, compare Body Counts, and read each other's reviews.</p></div>
   <div class="friends-grid">
     <div class="stack" style="gap:24px">
@@ -2090,6 +2313,7 @@ views.friends = async () => {
       </section>
     </div>
     <div class="stack" style="gap:24px">
+    ${rxIn.length ? `<section class="panel stack" style="gap:6px"><h2>Reactions to you</h2>${rxIn.slice(0, 8).map(rxLine).join('')}</section>` : ''}
     <section class="panel stack" style="gap:6px"><h2>What your friends are watching</h2>
       ${feed.length ? feed.slice(0, 40).map(line).join('') : `<p class="muted">${S.friends.length ? 'Nothing yet. Activity shows up here when friends queue or survive a movie.' : 'Add friends to see their activity here.'}</p>`}
     </section>
@@ -2129,7 +2353,9 @@ views.u = async (key) => {
   const priv = pc.privacy?.profile || 'friends';
   const head = `<div class="profile-head">${pc.uid === S.user.uid ? renderAvatar(pc.name, myCard(), 'xl') : renderAvatar(pc.name, pc, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
     <div class="row" style="gap:8px">${isMe ? `<a class="btn small" href="#/profile">${icon('gear')}Edit profile &amp; privacy</a>` : friendBtn(pc.uid, state)}</div></div></div>`;
-  if (!movies) return `${head}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
+  const theirLists = isMe ? (await store.myLists().catch(() => [])).filter((l) => l.vis !== 'private') : await store.listsOf(pc.uid).catch(() => []);
+  const listsSec = theirLists.filter((l) => (l.items || []).length).length ? `<section class="stack" style="gap:10px"><h2>${isMe ? 'Your lists' : 'Lists'}</h2><div class="lc-grid">${theirLists.filter((l) => (l.items || []).length).map(listCard).join('')}</div></section>` : '';
+  if (!movies) return `${head}${listsSec}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
   const list = [...movies.entries()].map(([id, st]) => ({ id, st, m: S.byId.get(String(id)) }));
   const seen = list.filter((x) => x.st.status === 'seen' || x.st.wasSeen).sort((a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at);
   const queue = list.filter((x) => x.st.status === 'queue' && x.m).sort((a, b) => b.st.at - a.st.at);
@@ -2149,6 +2375,7 @@ views.u = async (key) => {
       <div class="stat"><b>${queue.length}</b><span>In their queue</span></div>
       ${isMe ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
     </div>
+    ${listsSec}
     ${!isMe && (loved.length || diffs.length) ? `<section class="panel stack" style="gap:14px">
       <h2>You vs. ${esc(pc.name || 'them')}</h2>
       ${diffs.length ? `<div class="stack" style="gap:6px">${diffs.slice(0, 5).map((x) => `<div class="cmp-row"><button class="linkish" data-act="open" data-id="${x.id}">${esc(x.m?.t || x.st.title || 'Movie')}</button><span>You ${skullRow(x.mine)}</span><span>${esc(pc.name || 'Them')} ${skullRow(x.st.rating)}</span></div>`).join('')}</div>` : ''}
@@ -2199,7 +2426,7 @@ function reviewsHTML(m, c) {
       <div class="row" style="gap:10px;justify-content:space-between"><label class="row" style="gap:8px"><input type="checkbox" name="spoiler" ${mine?.spoiler ? 'checked' : ''}> Contains spoilers</label>
       <span class="row" style="gap:8px"><button class="btn small ghost" type="button" data-act="reviewcancel" data-id="${m.id}">Cancel</button><button class="btn small primary" type="submit">${mine ? 'Save review' : 'Post review'}</button></span></div>
       <p class="fine">Visible to ${esc((PRIVACY[S.social?.privacy?.reviews || 'public'] || '').toLowerCase())}. Change this in <a href="#/profile">Profile</a>.</p></form>`;
-  else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name, '', S.user.uid)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
+  else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name, '', S.user.uid)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}${rxBar(`r_${m.id}_${S.user.uid}`, S.user.uid, m.id, 'r')}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
   else if (seen) me = `<button class="btn small" data-act="reviewwrite" data-id="${m.id}">${icon('plus')}Write a review</button>`;
   else me = '<p class="fine">Mark it as seen to write a review.</p>';
   const fs = c?.friendsSeen || [];
@@ -2207,7 +2434,7 @@ function reviewsHTML(m, c) {
     ${fs.length ? `<div class="friends-seen"><span class="fs-avs">${fs.slice(0, 6).map(({ f }) => av(f.name, 'sm', f.uid)).join('')}</span><span>${fs.length === 1 ? `<b>${esc(fs[0].f.name)}</b> has seen this` : `<b>${fs.length} friends</b> have seen this`}${fs.some((x) => x.st.rating) ? `: ${fs.filter((x) => x.st.rating).slice(0, 3).map((x) => `${esc(x.f.name.split(' ')[0])} ${skullRow(x.st.rating)}`).join(', ')}` : ''}</span></div>` : ''}
     <h3>Reviews${others.length || mine ? ` <span class="faint">${others.length + (mine ? 1 : 0)}</span>` : ''}</h3>
     ${me}
-    ${c == null ? '<p class="muted">Loading reviews…</p>' : others.length ? others.slice(0, 20).map((r) => `<div class="review"><div class="rv-head">${av(r.name, '', r.uid)}<a class="linkish" href="#/u/${esc(r.handle || r.uid)}" data-act="gouser"><b>${esc(r.name || 'A fan')}</b></a>${fset.has(r.uid) ? '<span class="tag">Friend</span>' : ''}${r.rating ? skullRow(r.rating) : ''}<span class="faint">${esc(timeAgo(r.at))}</span>${S.user?.isAdmin ? `<button class="linkish danger" data-act="reviewmod" data-id="${m.id}" data-k="${r.uid}">Remove</button>` : ''}</div>${reviewText(r, `${m.id}-${r.uid}`)}</div>`).join('') : (mine ? '' : '<p class="muted">No reviews yet.</p>')}
+    ${c == null ? '<p class="muted">Loading reviews…</p>' : others.length ? others.slice(0, 20).map((r) => `<div class="review"><div class="rv-head">${av(r.name, '', r.uid)}<a class="linkish" href="#/u/${esc(r.handle || r.uid)}" data-act="gouser"><b>${esc(r.name || 'A fan')}</b></a>${fset.has(r.uid) ? '<span class="tag">Friend</span>' : ''}${r.rating ? skullRow(r.rating) : ''}<span class="faint">${esc(timeAgo(r.at))}</span>${S.user?.isAdmin ? `<button class="linkish danger" data-act="reviewmod" data-id="${m.id}" data-k="${r.uid}">Remove</button>` : ''}</div>${reviewText(r, `${m.id}-${r.uid}`)}${S.user ? rxBar(`r_${m.id}_${r.uid}`, r.uid, m.id, 'r') : ''}</div>`).join('') : (mine ? '' : '<p class="muted">No reviews yet.</p>')}
   </div>`;
 }
 function rerenderReviews(id) { const m = S.byId.get(String(id)); const el = $('#detail .reviews-wrap'); if (m && el) el.innerHTML = reviewsHTML(m, reviewCache.get(String(id))); }
@@ -2315,6 +2542,7 @@ function openDetail(id) {
       ${castBlock(m)}
       ${seriesBlock(m)}
       ${killBlock(m)}
+      ${cwBlock(m)}
       ${reviewsBlock(m)}
       <div class="signals">
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
@@ -2323,6 +2551,7 @@ function openDetail(id) {
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
+        <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
         ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}${st ? 'Hidden. Show it again' : 'Not interested'}</button>`}</div>
       <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
         <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
@@ -2558,13 +2787,62 @@ const actions = {
     const n = { friends: true, streaming: true, ...(S.profile.notify || {}), [el.dataset.k]: el.checked };
     S.profile.notify = n; await store.saveProfile({ notify: n }); toast(el.checked ? 'You\'ll get those emails' : 'Those emails are off', 'mail');
   },
+  fixdates() { openFixDates(); },
+  ltab(el) { S.lTab = el.dataset.k; route(true, true); },
+  addtolist(el) { if (!needUser()) return; openAddToList(el.dataset.id); },
+  ledit(el) { S.lEdit = S.lEdit === el.dataset.id ? null : el.dataset.id; route(true, true); },
+  async lfollow(el) {
+    if (!needUser()) return;
+    const id = el.dataset.id, on = !(S.profile.follows || []).includes(id);
+    const follows = on ? [...new Set([...(S.profile.follows || []), id])] : (S.profile.follows || []).filter((x) => x !== id);
+    try { await store.followList(id, on, follows); S.profile.follows = follows; toast(on ? 'Following. Find it under Lists' : 'Unfollowed', on ? 'check' : 'x'); route(true, true); }
+    catch (e) { console.warn(e); toast('That didn\'t save. Try again.', 'x'); }
+  },
+  async lshare(el) {
+    const url = `${location.origin}${location.pathname}#/list/${el.dataset.id}`;
+    try { if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ url, title: document.title }); return; } await navigator.clipboard.writeText(url); toast('Link copied', 'link'); }
+    catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+  },
+  async ladd(el) { const id = el.dataset.id, l = listCache.get(id); await saveListItems(id, [...(l.items || []), Number(el.dataset.k)]); toast('Added', 'check'); await route(true, true); const i = $('#l-add'); if (i) { i.focus(); } },
+  async lrm(el) { const id = el.dataset.id, l = listCache.get(id); await saveListItems(id, (l.items || []).filter((x) => String(x) !== el.dataset.k)); route(true, true); },
+  async lmove(el) { const id = el.dataset.id, l = listCache.get(id), it = [...(l.items || [])], i = Number(el.dataset.k), j = i + Number(el.dataset.dir); if (j < 0 || j >= it.length) return; [it[i], it[j]] = [it[j], it[i]]; await saveListItems(id, it); route(true, true); },
+  async ldel(el) { if (!confirm('Delete this list? This can\'t be undone.')) return; await store.deleteList(el.dataset.id); S.lEdit = null; toast('List deleted', 'x'); location.hash = '#/lists'; },
+  cwshow(el) { (S.cwOpen ||= new Set()).add(el.dataset.id); const m = S.byId.get(el.dataset.id); const w = el.closest('.cw-wrap'); if (m && w) w.innerHTML = cwHTML(m); },
+  cwhide(el) { S.cwOpen?.delete(el.dataset.id); const m = S.byId.get(el.dataset.id); const w = el.closest('.cw-wrap'); if (m && w) w.innerHTML = cwHTML(m); },
+  async cwvote(el) {
+    if (!needUser()) return;
+    const id = el.dataset.id, k = el.dataset.k, v = Number(el.dataset.v), m = S.byId.get(id);
+    const votes = cwCache.get(id) || []; let me = votes.find((x) => x.uid === S.user.uid);
+    if (!me) { me = { uid: S.user.uid, v: {} }; votes.push(me); }
+    const next = me.v[k] === v ? 0 : v;
+    if (next) me.v[k] = next; else delete me.v[k];
+    cwCache.set(id, votes);
+    const w = el.closest('.cw-wrap'); if (m && w) w.innerHTML = cwHTML(m);
+    try { await store.setWarning(id, k, next); } catch (e) { console.warn(e); toast('That didn\'t save. Try again.', 'x'); }
+  },
+  async rx(el) {
+    if (!needUser()) return;
+    const box = el.closest('.rx'), key = box.dataset.rx, k = el.dataset.k;
+    const c = rxCache.get(key) || { at: Date.now(), list: [] };
+    const mine = c.list.find((x) => x.uid === S.user.uid);
+    const prev = c.list.slice();
+    c.list = c.list.filter((x) => x.uid !== S.user.uid);
+    if (!mine || mine.k !== k) c.list.push({ uid: S.user.uid, k });
+    rxCache.set(key, { ...c, at: Date.now() });
+    document.querySelectorAll(`.rx[data-rx="${CSS.escape(key)}"]`).forEach((e) => { e.innerHTML = rxInner(key, e.dataset.owner); });
+    if (!mine || mine.k !== k) burst(null, 'pop', rectOf(el));
+    try {
+      if (mine && mine.k === k) await store.delRx(key, box.dataset.owner);
+      else await store.setRx(key, k, box.dataset.owner, { name: S.profile.name || S.user.name || '', handle: S.social?.handle || '', movie: box.dataset.mid, kind: box.dataset.kind });
+    } catch (e) { console.warn(e); rxCache.set(key, { list: prev, at: Date.now() }); document.querySelectorAll(`.rx[data-rx="${CSS.escape(key)}"]`).forEach((x) => { x.innerHTML = rxInner(key, x.dataset.owner); }); toast('That didn\'t save. Try again.', 'x'); }
+  },
   delacct() {
     if (!needUser()) return;
     const pw = store.signInMethod?.() === 'password';
     openForm(`<form class="stack fb-form" data-form="delacct" novalidate>
       ${formHead('Delete your account?', 'This can\'t be undone.')}
       <ul class="del-list"><li>Your Body Count, ratings, watch dates and queue</li><li>Your reviews and kill counts</li><li>Your friends, friend requests and profile card (your username is freed up)</li><li>Movie nights you started; you leave the ones you joined</li><li>Your sign-in</li></ul>
-      <p class="fine" style="margin:0">Feedback you've sent stays with the site's owner. Votes in VS matchups stay in the totals without your name.</p>
+      <p class="fine" style="margin:0">Feedback you've sent stays with the site's owner. VS votes and reactions you gave stay in the totals without your name.</p>
       ${pw ? '<label class="field">Your password<input type="password" name="pw" autocomplete="current-password" required></label>' : '<p class="muted" style="margin:0">You\'ll be asked to sign in with Google once more to confirm.</p>'}
       <label class="field">Type DELETE to confirm<input type="text" name="confirm" autocomplete="off" autocapitalize="characters" autofocus></label>
       <p class="error" hidden></p>
@@ -3115,6 +3393,7 @@ document.addEventListener('change', async (e) => {
 let frTimer = 0;
 document.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.id === 'l-add') { listAddResults(el.dataset.id); return; }
   if (el.id === 'q-sort') { S.qSort[S.qTab] = el.value; route(true, true); return; }
   if (el.id === 'q-sg') { S.qSg = el.value; route(true, true); return; }
   if (el.id === 'vsb-q') { S.vsb.q = el.value; const r = $('#vsb-hits'); if (r) r.innerHTML = vsbResults(); return; }
@@ -3211,6 +3490,18 @@ async function afterFriendChange() {
 }
 document.addEventListener('submit', async (e) => {
   if (e.target.classList?.contains('fb-form') && ['feedback', 'contact'].includes(e.target.dataset.form)) { e.preventDefault(); await submitForm(e.target); return; }
+  if (e.target.dataset?.form === 'addtolist') { e.preventDefault(); await submitAddToList(e.target); return; }
+  if (e.target.dataset?.form === 'newlist') {
+    e.preventDefault(); const f = e.target, title = f.title.value.trim(); if (!title) return;
+    const id = await store.createList({ title, desc: f.desc.value.trim(), vis: f.vis.value, items: [], name: S.profile.name || '', handle: S.social?.handle || '' });
+    S.lEdit = id; toast('List created. Add some movies', 'bookmark'); location.hash = `#/list/${id}`; return;
+  }
+  if (e.target.dataset?.form === 'editlist') {
+    e.preventDefault(); const f = e.target, id = f.dataset.id, l = listCache.get(id);
+    const patch = { title: f.title.value.trim() || l.title, desc: f.desc.value.trim(), vis: f.vis.value, name: S.profile.name || l.name || '', handle: S.social?.handle || l.handle || '' };
+    await store.updateList(id, patch); Object.assign(l, patch); S.lEdit = null; toast('List saved', 'check'); route(true, true); return;
+  }
+  if (e.target.dataset?.form === 'fixdates') { e.preventDefault(); await submitFixDates(e.target); return; }
   if (e.target.dataset?.form === 'setup') { e.preventDefault(); await submitSetup(e.target); return; }
   if (e.target.dataset?.form === 'delacct') {
     e.preventDefault();
@@ -3310,6 +3601,7 @@ function renderChrome() {
         <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
         <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
+        <a role="menuitem" href="#/lists">${icon('bookmark')}Lists</a>
         <a role="menuitem" href="#/friends">${icon('users')}Friends${S.requests?.incoming.length ? `<small class="pill-n">${S.requests.incoming.length}</small>` : `<small>${(S.friends || []).length || ''}</small>`}</a>
         <a role="menuitem" class="m-only-item" href="#/vs">${icon('trophy')}VS matchups</a>
         <a role="menuitem" class="m-only-item" href="#/nights">${icon('users')}Movie Nights</a>
@@ -3370,7 +3662,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
 }
 
 async function boot() {
@@ -3386,6 +3678,7 @@ async function boot() {
   store.init(async (u) => {
     S.user = u;
     await loadMine();
+    watchRequests();
     loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); if (u && !S.profile.setup) openSetup(); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);

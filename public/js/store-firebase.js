@@ -53,7 +53,7 @@ export const store = {
     const mv = await F.getDocs(F.collection(db, 'users', me, 'movies'));
     for (const d of mv.docs) {
       refs.push(d.ref);
-      if (d.data().status === 'seen' || d.data().wasSeen || d.data().rv) refs.push(F.doc(db, 'reviews', d.id, 'by', me), F.doc(db, 'kills', d.id, 'votes', me));
+      if (d.data().status === 'seen' || d.data().wasSeen || d.data().rv) refs.push(F.doc(db, 'reviews', d.id, 'by', me), F.doc(db, 'kills', d.id, 'votes', me), F.doc(db, 'cw', d.id, 'by', me));
     }
     await del(refs.splice(0));
     progress('Removing friends and requests…');
@@ -73,6 +73,13 @@ export const store = {
         await F.updateDoc(d.ref, { members: n.members.filter((x) => x !== me), memberNames: names, votes }).catch((e) => console.warn('leave night', e));
       }
     }
+    const inbox = await F.getDocs(F.collection(db, 'rxin', me, 'by')).catch(() => null);
+    for (const d of inbox?.docs || []) refs.push(d.ref);
+    progress('Removing your lists…');
+    const mine = await F.getDocs(F.query(F.collection(db, 'lists'), F.where('owner', '==', me))).catch(() => null);
+    for (const d of mine?.docs || []) refs.push(d.ref);
+    for (const id of (await F.getDoc(F.doc(db, 'users', me)).catch(() => null))?.data()?.follows || []) refs.push(F.doc(db, 'lists', id, 'fans', me));
+    await del(refs.splice(0)).catch((e) => console.warn('lists', e));
     progress('Removing your profile…');
     const card = (await F.getDoc(F.doc(db, 'profiles', me)).catch(() => null))?.data();
     if (card?.handle) refs.push(F.doc(db, 'usernames', card.handle));
@@ -84,7 +91,7 @@ export const store = {
   async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
   async signOut() { await A.signOut(auth); },
 
-  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen, setup: !!d.setup, notify: { friends: true, streaming: true, ...(d.notify || {}) } }; },
+  async getProfile() { const d = (await F.getDoc(userDoc())).data() || {}; return { name: d.name || current?.name || '', services: d.services || [], hideSeen: !!d.hideSeen, setup: !!d.setup, follows: d.follows || [], notify: { friends: true, streaming: true, ...(d.notify || {}) } }; },
   async saveProfile(patch) {
     await F.updateDoc(userDoc(), patch);
     if (patch.name && current) current.name = patch.name;
@@ -226,6 +233,64 @@ export const store = {
     const b = F.writeBatch(db);
     b.set(F.doc(db, 'requests', other, 'from', uid()), { name: current?.name || '', handle: mine.handle || '', at: Date.now() });
     b.set(F.doc(db, 'sent', uid(), 'to', other), { name: card?.name || '', handle: card?.handle || '', at: Date.now() });
+    await b.commit();
+  },
+  // Incoming friend requests, live: cb(list) runs now and whenever one arrives or is withdrawn.
+  watchRequests(cb) {
+    return F.onSnapshot(F.collection(db, 'requests', uid(), 'from'), (s) => cb(s.docs.map((d) => ({ uid: d.id, ...d.data() }))), () => {});
+  },
+  // Reactions: rx/{target}/by/{uid} = { k: 'skull' | 'same' }. target is a_<owner>_<movie> (activity) or
+  // r_<movie>_<owner> (a review). The owner also gets a note in rxin/{owner}/by so they can see who reacted.
+  async listRx(keys) {
+    const out = new Map();
+    await Promise.all(keys.map(async (k) => { const s = await F.getDocs(F.collection(db, 'rx', k, 'by')).catch(() => null); out.set(k, (s?.docs || []).map((d) => ({ uid: d.id, ...d.data() }))); }));
+    return out;
+  },
+  async setRx(key, k, owner, meta) {
+    const me = uid(), b = F.writeBatch(db);
+    b.set(F.doc(db, 'rx', key, 'by', me), { k, at: Date.now() });
+    if (owner && owner !== me) b.set(F.doc(db, 'rxin', owner, 'by', `${me}_${key}`), { from: me, name: meta.name || '', handle: meta.handle || '', k, key, movie: Number(meta.movie) || 0, kind: meta.kind, at: Date.now() });
+    await b.commit();
+  },
+  async delRx(key, owner) {
+    const me = uid(), b = F.writeBatch(db);
+    b.delete(F.doc(db, 'rx', key, 'by', me));
+    if (owner && owner !== me) b.delete(F.doc(db, 'rxin', owner, 'by', `${me}_${key}`));
+    await b.commit();
+  },
+  async listRxIn(n = 30) {
+    const s = await F.getDocs(F.query(F.collection(db, 'rxin', uid(), 'by'), F.orderBy('at', 'desc'), F.limit(n)));
+    return s.docs.map((d) => ({ id: d.id, ...d.data() }));
+  },
+  // Content warnings: cw/{movie}/by/{uid} = { v: { dog: 1 | -1, ... } } (1 = yes, it happens; -1 = no).
+  async getWarnings(movieId) {
+    const s = await F.getDocs(F.collection(db, 'cw', String(movieId), 'by'));
+    return s.docs.map((d) => ({ uid: d.id, v: d.data().v || {} }));
+  },
+  async setWarning(movieId, key, val) {
+    const ref = F.doc(db, 'cw', String(movieId), 'by', uid());
+    const cur = (await F.getDoc(ref).catch(() => null))?.data()?.v || {};
+    const v = { ...cur }; if (val) v[key] = val; else delete v[key];
+    if (Object.keys(v).length) await F.setDoc(ref, { v, at: Date.now() }); else await F.deleteDoc(ref);
+  },
+  // Lists: lists/{id} = { owner, name, handle, title, desc, items: [movie ids], vis: public|friends|private, at, upd }
+  // Following a list adds a fan doc (lists/{id}/fans/{uid}, for the count) and its id to users/{uid}.follows.
+  async myLists() { const s = await F.getDocs(F.query(F.collection(db, 'lists'), F.where('owner', '==', uid()))); return s.docs.map((d) => ({ id: d.id, ...d.data() })); },
+  async publicLists(n = 60) { const s = await F.getDocs(F.query(F.collection(db, 'lists'), F.where('vis', '==', 'public'), F.limit(n))); return s.docs.map((d) => ({ id: d.id, ...d.data() })); },
+  async listsOf(other) {
+    const q = (vis) => F.getDocs(F.query(F.collection(db, 'lists'), F.where('owner', '==', other), F.where('vis', '==', vis))).then((s) => s.docs.map((d) => ({ id: d.id, ...d.data() }))).catch(() => []);
+    const [a, b] = await Promise.all([q('public'), q('friends')]);
+    return [...a, ...b];
+  },
+  async getList(id) { const d = await F.getDoc(F.doc(db, 'lists', id)); return d.exists() ? { id: d.id, ...d.data() } : null; },
+  async createList(data) { const ref = await F.addDoc(F.collection(db, 'lists'), { ...data, owner: uid(), at: Date.now(), upd: Date.now() }); return ref.id; },
+  async updateList(id, patch) { await F.updateDoc(F.doc(db, 'lists', id), { ...patch, upd: Date.now() }); },
+  async deleteList(id) { await F.deleteDoc(F.doc(db, 'lists', id)); },
+  async fanCount(id) { return F.getCountFromServer(F.collection(db, 'lists', id, 'fans')).then((c) => c.data().count).catch(() => 0); },
+  async followList(id, on, follows) {
+    const b = F.writeBatch(db);
+    if (on) b.set(F.doc(db, 'lists', id, 'fans', uid()), { at: Date.now() }); else b.delete(F.doc(db, 'lists', id, 'fans', uid()));
+    b.update(userDoc(), { follows });
     await b.commit();
   },
   async listRequests() {

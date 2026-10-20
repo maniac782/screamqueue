@@ -58,7 +58,8 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if signedIn() && (uid == me() || isAdmin());
       allow create, update: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['name', 'services', 'createdAt', 'lastSeen', 'hideSeen', 'notify', 'setup'])
+        && request.resource.data.keys().hasOnly(['name', 'services', 'createdAt', 'lastSeen', 'hideSeen', 'notify', 'setup', 'follows'])
+        && (!('follows' in request.resource.data) || (request.resource.data.follows is list && request.resource.data.follows.size() <= 300))
         && (!('notify' in request.resource.data) || request.resource.data.notify.keys().hasOnly(['friends', 'streaming']));
       allow delete: if signedIn() && uid == me();
 
@@ -117,6 +118,51 @@ service cloud.firestore {
         && request.resource.data.text is string && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 5000
         && request.resource.data.vis in ['public', 'friends'];
       allow delete: if signedIn() && (uid == me() || isAdmin());
+    }
+
+    // Reactions (a skull or "Same") on friends' activity and on reviews. One per person per thing.
+    match /rx/{key}/by/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['k', 'at']) && request.resource.data.k in ['skull', 'same'];
+      allow delete: if signedIn() && uid == me();
+    }
+    // Each person's "reactions to you" inbox. Others can only add or remove their own note.
+    match /rxin/{owner}/by/{id} {
+      allow read: if signedIn() && owner == me();
+      allow create, update: if signedIn() && owner != me() && id.matches('^' + me() + '_.+')
+        && request.resource.data.from == me()
+        && request.resource.data.keys().hasOnly(['from', 'name', 'handle', 'k', 'key', 'movie', 'kind', 'at'])
+        && request.resource.data.k in ['skull', 'same'];
+      allow delete: if signedIn() && (owner == me() || id.matches('^' + me() + '_.+'));
+    }
+
+    // Content warnings ("Does the dog die?"): each person answers yes/no per warning. Anyone can read the answers.
+    match /cw/{movieId}/by/{uid} {
+      allow read: if true;
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['v', 'at']) && request.resource.data.v is map && request.resource.data.v.size() <= 20;
+      allow delete: if signedIn() && uid == me();
+    }
+
+    // Lists people make ("Best 80s slashers"): public, friends-only or private. Anyone can follow one they can see.
+    function okList(d) {
+      return d.keys().hasOnly(['owner', 'name', 'handle', 'title', 'desc', 'items', 'vis', 'at', 'upd'])
+        && d.owner == me() && d.title is string && d.title.size() > 0 && d.title.size() <= 80
+        && d.desc is string && d.desc.size() <= 500 && d.items is list && d.items.size() <= 300
+        && d.vis in ['public', 'friends', 'private'];
+    }
+    match /lists/{id} {
+      allow read: if resource.data.vis == 'public'
+        || (signedIn() && (resource.data.owner == me() || isAdmin() || (resource.data.vis == 'friends' && isFriend(resource.data.owner))));
+      allow create: if signedIn() && okList(request.resource.data);
+      allow update: if signedIn() && resource.data.owner == me() && okList(request.resource.data);
+      allow delete: if signedIn() && (resource.data.owner == me() || isAdmin());
+      match /fans/{uid} {
+        allow read: if true;
+        allow create: if signedIn() && uid == me() && request.resource.data.keys().hasOnly(['at']);
+        allow delete: if signedIn() && uid == me();
+      }
     }
 
     // Fan-reported kill counts. Anyone can read; signed-in people set only their own number; admins verify.
