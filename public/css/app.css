@@ -1743,3 +1743,9 @@ button.bkf-s:active { transform: scale(.97); }
 html { scrollbar-gutter: stable; }
 html:has(dialog[open]) { overflow: hidden; }
 dialog { overscroll-behavior: contain; }
+/* Pop-up backdrops: a plain dark tint instead of a live blur. Blurring the whole page behind a pop-up (while posters and the
+   VS bracket animate underneath) made Chrome flash when scrolling hit the top or bottom of a card. */
+dialog.detail::backdrop, dialog.formdlg::backdrop { background: rgba(4, 4, 8, .78); backdrop-filter: none; -webkit-backdrop-filter: none; }
+dialog.player::backdrop { background: rgba(0, 0, 0, .88); backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Nothing behind an open pop-up needs to keep animating. */
+html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has(dialog[open]) #main *::after { animation-play-state: paused !important; }
