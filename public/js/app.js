@@ -1782,7 +1782,7 @@ async function vsDetail(id) {
   }
   // The whole tournament, drawn from both sides toward the trophy. On a narrow screen it starts scrolled to the middle.
   S.after = () => { const w = $('.bk-wrap.full'); if (w && w.scrollWidth > w.clientWidth) w.scrollLeft = (w.scrollWidth - w.clientWidth) / 2; };
-  return `${head}${now}<section class="stack"><h2>Bracket</h2><div class="bk-wrap full">${bracketHTML(v, res, false, false)}</div></section>`;
+  return `${head}${now}<section class="stack"><h2>Bracket</h2><div class="bk-wrap full bk-two">${bracketHTML(v, res, false, false)}</div><div class="bk-wrap bk-one">${bracketHTML(v, res, false, false, true)}</div></section>`;
 }
 // The newest open single matchup, for a box on Tonight.
 async function vsTonight() {
@@ -1805,7 +1805,7 @@ function vsUnvoted() {
 // right, and the final meets at the trophy. A single matchup is the same picture with one contender per side.
 // compact (Tonight): only the round being voted on, on both sides of the trophy, drawn big. The full bracket page
 // shows every round.
-function bracketHTML(v, res, big, compact) {
+function bracketHTML(v, res, big, compact, list) {
   const R = v.rounds, ph = res.ph;
   const cr = ph.state === 'open' ? ph.r : R;
   const minR = compact ? cr : 1, maxR = compact ? cr : R - 1;
@@ -1828,6 +1828,21 @@ function bracketHTML(v, res, big, compact) {
     const cls = `bk-s${open ? ' live' : ''}${mine === side ? ' mine' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}`;
     return open ? `<button class="${cls}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${side}" aria-pressed="${mine === side}" title="Vote for ${esc(e.l)}">${inner}</button>` : `<span class="${cls}">${inner}</span>`;
   };
+  if (list) {
+    // Phones: rounds top to bottom, each match as two full-width rows, then the champion.
+    const champ = res.champ != null ? v.entries[res.champ] : null;
+    let out = '';
+    for (let r = 1; r <= R; r++) {
+      const n = slots[r - 1].length;
+      const got = res.rounds.find((x) => x.r === r);
+      const tag = got?.closed ? 'Done' : ph.state === 'open' && ph.r === r ? 'Voting now' : 'Coming up';
+      out += `<section class="bkl-round${ph.state === 'open' && ph.r === r ? ' now' : ''}"><h3>${esc(roundName(v, r))} <span class="bkl-tag">${tag}</span></h3><div class="bkl-ms">`;
+      for (let i = 0; i < n; i += 2) out += `<div class="bkl-m">${slot(r, i)}<span class="bkl-vs">vs</span>${slot(r, i + 1)}</div>`;
+      out += '</div></section>';
+    }
+    out += `<div class="bkl-champ${champ ? ' has' : ''}">${icon('trophy')}<span><small>Champion</small><b>${champ ? esc(champ.l) : 'To be decided'}</b></span></div>`;
+    return `<div class="bk bkl">${out}</div>`;
+  }
   const col = (r, positions, side) => `<div class="bk-col ${side}">${positions.reduce((out, pos, i) => (i % 2 ? out : out + `<div class="bk-m">${slot(r, pos)}${positions[i + 1] != null ? slot(r, positions[i + 1]) : ''}</div>`), '')}</div>`;
   const left = [], right = [];
   for (let r = minR; r <= maxR && r < R; r++) {

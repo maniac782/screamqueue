@@ -1690,3 +1690,32 @@ a.score { color: var(--fg); text-decoration: none; transition: border-color .2s,
 a.score:hover { border-color: var(--line-2); background: var(--raised); }
 a.score:active { transform: scale(.98); }
 a.score .go { width: 16px; height: 16px; color: var(--faint); margin-left: 2px; }
+/* Full bracket on phones: one round after another, top to bottom, instead of two sides squeezed together */
+.bk-one { display: none; }
+@media (max-width: 700px) {
+  .bk-two { display: none !important; }
+  .bk-one { display: block; overflow: visible; margin: 0; padding: 0; }
+}
+.bk.bkl { display: grid; gap: 22px; min-width: 0; justify-content: stretch; }
+.bkl-round { display: grid; gap: 10px; }
+.bkl-round h3 { margin: 0; display: flex; align-items: center; gap: 10px; font-size: 1.05rem; }
+.bkl-tag { font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line); color: var(--faint); }
+.bkl-round.now .bkl-tag { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bkl-ms { display: grid; gap: 10px; }
+.bkl-m { display: grid; gap: 4px; padding: 8px; border-radius: 16px; border: 1px solid var(--line); background: var(--bg-2); }
+.bkl-vs { justify-self: center; font-size: .66rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.bkl .bk-s { width: 100%; grid-template-columns: 40px minmax(0, 1fr) auto; gap: 12px; padding: 6px 12px 6px 6px; min-height: 0; }
+.bkl .bk-pic { width: 40px; }
+.bkl .bk-n { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: .95rem; }
+.bkl .bk-p { font-size: .95rem; }
+.bkl .bk-s.tbd { grid-template-columns: 40px 1fr; }
+.bkl-champ { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 16px; border: 1px dashed var(--line-2); color: var(--muted); }
+.bkl-champ .ic { width: 30px; height: 30px; color: #e9b949; flex: none; }
+.bkl-champ span { display: grid; }
+.bkl-champ small { font-size: .72rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+.bkl-champ b { font-size: 1.1rem; color: var(--fg); }
+.bkl-champ.has { border-style: solid; border-color: #e9b949; }
+.bkl .bk-s { justify-items: stretch; align-items: center; text-align: left; font-size: .95rem; }
+.bkl .bk-s > * { align-self: center; }
+.bkl .bk-pic { aspect-ratio: 2 / 3; }
+.bkl .bk-n { width: auto; }
