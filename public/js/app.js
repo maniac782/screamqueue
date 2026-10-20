@@ -449,15 +449,22 @@ function quickBar(m, name) {
 }
 
 let shelfN = 0;
+const SHELF_ROW = 18;
+const shelfSlug = (t) => String(t).replace(/<[^>]+>/g, '').toLowerCase().replace(/&[a-z]+;/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+// A row of up to 18 cards. Every shelf links to a page with all of its movies (#/shelf/<slug>), unless it brings its own link.
 function shelf(title, desc, list, emptyText, more = '', subOf = null) {
   const id = 'rail' + (++shelfN);
   const plain = String(title).replace(/<[^>]+>/g, '');
+  const slug = shelfSlug(title);
+  const onTonight = /^#?\/?(tonight|shelf\/.*)?$/.test(location.hash);
+  if (onTonight && S.shelves && list.length) S.shelves[slug] = { title, desc, list, subOf };
+  const nav = more || (list.length && onTonight && S.shelves ? `<a class="btn small ghost" href="#/shelf/${slug}">See all</a>` : '');
   return `<section class="shelf" data-key="${esc(plain.split(':')[0].trim().toLowerCase())}">
     <div class="shelf-head"><div><h2>${title}</h2>${desc ? `<p class="muted">${desc}</p>` : ''}</div>
-      ${more ? `<div class="shelf-nav">${more}</div>` : ''}</div>
+      ${nav ? `<div class="shelf-nav">${nav}</div>` : ''}</div>
     ${list.length ? `<div class="rail" data-start="1">
       <button class="rail-btn prev" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll ${esc(plain)} back" tabindex="-1">${icon('left')}</button>
-      <div class="track" id="${id}">${list.map((m) => card(m, subOf ? { sub: subOf(m) } : undefined)).join('')}</div>
+      <div class="track" id="${id}">${list.slice(0, SHELF_ROW).map((m) => card(m, subOf ? { sub: subOf(m) } : undefined)).join('')}</div>
       <button class="rail-btn next" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll ${esc(plain)} forward" tabindex="-1">${icon('right')}</button>
     </div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
@@ -496,6 +503,7 @@ function sgPicker(act, set) {
       const n = f.list.filter((s) => set.has(s.key)).length;
       return `<button role="tab" class="sgp-tab" title="${esc(f.label)}" data-act="sgfam" data-picker="${act}" data-k="${f.key}" aria-selected="${f.key === cur.key}">${sgIcon(f.icon)}<span>${esc(f.label)}</span>${n ? `<b class="sgp-n">${n}</b>` : ''}</button>`;
     }).join('')}</div>
+    <span class="sgp-label">${esc(cur.label)}</span>
     <div class="chips sgp-chips" role="tabpanel">${cur.list.map((s) => sgChip(act, s, set.has(s.key))).join('')}</div>
   </div>`;
 }
@@ -636,7 +644,7 @@ function halloweenShelf() {
   const fun = S.movies.filter((m) => m.sg.includes('fun')).sort((a, b) => b.reach - a.reach);
   const mixed = [];
   for (let i = 0; i < Math.max(hz.length, fun.length) && mixed.length < 30; i++) { if (hz[i]) mixed.push(hz[i]); if (fun[i]) mixed.push(fun[i]); }
-  return [...new Set(mixed)].filter((m) => !isSeen(m) && !isNope(m)).slice(0, 24);
+  return [...new Set(mixed)].filter((m) => !isSeen(m) && !isNope(m));
 }
 // Queued movies that started streaming in the last 21 days (on your services, if you've set them), newest first.
 function queueNowStreaming() {
@@ -680,10 +688,10 @@ function friendPicks() {
 }
 
 views.tonight = () => {
-  shelfN = 0;
+  shelfN = 0; S.shelves = {};
   if (S.user && S.friends?.length && !S.friendMovies) loadFriendMovies();
   const recs = S.user ? recommend() : null;
-  const forYou = recs?.list.slice(0, 18) || [];
+  const forYou = recs?.list.slice(0, 120) || [];
   const anchor = S.user ? lovedAnchor() : null;
   const fPicks = S.user ? friendPicks() : [];
   const newOnStreaming = S.user ? queueNowStreaming() : [];
@@ -691,17 +699,17 @@ views.tonight = () => {
   const pool = S.movies.filter((m) => !isSeen(m) && !isNope(m));
   const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
-  const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
-  const crowd = mineFirst(pool.filter((m) => m.tier === 'favorite' || m.tier === 'known')).sort((a, b) => b.buzz + b.reach - a.buzz - a.reach).slice(0, 18);
-  const cult = pool.filter((m) => m.tier === 'cult').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
-  const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
-  const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 18);
-  const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz).slice(0, 18);
-  const inTheaters = pool.filter((m) => theaterStatus(m) === 'in').sort((a, b) => b.buzz - a.buzz).slice(0, 18);
+  const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz);
+  const crowd = mineFirst(pool.filter((m) => m.tier === 'favorite' || m.tier === 'known')).sort((a, b) => b.buzz + b.reach - a.buzz - a.reach);
+  const cult = pool.filter((m) => m.tier === 'cult').sort((a, b) => b.buzz - a.buzz);
+  const newBuzz = pool.filter((m) => m.flags.includes('new') && !m.flags.includes('quiet')).sort((a, b) => b.buzz - a.buzz);
+  const quiet = pool.filter((m) => m.flags.includes('quiet')).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const shudder = pool.filter((m) => m.pv.includes(99)).sort((a, b) => b.buzz - a.buzz);
+  const inTheaters = pool.filter((m) => theaterStatus(m) === 'in').sort((a, b) => b.buzz - a.buzz);
   // the 18 most talked-about upcoming releases, then shown soonest first
-  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon' && !isNope(m)).sort((a, b) => b.buzz - a.buzz).slice(0, 18).sort((a, b) => a.th.localeCompare(b.th));
-  const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach).slice(0, 18);
-  const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a))).slice(0, 18);
+  const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon' && !isNope(m)).sort((a, b) => a.th.localeCompare(b.th));
+  const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach);
+  const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a)));
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
   const firstRun = 'This shelf fills in after the next nightly data refresh.';
   return `
@@ -727,14 +735,14 @@ views.tonight = () => {
     return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31 days${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
-  ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '', '<a class="btn small ghost" href="#/browse" data-act="funbrowse">See all</a>') : ''}
-  ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '<a class="btn small ghost" href="#/queue">Your queue</a>', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
+  ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '') : ''}
+  ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
   ${vsTonightHTML()}
-  ${!S.user ? '' : forYou.length >= 4 ? shelf('Picked for you', 'Based on everything in your Body Count and how you rated it.', forYou.map((x) => x.m), '', '<a class="btn small ghost" href="#/browse" data-act="foryou">See more</a>', (m) => recs.by.get(String(m.id))?.why)
+  ${!S.user ? '' : forYou.length >= 4 ? shelf('Picked for you', 'Based on everything in your Body Count and how you rated it.', forYou.map((x) => x.m), '', '', (m) => recs.by.get(String(m.id))?.why)
     : recs && recs.n < MIN_FOR_PICKS ? `<section class="shelf" data-key="picked for you"><div class="shelf-head"><div><h2>Picked for you</h2><p class="muted">Mark ${MIN_FOR_PICKS - recs.n} more movie${MIN_FOR_PICKS - recs.n === 1 ? '' : 's'} you've seen and rate them with skulls, and this shelf fills in with picks for your taste.</p></div><div class="shelf-nav"><a class="btn small" href="#/checklist">${icon('skull')}Check off ones you've seen</a></div></div></section>` : ''}
-  ${fPicks.length >= 2 ? shelf('Your friends liked these', 'Rated well by your friends, and you haven\'t seen them yet.', fPicks.map((x) => x.m), '', '<a class="btn small ghost" href="#/friends">Friends</a>', (m) => fPicks.find((x) => x.m.id === m.id)?.sub) : ''}
+  ${fPicks.length >= 2 ? shelf('Your friends liked these', 'Rated well by your friends, and you haven\'t seen them yet.', fPicks.map((x) => x.m), '', '', (m) => fPicks.find((x) => x.m.id === m.id)?.sub) : ''}
   ${anchor ? shelf(`Because you loved ${esc(anchor.m.t)}`, 'People who liked it also liked these.', anchor.list, '') : ''}
-  ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun, '<a class="btn small ghost" href="#/browse">See all</a>')}
+  ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun)}
   ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen and well liked. Easy to get a group on board.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services right now.' : firstRun)}
   ${inTheaters.length ? shelf('In theaters now', 'Playing in US theaters and not streaming yet.', inTheaters, '') : ''}
   ${comingSoon.length ? shelf('Coming to theaters', 'Horror opening in US theaters soon, earliest first.', comingSoon, '') : ''}
@@ -744,6 +752,15 @@ views.tonight = () => {
   ${shelf('On Shudder now', 'The busiest titles on Shudder this week.', shudder, firstRun)}
   ${critics.length >= 6 ? shelf('Critics loved these', '90% or better with critics on Rotten Tomatoes.', critics, '') : ''}
   ${divisive.length >= 6 ? shelf('Critics hated it, fans didn\'t', 'Rotten with critics, but well rated by viewers on IMDb.', divisive, '') : ''}`;
+};
+
+// Everything on one Tonight shelf, as a grid.
+views.shelf = (slug) => {
+  if (!S.shelves?.[slug]) { const keep = S.after, n = shelfN; views.tonight(); S.after = keep; shelfN = n; }
+  const sh = S.shelves?.[slug];
+  if (!sh) return `<div class="page-head"><a class="back-link" href="#/">${icon('left')}Tonight</a><h1>Not found</h1></div><div class="empty">${icon('search')}<span>That shelf isn't on Tonight right now.</span></div>`;
+  return `<div class="page-head"><a class="back-link" href="#/">${icon('left')}Tonight</a><h1>${sh.title}</h1>${sh.desc ? `<p class="muted">${sh.desc}</p>` : ''}<p class="faint">${sh.list.length} movie${sh.list.length === 1 ? '' : 's'}</p></div>
+  <div class="grid">${sh.list.map((m) => card(m, sh.subOf ? { sub: sh.subOf(m) } : undefined)).join('')}</div>`;
 };
 
 // Browse
@@ -770,6 +787,8 @@ function filtered() {
   return list.sort(by);
 }
 function renderResults() {
+  const ft = document.querySelector('.f-toggle');
+  if (ft) { const f = S.f, n = f.sg.size + f.tier.size + [f.decade, f.provider, f.mine, f.tom, f.hideSeen].filter(Boolean).length; ft.querySelector('.f-n')?.remove(); if (n) ft.insertAdjacentHTML('beforeend', `<b class="f-n">${n}</b>`); }
   const list = filtered();
   const el = $('#results'); if (!el) return;
   setHTML(el, `<div class="results-head"><p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>${sizePicker()}</div>
@@ -782,18 +801,22 @@ views.browse = () => {
   const provs = S.data.providers.filter((p) => S.movies.some((m) => m.pv.includes(p.id) || m.fr.includes(p.id)));
   S.after = renderResults;
   const any = f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine || f.tom;
+  const nOn = f.sg.size + f.tier.size + [f.decade, f.provider, f.mine, f.tom, f.hideSeen].filter(Boolean).length;
   return `<div class="page-head"><h1>Browse</h1><p class="muted">Pick a few subgenres to narrow it down. Every filter you add has to match.</p></div>
-  <div class="filters">
+  <div class="filters${S.fOpen ? ' open' : ''}">
     <div class="toolbar">
       <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="Search titles or directors" value="${esc(f.q)}"></label>
       <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z'], ...(S.user && recommend().list.length ? [['foryou', 'Picked for you']] : [])].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <button class="btn f-toggle" data-act="ftoggle" aria-expanded="${!!S.fOpen}">${icon('sliders')}Filters${nOn ? `<b class="f-n">${nOn}</b>` : ''}</button>
+      <div class="f-sel f-more">
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
       ${S.hasTom ? `<select id="f-tom" data-bind="tom" aria-label="Critics score"><option value="">Any critics score</option>${[[60, 'Fresh (60%+)'], [75, '75% and up'], [90, '90% and up']].map(([v, l]) => `<option value="${v}" ${String(f.tom) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
+      </div>
     </div>
-    <div class="filter-row"><span>Subgenre</span>${sgPicker('fsg', f.sg)}</div>
-    <div class="filter-row"><span>How known</span><div class="chips">${S.data.tiers.map((t) => chip('ftier', t.key, esc(t.label), f.tier.has(t.key))).join('')}</div></div>
-    <div class="filter-row"><span>Show</span><div class="chips">
+    <div class="filter-row f-more"><span>Subgenre</span>${sgPicker('fsg', f.sg)}</div>
+    <div class="filter-row f-more"><span>How known</span><div class="chips">${S.data.tiers.map((t) => chip('ftier', t.key, esc(t.label), f.tier.has(t.key))).join('')}</div></div>
+    <div class="filter-row f-more"><span>Show</span><div class="chips">
       ${chip('fmine', '', 'On my services', f.mine, S.profile.services.length ? '' : 'disabled title="Add services in Settings"')}
       ${chip('fseen', '', "Hide what I've seen", f.hideSeen)}
       ${any ? `<button class="chip" data-act="fclear">${icon('x')}Clear filters</button>` : ''}
@@ -2777,6 +2800,7 @@ const actions = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Image saved', 'check');
   },
+  ftoggle(el) { S.fOpen = !S.fOpen; el.closest('.filters')?.classList.toggle('open', S.fOpen); el.setAttribute('aria-expanded', String(S.fOpen)); },
   funbrowse() { S.f.sg = new Set(['fun']); S.f.limit = 60; S.f.sort = 'reach'; location.hash = '#/browse'; },
   foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
   async vsvote(el) {
@@ -3644,7 +3668,7 @@ const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
-  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
+  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/' && here === '#/shelf') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies')) ? 'aria-current="page"' : '');
   const nReqs = S.requests?.incoming.length || 0;
   $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}${h === '#/friends' && nReqs ? `<b class="nav-n">${nReqs}</b>` : ''}</a>`).join('');
   $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie Nights', 'Nights').replace('My Queue', 'Queue').replace('Pick for Me', 'Pick')}</span></a>`).join('');
@@ -3719,7 +3743,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight' }[name] || '') : ''}`;
 }
 
 async function boot() {
