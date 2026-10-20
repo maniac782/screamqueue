@@ -1627,3 +1627,11 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
   .bc-links { display: grid; grid-template-columns: 1fr 1fr; }
   .bc-links > :last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
+/* Phone shelves: "See all" sits on the same line as the shelf title, as a small text link, instead of wrapping onto its own line */
+@media (max-width: 860px) {
+  .shelf-head { flex-wrap: nowrap; align-items: start; gap: 12px; }
+  .shelf-head > div:first-child { flex: 1; }
+  .shelf-nav { flex: none; }
+  .shelf-nav .btn.ghost { border: 0; background: none; box-shadow: none; padding: 4px 0; min-height: 0; color: var(--accent); font-weight: 700; font-size: .88rem; gap: 2px; }
+  .shelf-nav .btn.ghost::after { content: '›'; font-size: 1.15em; line-height: 1; margin-left: 3px; }
+}
