@@ -2588,11 +2588,19 @@ function openDetail(id) {
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert, m.dir.length && `Directed by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
     </div></div>
     <div class="sheet-body">
+      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
+        ${seen ? `${skullPicker(m, st.rating || 0)}
+        <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
+        <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
+        ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}${st ? 'Hidden. Show it again' : 'Not interested'}</button>`}</div>
       ${releaseHTML(m)}
       <div class="row" style="gap:10px">${trailerBtn(m)}</div>
       ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
+      <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
+        <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
+        <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
       ${castBlock(m)}
       ${seriesBlock(m)}
       ${killBlock(m)}
@@ -2602,14 +2610,6 @@ function openDetail(id) {
         <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
         <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
       </div>
-      <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
-        ${seen ? `${skullPicker(m, st.rating || 0)}
-        <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
-        <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
-        ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}${st ? 'Hidden. Show it again' : 'Not interested'}</button>`}</div>
-      <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
-        <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
-        <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
       <div class="linkrow">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${icon('link')}${l}</a>`).join('')}</div>
     </div></div>`;
   fxKeep.forEach((l) => dlg.append(l));
