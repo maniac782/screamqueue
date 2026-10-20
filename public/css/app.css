@@ -1599,3 +1599,20 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 .cw-fans-btn .ic { width: 14px; height: 14px; transition: transform .2s; }
 .cw-fans-btn[aria-expanded="true"] .ic { transform: rotate(180deg); }
 .cw-wrap .dd .linkish { font-size: .86rem; font-weight: 700; color: var(--accent); }
+/* Phone header: BETA tucked under the name instead of beside it, so the logo and the three round buttons fit with room to spare. */
+@media (max-width: 600px) {
+  .top .logo { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 10px; row-gap: 3px; align-items: center; min-width: 0; font-size: 1.12rem; }
+  .top .logo .mark { grid-row: 1 / 3; width: 40px; height: 40px; border-radius: 10px; }
+  .top .logo #brand { align-self: end; line-height: 1.05; overflow: hidden; text-overflow: ellipsis; }
+  .top .logo .beta { display: inline-block; grid-column: 2; justify-self: start; align-self: start; font-size: .5rem; padding: 1px 6px; line-height: 1.3; }
+  .top .wrap { gap: 10px; }
+  .top .who { gap: 8px; flex: none; }
+  .top .m-vs, .top .m-friends { margin-right: 0; width: 38px; height: 38px; }
+  .top .acct-btn .avatar { width: 38px; height: 38px; }
+}
+@media (max-width: 359px) {
+  .top .logo { font-size: .98rem; column-gap: 8px; }
+  .top .logo .mark { width: 34px; height: 34px; }
+  .top .who { gap: 6px; }
+  .top .m-vs, .top .m-friends, .top .acct-btn .avatar { width: 34px; height: 34px; }
+}
