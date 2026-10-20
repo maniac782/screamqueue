@@ -4,8 +4,11 @@
    - queueStreamingEmail: once a day, after the nightly data refresh, email people whose queued movies just
      started streaming (on their services, if they've set any).
    Mail goes out through Gmail (MAIL_FROM in .env) with the app password kept in Secret Manager (GMAIL_APP_PASSWORD).
-   Emails are only sent while the admin has "Email notifications are set up" on (config/site.emailOn). */
-const {onDocumentCreated} = require('firebase-functions/v2/firestore');
+   Emails are only sent while the admin has "Email notifications are set up" on (config/site.emailOn).
+   - dtddLookup / dtddCleanup: content warnings from DoesTheDogDie.com (free API key in Secret Manager as DTDD_API_KEY).
+     A movie is only looked up when someone opens its warnings (their terms don't allow bulk downloading), results are
+     kept at most 30 days (their terms), and a monthly budget keeps us inside the free plan's 5,000 calls. */
+const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
 const {defineSecret, defineString} = require('firebase-functions/params');
 const logger = require('firebase-functions/logger');
@@ -125,4 +128,75 @@ exports.queueStreamingEmail = onSchedule({schedule: '30 7 * * *', timeZone: 'Ame
   }
   await state.set({streamingSince: today}, {merge: true});
   logger.info('queue streaming emails', {movies: fresh.length, sent});
+});
+
+// ---------- content warnings from DoesTheDogDie.com ----------
+// The site writes dtddq/{tmdbId} when someone opens a movie's warnings and there's no fresh copy in dtdd/{tmdbId}.
+// This looks the movie up (1-2 API calls), saves the yes/no totals to dtdd/{tmdbId} and removes the request.
+const DTDD_API_KEY = defineSecret('DTDD_API_KEY');
+const DTDD = 'https://www.doesthedogdie.com/api/v3';
+const DAY = 24 * HOUR;
+const DTDD_FRESH = 25 * DAY; // looked up again after this; never shown after 30 days
+const DTDD_MONTHLY = 4500;  // free plan: 5,000 calls a month (and 30 a minute)
+let catalog = null, catalogAt = 0;
+async function inCatalog(id) {
+  if (!catalog || Date.now() - catalogAt > HOUR) {
+    const d = await (await fetch(SITE_URL.value() + '/data/movies.json')).json();
+    catalog = new Set(d.movies.map((m) => String(m.id))); catalogAt = Date.now();
+  }
+  return catalog.has(String(id));
+}
+// Reserve n calls from this month's budget. False when it's used up.
+function spend(n) {
+  const ref = db.doc('config/dtdd'), month = new Date().toISOString().slice(0, 7);
+  return db.runTransaction(async (t) => {
+    const d = (await t.get(ref)).data() || {};
+    const used = d.month === month ? d.used || 0 : 0;
+    if (used + n > DTDD_MONTHLY) return false;
+    t.set(ref, {month, used: used + n}, {merge: true});
+    return true;
+  });
+}
+async function dtddGet(key, path) {
+  const r = await fetch(DTDD + path, {headers: {'X-API-KEY': key, Accept: 'application/json'}});
+  if (!r.ok) throw new Error('DoesTheDogDie ' + r.status + ' on ' + path.split('?')[0]);
+  return r.json();
+}
+const listOf = (j) => Array.isArray(j) ? j : j?.items || j?.data || j?.results || (j?.item ? [j.item] : []);
+const statsOf = (j) => j?.topicItemStats || j?.item?.topicItemStats || j?.data?.topicItemStats || null;
+
+exports.dtddLookup = onDocumentWritten({document: 'dtddq/{id}', secrets: [DTDD_API_KEY], maxInstances: 2}, async (event) => {
+  const req = event.data?.after;
+  if (!req?.exists) return;
+  const id = event.params.id;
+  const done = () => req.ref.delete().catch(() => {});
+  try {
+    const key = (DTDD_API_KEY.value() || '').trim();
+    if (!key || key === 'unset') return done();
+    const out = db.doc('dtdd/' + id);
+    const have = (await out.get()).data();
+    if (have && Date.now() - have.at < DTDD_FRESH) return done();
+    if (!(await inCatalog(id))) return done();
+    if (!(await spend(2))) { logger.warn('DoesTheDogDie monthly budget used up'); return done(); }
+    const found = listOf(await dtddGet(key, '/items?tmdb=' + encodeURIComponent(id)));
+    const item = found.find((x) => /movie/i.test(x.itemTypeName || '')) || found[0];
+    if (!item) { await out.set({at: Date.now(), item: null}); return done(); }
+    let stats = statsOf(item);
+    if (!stats) stats = statsOf(await dtddGet(key, '/items/' + item.id)) || [];
+    const topics = stats.map((t) => ({n: String(t.topicName || '').slice(0, 120), y: +t.yesSum || 0, no: +t.noSum || 0}))
+      .filter((t) => t.n && t.y + t.no > 0)
+      .sort((a, b) => b.y - a.y || a.no - b.no);
+    await out.set({at: Date.now(), item: item.id, name: String(item.name || '').slice(0, 200), topics});
+  } catch (e) {
+    logger.warn('DoesTheDogDie lookup failed', {id, e: String(e)});
+  }
+  return done();
+});
+
+// Their terms: cached data has to be refreshed (or dropped) within 30 days.
+exports.dtddCleanup = onSchedule({schedule: '15 4 * * *', timeZone: 'America/New_York'}, async () => {
+  const old = await db.collection('dtdd').where('at', '<', Date.now() - 30 * DAY).limit(400).get();
+  const b = db.batch(); old.docs.forEach((d) => b.delete(d.ref));
+  if (!old.empty) await b.commit();
+  logger.info('DoesTheDogDie cleanup', {removed: old.size});
 });

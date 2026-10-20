@@ -1586,3 +1586,16 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
   .top .who { justify-self: end; }
 }
 @media (min-width: 1241px) { .nav a { padding-inline: 10px; } }
+/* Content warnings from DoesTheDogDie.com, with our own fans' answers folded underneath */
+.cw-wrap .dd { display: grid; gap: 8px; }
+.dd-sum { margin: 0; font-size: .92rem; }
+.dd-note { margin: 0; font-size: .8rem; }
+.dd-credit { margin: 0; font-size: .8rem; color: var(--faint); }
+.dd-credit a { color: var(--muted); }
+.cw-wrap .dd .linkish { justify-self: start; }
+.cw-fans { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 10px; }
+.cw-fans-btn { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: .9rem; color: var(--muted); }
+.cw-fans-btn:hover { color: var(--fg); }
+.cw-fans-btn .ic { width: 14px; height: 14px; transition: transform .2s; }
+.cw-fans-btn[aria-expanded="true"] .ic { transform: rotate(180deg); }
+.cw-wrap .dd .linkish { font-size: .86rem; font-weight: 700; color: var(--accent); }

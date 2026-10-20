@@ -144,6 +144,12 @@ export const store = {
   async delRx(key) { delete (load().rx ||= {})[key]?.demo; save(); },
   async listRxIn() { return [{ id: 'x1', from: 'pal1', name: 'Sample friend A', handle: 'finalgirl', k: 'skull', movie: 493922, kind: 'a', at: Date.now() - 3600e3 }, { id: 'x2', from: 'pal2', name: 'Sample friend B', handle: 'ghostface_fan', k: 'same', movie: 4232, kind: 'r', at: Date.now() - 86400e3 }]; },
   async getWarnings(id) { const all = (load().cw ||= {}); const mine = all[id] ? [{ uid: 'demo', v: all[id] }] : []; return [...mine, { uid: 'pal1', v: { dog: -1, jump: 1, gore: 1 } }, { uid: 'pal2', v: { dog: -1, jump: 1 } }]; },
+  watchDtdd(id, cb) {
+    const t = setTimeout(() => cb({ at: Date.now(), item: 12345, name: 'Demo', topics: [
+      { n: 'Are there jump scares', y: 41, no: 2 }, { n: 'Is there blood/gore', y: 38, no: 1 }, { n: 'Does someone get stabbed', y: 30, no: 0 },
+      { n: 'Is someone burned alive', y: 6, no: 9 }, { n: 'Does the dog die', y: 1, no: 64 }, { n: 'Does a cat die', y: 0, no: 22 }] }), 400);
+    return () => clearTimeout(t);
+  },
   async setWarning(id, key, val) { const all = (load().cw ||= {}); const v = (all[id] ||= {}); if (val) v[key] = val; else delete v[key]; save(); },
   async myLists() { return Object.values(load().lists || {}).filter((l) => l.owner === 'demo').map((x) => structuredClone(x)); },
   async publicLists() { demoLists(); return Object.values(load().lists).filter((l) => l.vis === 'public').map((x) => structuredClone(x)); },

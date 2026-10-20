@@ -137,6 +137,16 @@ service cloud.firestore {
       allow delete: if signedIn() && (owner == me() || id.matches('^' + me() + '_.+'));
     }
 
+    // Content warnings from DoesTheDogDie.com, saved by the server (dtddLookup). Anyone can read; only the server writes.
+    match /dtdd/{movieId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    // Asking the server to look a movie up. Anyone can ask; the server checks the movie is on the site and the budget.
+    match /dtddq/{movieId} {
+      allow create: if movieId.matches('^[0-9]{1,9}$') && request.resource.data.keys().hasOnly(['at']) && request.resource.data.at == request.time;
+    }
+
     // Content warnings ("Does the dog die?"): each person answers yes/no per warning. Anyone can read the answers.
     match /cw/{movieId}/by/{uid} {
       allow read: if true;

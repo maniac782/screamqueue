@@ -210,24 +210,68 @@ const CW = [
   ['spider', 'Spiders?'], ['needle', 'Needles or injections?'], ['trapped', 'Buried alive or trapped in tight spaces?'], ['drown', 'Drowning?'],
 ];
 const cwCache = new Map();
+// DoesTheDogDie.com answers (saved by our server, at most 30 days old). undefined = looking it up, null = not available.
+const ddCache = new Map(), ddStop = new Map();
+const DD_SHOW = 12;
+function ddWatch(id) {
+  id = String(id);
+  if (ddCache.has(id) || ddStop.has(id) || !store.watchDtdd) return;
+  const stop = store.watchDtdd(id, (d) => {
+    ddCache.set(id, d); cwRefresh(id);
+    if (d === null || (d && Date.now() - d.at < 25 * 864e5)) { ddStop.get(id)?.(); ddStop.delete(id); }
+  });
+  ddStop.set(id, stop);
+}
+function cwRefresh(id) { const m = S.byId.get(String(id)); const el = document.querySelector(`#detail[data-id="${id}"] .cw-wrap`); if (m && el) el.innerHTML = cwHTML(m); }
+function cwAns(yes, no) {
+  return yes > no ? `<span class="cw-a yes">Yes <small>${yes} of ${yes + no}</small></span>` : no > yes ? `<span class="cw-a no">No <small>${no} of ${yes + no}</small></span>` : yes ? `<span class="cw-a mixed">Mixed <small>${yes} yes, ${no} no</small></span>` : '<span class="cw-a none">No answers yet</span>';
+}
+// DTDD phrases topics as questions without the mark ("Does the dog die"). Tidy that up for display.
+const ddQ = (n) => { const t = String(n).trim(); return /[?.!]$/.test(t) ? t : t + '?'; };
+function ddHTML(m) {
+  const id = String(m.id), d = ddCache.get(id);
+  const credit = `<p class="dd-credit">Powered by <a href="https://www.doesthedogdie.com" target="_blank" rel="noopener">DoesTheDogDie.com</a>${d?.item ? ` · <a href="https://www.doesthedogdie.com/media/${encodeURIComponent(d.item)}" target="_blank" rel="noopener">See it there</a>` : ''}</p>`;
+  if (d === undefined) return `<div class="dd"><p class="muted">Looking it up on DoesTheDogDie.com…</p>${credit}</div>`;
+  if (d === null) return `<div class="dd"><p class="muted">DoesTheDogDie.com answers aren't available right now. Try again later.</p>${credit}</div>`;
+  if (!d.item || !d.topics?.length) return `<div class="dd"><p class="muted">${d.item ? 'No one has answered anything for this movie on DoesTheDogDie.com yet.' : 'DoesTheDogDie.com doesn\'t have this movie yet.'}</p>${credit}</div>`;
+  const yes = d.topics.filter((t) => t.y > t.no), rest = d.topics.filter((t) => t.y <= t.no);
+  const all = S.ddAll?.has(id);
+  const list = all ? [...yes, ...rest] : yes.slice(0, DD_SHOW);
+  const more = all ? 0 : d.topics.length - list.length;
+  const rows = list.map((t) => `<div class="cw-row"><span class="cw-q">${esc(ddQ(t.n))}</span>${cwAns(t.y, t.no)}</div>`).join('');
+  return `<div class="dd">
+    <p class="dd-sum">${yes.length ? `People said <b>yes</b> to ${yes.length} of ${d.topics.length} topic${d.topics.length === 1 ? '' : 's'}${yes.length > list.length ? `. Here are the ${list.length} most agreed on` : ''}.` : `People said no to all ${d.topics.length} topic${d.topics.length === 1 ? '' : 's'} they answered.`}</p>
+    ${rows ? `<div class="cw-list">${rows}</div>` : ''}
+    ${more ? `<button class="linkish" data-act="ddall" data-id="${id}">Show all ${d.topics.length} topics, including the no's</button>` : all && d.topics.length > DD_SHOW ? `<button class="linkish" data-act="ddall" data-id="${id}">Show fewer</button>` : ''}
+    <p class="dd-note muted">Answers come from the DoesTheDogDie.com community and aren't verified. A topic missing here doesn't mean it isn't in the movie.</p>
+    ${credit}</div>`;
+}
 function cwHTML(m) {
-  const votes = cwCache.get(String(m.id));
-  if (!S.cwOpen?.has(String(m.id))) {
-    const n = votes ? CW.filter(([k]) => votes.some((x) => x.v[k])).length : 0;
-    return `<div class="cw-head"><div><h3>Content warnings</h3><p class="muted" style="margin:0;font-size:.88rem">Does the dog die? Jump scares? Answers from fans${n ? ` on ${n} topic${n === 1 ? '' : 's'}` : ''}. May contain spoilers.</p></div><button class="btn small" data-act="cwshow" data-id="${m.id}">${icon('eye')}Show</button></div>`;
+  const id = String(m.id), votes = cwCache.get(id);
+  if (!S.cwOpen?.has(id)) {
+    return `<div class="cw-head"><div><h3>Content warnings</h3><p class="muted" style="margin:0;font-size:.88rem">Does the dog die? Jump scares? Answers from DoesTheDogDie.com and fans here. May contain spoilers.</p></div><button class="btn small" data-act="cwshow" data-id="${m.id}">${icon('eye')}Show</button></div>`;
   }
-  if (!votes) return '<p class="muted">Loading…</p>';
-  const mine = votes.find((x) => x.uid === S.user?.uid)?.v || {};
-  const rows = CW.map(([k, q]) => {
-    const yes = votes.filter((x) => x.v[k] === 1).length, no = votes.filter((x) => x.v[k] === -1).length;
-    const ans = yes > no ? `<span class="cw-a yes">Yes <small>${yes} of ${yes + no}</small></span>` : no > yes ? `<span class="cw-a no">No <small>${no} of ${yes + no}</small></span>` : yes ? `<span class="cw-a mixed">Mixed <small>${yes} yes, ${no} no</small></span>` : '<span class="cw-a none">No answers yet</span>';
-    const vote = S.user ? `<span class="cw-vote"><button class="cw-v${mine[k] === 1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="1" aria-pressed="${mine[k] === 1}">Yes</button><button class="cw-v${mine[k] === -1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="-1" aria-pressed="${mine[k] === -1}">No</button></span>` : '';
-    return `<div class="cw-row"><span class="cw-q">${esc(q)}</span>${ans}${vote}</div>`;
-  }).join('');
-  return `<div class="cw-head"><div><h3>Content warnings</h3><p class="muted" style="margin:0;font-size:.88rem">${S.user ? 'Seen it? Tap Yes or No to help others.' : 'Sign in to add your answers.'}</p></div><button class="btn small ghost" data-act="cwhide" data-id="${m.id}">Hide</button></div><div class="cw-list">${rows}</div>`;
+  ddWatch(id);
+  const head = `<div class="cw-head"><h3>Content warnings</h3><button class="btn small ghost" data-act="cwhide" data-id="${m.id}">Hide</button></div>`;
+  const n = votes ? CW.filter(([k]) => votes.some((x) => x.v[k])).length : 0;
+  const fansOpen = S.cwFans?.has(id);
+  let fans = `<button class="cw-fans-btn" data-act="cwfans" data-id="${id}" aria-expanded="${!!fansOpen}">${icon('down')}Scream Queue fans${n ? ` · ${n} topic${n === 1 ? '' : 's'} answered` : ''}</button>`;
+  if (fansOpen) {
+    if (!votes) fans += '<p class="muted">Loading…</p>';
+    else {
+      const mine = votes.find((x) => x.uid === S.user?.uid)?.v || {};
+      const rows = CW.map(([k, q]) => {
+        const yes = votes.filter((x) => x.v[k] === 1).length, no = votes.filter((x) => x.v[k] === -1).length;
+        const vote = S.user ? `<span class="cw-vote"><button class="cw-v${mine[k] === 1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="1" aria-pressed="${mine[k] === 1}">Yes</button><button class="cw-v${mine[k] === -1 ? ' on' : ''}" data-act="cwvote" data-id="${m.id}" data-k="${k}" data-v="-1" aria-pressed="${mine[k] === -1}">No</button></span>` : '';
+        return `<div class="cw-row"><span class="cw-q">${esc(q)}</span>${cwAns(yes, no)}${vote}</div>`;
+      }).join('');
+      fans += `<p class="muted" style="margin:0;font-size:.88rem">${S.user ? 'Seen it? Tap Yes or No to help others.' : 'Sign in to add your answers.'}</p><div class="cw-list">${rows}</div>`;
+    }
+  }
+  return `${head}${ddHTML(m)}<div class="cw-fans">${fans}</div>`;
 }
 function cwBlock(m) {
-  if (!cwCache.has(String(m.id)) && store.getWarnings) store.getWarnings(m.id).then((x) => { cwCache.set(String(m.id), x); const el = document.querySelector(`#detail[data-id="${m.id}"] .cw-wrap`); if (el) el.innerHTML = cwHTML(m); }).catch(() => cwCache.set(String(m.id), []));
+  if (!cwCache.has(String(m.id)) && store.getWarnings) store.getWarnings(m.id).then((x) => { cwCache.set(String(m.id), x); cwRefresh(m.id); }).catch(() => cwCache.set(String(m.id), []));
   return `<div class="cw-wrap">${cwHTML(m)}</div>`;
 }
 function killBlock(m) {
@@ -1208,7 +1252,7 @@ views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1>
   </div>`;
 const aboutView = views.about;
 views.about = () => { S.after = S.afterAbout; return aboutView(); };
-views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="muted">Last updated October 18, 2026</p></div>
+views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="muted">Last updated October 19, 2026</p></div>
   <div class="panel stack prose policy" style="max-width:760px;gap:18px">
     <p>${esc(SITE_NAME)} is a free hobby site for finding horror movies to watch and keeping track of what you've seen. It's run by one person, not a company. This page explains what it keeps about you and why.</p>
     <h2>What the site keeps</h2>
@@ -1229,6 +1273,8 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>On your device.</b> Your browser keeps a copy of your data so pages load quickly, plus your sign-in and a few display settings (theme and poster size). Demo mode keeps everything in your browser only.</li>
     </ul>
     <p>Nothing is used for advertising or tracking, and there are no analytics.</p>
+    <h2>Where movie information comes from</h2>
+    <p>Movie details, posters and streaming info come from TMDB. Content warnings come from DoesTheDogDie.com: when you open a movie's warnings, the site's server asks DoesTheDogDie.com about that movie. Nothing about you is sent, only which movie.</p>
     <h2>Who can see it</h2>
     <ul>
       <li>Your Body Count, ratings and queue are visible to the people you choose in Profile: anyone signed in, friends only, or just you.</li>
@@ -2815,6 +2861,8 @@ const actions = {
   async lmove(el) { const id = el.dataset.id, l = listCache.get(id), it = [...(l.items || [])], i = Number(el.dataset.k), j = i + Number(el.dataset.dir); if (j < 0 || j >= it.length) return; [it[i], it[j]] = [it[j], it[i]]; await saveListItems(id, it); route(true, true); },
   async ldel(el) { if (!confirm('Delete this list? This can\'t be undone.')) return; await store.deleteList(el.dataset.id); S.lEdit = null; toast('List deleted', 'x'); location.hash = '#/lists'; },
   cwshow(el) { (S.cwOpen ||= new Set()).add(el.dataset.id); const m = S.byId.get(el.dataset.id); const w = el.closest('.cw-wrap'); if (m && w) w.innerHTML = cwHTML(m); },
+  ddall(el) { const id = el.dataset.id; S.ddAll ||= new Set(); S.ddAll.has(id) ? S.ddAll.delete(id) : S.ddAll.add(id); cwRefresh(id); },
+  cwfans(el) { const id = el.dataset.id; S.cwFans ||= new Set(); S.cwFans.has(id) ? S.cwFans.delete(id) : S.cwFans.add(id); cwRefresh(id); },
   cwhide(el) { S.cwOpen?.delete(el.dataset.id); const m = S.byId.get(el.dataset.id); const w = el.closest('.cw-wrap'); if (m && w) w.innerHTML = cwHTML(m); },
   async cwvote(el) {
     if (!needUser()) return;

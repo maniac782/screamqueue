@@ -273,6 +273,21 @@ export const store = {
     const v = { ...cur }; if (val) v[key] = val; else delete v[key];
     if (Object.keys(v).length) await F.setDoc(ref, { v, at: Date.now() }); else await F.deleteDoc(ref);
   },
+  // DoesTheDogDie.com warnings, saved by the server in dtdd/{movie}. When there's no copy younger than 25 days we ask the
+  // server for one (dtddq/{movie}) and keep listening until it arrives. cb gets the doc, or null when there's nothing.
+  watchDtdd(movieId, cb) {
+    const id = String(movieId); let asked = false, got = false, timer = null;
+    const fresh = (d) => d && Date.now() - (d.at || 0) < 30 * 864e5;
+    const stop = F.onSnapshot(F.doc(db, 'dtdd', id), (s) => {
+      const d = s.exists() ? s.data() : null;
+      if (fresh(d)) { got = true; clearTimeout(timer); cb(d); }
+      if ((d && Date.now() - d.at < 25 * 864e5) || asked) return;
+      asked = true;
+      F.setDoc(F.doc(db, 'dtddq', id), { at: F.serverTimestamp() }).catch(() => {});
+      if (!got) { cb(undefined); timer = setTimeout(() => { if (!got) cb(null); }, 25000); }
+    }, () => cb(null));
+    return () => { clearTimeout(timer); stop(); };
+  },
   // Lists: lists/{id} = { owner, name, handle, title, desc, items: [movie ids], vis: public|friends|private, at, upd }
   // Following a list adds a fan doc (lists/{id}/fans/{uid}, for the count) and its id to users/{uid}.follows.
   async myLists() { const s = await F.getDocs(F.query(F.collection(db, 'lists'), F.where('owner', '==', uid()))); return s.docs.map((d) => ({ id: d.id, ...d.data() })); },

@@ -2,7 +2,7 @@ name: Deploy email functions
 
 # Run this by hand (Actions > Deploy email functions > Run workflow) once the project is on the Blaze plan.
 # Needs these GitHub secrets: GMAIL_APP_PASSWORD (a Gmail app password), MAIL_FROM (that Gmail address),
-# CONTACT_TO (where Contact messages go). The service account needs these extra roles: Cloud Functions Admin,
+# CONTACT_TO (where Contact messages go). Optional: DTDD_API_KEY (free key from doesthedogdie.com/api) for content warnings. The service account needs these extra roles: Cloud Functions Admin,
 # Service Account User, Cloud Scheduler Admin, Secret Manager Admin, Service Usage Admin,
 # Artifact Registry Administrator, Eventarc Admin, Cloud Build Editor.
 on:
@@ -35,14 +35,19 @@ jobs:
           PW: ${{ secrets.GMAIL_APP_PASSWORD }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           CONTACT_TO: ${{ secrets.CONTACT_TO }}
+          DTDD: ${{ secrets.DTDD_API_KEY }}
         run: |
           printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           printf 'MAIL_FROM=%s\nCONTACT_TO=%s\nSITE_URL=https://screamqueue.web.app\n' "$MAIL_FROM" "$CONTACT_TO" > functions/.env
           printf '%s' "$PW" | npx -y firebase-tools@latest functions:secrets:set GMAIL_APP_PASSWORD --data-file - --project screamqueue --non-interactive --force
+          # Content warnings: without a key the lookup function stays installed but does nothing.
+          printf '%s' "${DTDD:-unset}" | npx -y firebase-tools@latest functions:secrets:set DTDD_API_KEY --data-file - --project screamqueue --non-interactive --force
           set +e
           npx -y firebase-tools@latest deploy --only functions --project screamqueue --non-interactive --force 2>&1 | tee "$RUNNER_TEMP/deploy.log"
           code=${PIPESTATUS[0]}
+          # Destroy secret versions no function uses any more (each deploy above adds one; extra versions cost money).
+          [ "$code" = "0" ] && npx -y firebase-tools@latest functions:secrets:prune --project screamqueue --non-interactive --force >/dev/null 2>&1 || true
           rm -f "$RUNNER_TEMP/sa.json" functions/.env
           if [ "$code" != "0" ]; then
             msg=$(grep -v '^npm warn' "$RUNNER_TEMP/deploy.log" | tail -25 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')

@@ -1,7 +1,7 @@
 {
   "name": "screamqueue-functions",
   "private": true,
-  "description": "Server functions for Scream Queue: friend request, contact and queue-streaming emails.",
+  "description": "Server functions for Scream Queue: friend request, contact and queue-streaming emails, and DoesTheDogDie.com content warnings.",
   "main": "index.js",
   "engines": {
     "node": "22"
