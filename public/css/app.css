@@ -1578,3 +1578,11 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 .you-saw .ic { width: 12px; height: 12px; }
 .u-filter { margin: 4px 0 14px; }
 @media (max-width: 700px) { .you-saw { font-size: .6rem; padding: 2px 6px 2px 4px; left: 4px; bottom: 4px; } .you-saw .ic { width: 10px; height: 10px; } }
+/* Desktop header: logo left, account right, and the menu centered on the page itself (not just in the gap between them). */
+@media (min-width: 861px) {
+  .top .wrap { display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); gap: 14px; }
+  .top .logo { justify-self: start; }
+  .top .nav { margin-inline: 0; }
+  .top .who { justify-self: end; }
+}
+@media (min-width: 1241px) { .nav a { padding-inline: 10px; } }
