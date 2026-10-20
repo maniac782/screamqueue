@@ -1835,24 +1835,28 @@ function bracketHTML(v, res, big, compact, list) {
     const def = live || Math.max(1, ...res.rounds.filter((x) => x.closed).map((x) => x.r));
     const cur = Math.min(R, Math.max(1, Number(S.bkRound?.[v.id]) || def));
     const tabs = R > 1 ? `<div class="tabs bkf-tabs" role="tablist">${Array.from({ length: R }, (_, i) => i + 1).map((r) => `<button role="tab" data-act="bkround" data-id="${v.id}" data-k="${r}" aria-selected="${r === cur}">${esc(roundName(v, r))}${r === live ? '<i class="bkf-dot" aria-label="voting now"></i>' : ''}</button>`).join('')}</div>` : '';
-    const got = res.rounds.find((x) => x.r === cur);
-    const note = got?.closed ? 'Done. Winners are outlined in gold.' : cur === live ? 'Voting now. Tap a poster to pick.' : 'Coming up. Matchups fill in as earlier rounds finish.';
-    const face = (pos) => {
-      const idx = slots[cur - 1][pos];
-      if (idx == null) return `<span class="bkf-s tbd"><span class="bkf-pic"></span><span class="bkf-n">TBD</span></span>`;
-      const e = v.entries[idx], m = e.m && S.byId.get(String(e.m));
-      const p = pairOf(cur, pos), side = pos % 2 ? 'b' : 'a', open = p && !got?.closed && ph.state === 'open';
-      const mine = p && res.mine[p.mk], tot = p ? (p.t?.a || 0) + (p.t?.b || 0) : 0, pct = tot ? Math.round((p.t[side] / tot) * 100) : 0;
-      const won = p?.w === side, lost = p?.w && p.w !== side;
-      const pic = `<span class="bkf-pic">${m ? art(m) : `<span class="vs-blank">${esc(e.l[0])}</span>`}${m && S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w342${m.poster}" alt="" loading="lazy">` : ''}${mine === side ? `<i class="bk-tick">${icon('check')}</i>` : ''}${won ? `<i class="bkf-win">${icon('trophy')}</i>` : ''}</span>`;
-      const inner = `${pic}<span class="bkf-n">${esc(e.l)}</span>${(mine || !open) && p ? `<span class="bkf-p"><span class="bkf-bar"><i style="width:${pct}%"></i></span><b>${pct}%</b></span>` : open ? '<span class="bkf-p hint">Tap to vote</span>' : ''}`;
-      const cls = `bkf-s${open ? ' live' : ''}${mine === side ? ' mine' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}`;
-      return open ? `<button class="${cls}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${side}" aria-pressed="${mine === side}" title="Vote for ${esc(e.l)}">${inner}</button>` : `<span class="${cls}">${inner}</span>`;
+    // Every round is drawn up front; the tabs just show one (no reload, so switching is instant).
+    const panel = (r) => {
+      const got = res.rounds.find((x) => x.r === r);
+      const note = got?.closed ? 'Done. Winners are outlined in gold.' : r === live ? 'Voting now. Tap a poster to pick.' : 'Coming up. Matchups fill in as earlier rounds finish.';
+      const face = (pos) => {
+        const idx = slots[r - 1][pos];
+        if (idx == null) return `<span class="bkf-s tbd"><span class="bkf-pic"></span><span class="bkf-n">TBD</span></span>`;
+        const e = v.entries[idx], m = e.m && S.byId.get(String(e.m));
+        const p = pairOf(r, pos), side = pos % 2 ? 'b' : 'a', open = p && !got?.closed && ph.state === 'open';
+        const mine = p && res.mine[p.mk], tot = p ? (p.t?.a || 0) + (p.t?.b || 0) : 0, pct = tot ? Math.round((p.t[side] / tot) * 100) : 0;
+        const won = p?.w === side, lost = p?.w && p.w !== side;
+        const pic = `<span class="bkf-pic">${m ? art(m) : `<span class="vs-blank">${esc(e.l[0])}</span>`}${m && S.config.showPosters && m.poster ? `<img src="https://image.tmdb.org/t/p/w342${m.poster}" alt="" loading="lazy">` : ''}${mine === side ? `<i class="bk-tick">${icon('check')}</i>` : ''}${won ? `<i class="bkf-win">${icon('trophy')}</i>` : ''}</span>`;
+        const inner = `${pic}<span class="bkf-n">${esc(e.l)}</span>${(mine || !open) && p ? `<span class="bkf-p"><span class="bkf-bar"><i style="width:${pct}%"></i></span><b>${pct}%</b></span>` : open ? '<span class="bkf-p hint">Tap to vote</span>' : ''}`;
+        const cls = `bkf-s${open ? ' live' : ''}${mine === side ? ' mine' : ''}${won ? ' won' : ''}${lost ? ' lost' : ''}`;
+        return open ? `<button class="${cls}" data-act="vsvote" data-id="${v.id}" data-mk="${p.mk}" data-k="${side}" aria-pressed="${mine === side}" title="Vote for ${esc(e.l)}">${inner}</button>` : `<span class="${cls}">${inner}</span>`;
+      };
+      let ms = '';
+      for (let i = 0; i < slots[r - 1].length; i += 2) ms += `<div class="bkf-m">${face(i)}<span class="bkf-vs">VS</span>${face(i + 1)}</div>`;
+      const champCard = r === R ? `<div class="bkl-champ${champ ? ' has' : ''}">${icon('trophy')}<span><small>Champion</small><b>${champ ? esc(champ.l) : 'To be decided'}</b></span></div>` : '';
+      return `<div class="bkf-panel" data-r="${r}" role="tabpanel"${r === cur ? '' : ' hidden'}><p class="muted bkf-note">${note}</p><div class="bkf-ms">${ms}</div>${champCard}</div>`;
     };
-    let ms = '';
-    for (let i = 0; i < slots[cur - 1].length; i += 2) ms += `<div class="bkf-m">${face(i)}<span class="bkf-vs">VS</span>${face(i + 1)}</div>`;
-    const champCard = cur === R || champ ? `<div class="bkl-champ${champ ? ' has' : ''}">${icon('trophy')}<span><small>Champion</small><b>${champ ? esc(champ.l) : 'To be decided'}</b></span></div>` : '';
-    return `<div class="bk bkf">${tabs}<p class="muted bkf-note">${note}</p><div class="bkf-ms">${ms}</div>${champCard}</div>`;
+    return `<div class="bk bkf">${tabs}${Array.from({ length: R }, (_, i) => panel(i + 1)).join('')}</div>`;
   }
   const col = (r, positions, side) => `<div class="bk-col ${side}">${positions.reduce((out, pos, i) => (i % 2 ? out : out + `<div class="bk-m">${slot(r, pos)}${positions[i + 1] != null ? slot(r, positions[i + 1]) : ''}</div>`), '')}</div>`;
   const left = [], right = [];
@@ -2888,7 +2892,12 @@ const actions = {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Image saved', 'check');
   },
-  bkround(el) { (S.bkRound ||= {})[el.dataset.id] = Number(el.dataset.k); route(true, true); },
+  bkround(el) {
+    const r = el.dataset.k, box = el.closest('.bkf'); (S.bkRound ||= {})[el.dataset.id] = Number(r);
+    if (!box) return;
+    box.querySelectorAll('.bkf-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === r)));
+    box.querySelectorAll('.bkf-panel').forEach((p) => { p.hidden = p.dataset.r !== r; });
+  },
   ftoggle(el) { S.fOpen = !S.fOpen; el.closest('.filters')?.classList.toggle('open', S.fOpen); el.setAttribute('aria-expanded', String(S.fOpen)); },
   funbrowse() { S.f.sg = new Set(['fun']); S.f.limit = 60; S.f.sort = 'reach'; location.hash = '#/browse'; },
   foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
