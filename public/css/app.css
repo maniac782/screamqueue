@@ -1571,3 +1571,10 @@ button.bk-s:hover, button.bk-s:focus-visible { border-color: var(--accent); tran
 .atl-row { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .atl-row small { display: block; color: var(--faint); font-size: .8rem; }
 .list-new { max-width: 760px; }
+
+/* "You've seen this too" on someone else's profile */
+.you-saw { position: absolute; z-index: 4; left: 6px; bottom: 6px; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px 3px 6px; border-radius: 999px;
+  background: rgba(10, 10, 14, .82); border: 1px solid rgba(92, 209, 138, .7); color: #8be3ae; font-size: .72rem; font-weight: 800; box-shadow: 0 4px 12px -4px rgba(0,0,0,.7); }
+.you-saw .ic { width: 12px; height: 12px; }
+.u-filter { margin: 4px 0 14px; }
+@media (max-width: 700px) { .you-saw { font-size: .6rem; padding: 2px 6px 2px 4px; left: 4px; bottom: 4px; } .you-saw .ic { width: 10px; height: 10px; } }

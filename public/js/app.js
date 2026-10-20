@@ -319,6 +319,7 @@ function poster(m, opts = {}) {
   return `<div class="poster ${img ? 'has-img' : ''} ${state} ${S.just?.id === String(m.id) ? 'just just-' + S.just.kind : ''}">
     ${art(m)}${img ? `<img loading="lazy" alt="" src="https://image.tmdb.org/t/p/w342${m.poster}">` : ''}
     <div class="scrim"></div>
+    ${opts.you ? `<span class="you-saw" title="You've seen this too">${icon('check')}You${opts.you.rating ? ` · ${fmtRating(opts.you.rating)}` : ''}</span>` : ''}
     ${opts.noBadges ? '' : (() => { const th = theaterStatus(m); const label = th === 'in' ? 'In Theaters' : th === 'soon' ? 'Coming Soon' : S.tierLabel.get(m.tier); return `<span class="badge-tier t-${th ? 'th-' + th : m.tier}">${m.flags.includes('hot') ? `<span class="flame" title="Trending this week">${icon('flame')}</span>` : '<i></i>'}${esc(label)}</span>`; })()}
     ${queued ? bloodDrip(m.id) : ''}
     ${stamped ? stampSVG(st?.rating) : ''}
@@ -381,7 +382,7 @@ function card(m, opts) {
   const name = `${m.t}${m.y ? ` (${m.y})` : ''}`;
   return `<div class="card" data-id="${m.id}">
     <button class="card-open" data-act="open" data-id="${m.id}" aria-label="${esc(name)}">
-      ${poster(m, plain ? { noBadges: true } : {})}
+      ${poster(m, plain ? { noBadges: true, you: opts?.you } : {})}
       <span class="meta"><span class="mt">${esc(m.t)}${m.y ? ` <span class="yr">(${m.y})</span>` : ''}</span><span class="l2">${esc(sg || 'Horror')}</span></span>
     </button>
     ${quickBar(m, name)}
@@ -2367,7 +2368,12 @@ views.u = async (key) => {
   const tab = S.uTab || 'seen';
   S.after = () => loadProfileReviews(pc, seen);
   // Posters here show their ratings, not your own queue/seen marks (which would look like theirs).
-  const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, sub: x.st.rating ? `${fmtRating(x.st.rating)} skulls` : 'Survived' }) : '';
+  // On someone else's profile, posters you've seen too get a "You" tag with your own rating.
+  const youOf = (id) => { if (isMe) return null; const st = status(id); return st && (st.status === 'seen' || st.wasSeen) ? { rating: st.rating || 0 } : null; };
+  const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, you: youOf(x.id), sub: x.st.rating ? `${isMe ? '' : 'Their rating: '}${fmtRating(x.st.rating)} skulls` : 'Survived' }) : '';
+  const uf = isMe ? 'all' : (S.uFilter || 'all');
+  const seenShown = uf === 'both' ? seen.filter((x) => youOf(x.id)) : uf === 'them' ? seen.filter((x) => !youOf(x.id)) : seen;
+  const filterBar = !isMe && seen.length ? `<div class="tabs u-filter" role="tablist">${[['all', `All (${seen.length})`], ['both', `You've both seen (${both.length})`], ['them', `Only them (${seen.length - both.length})`]].map(([k, l]) => `<button role="tab" data-act="ufilter" data-k="${k}" aria-selected="${uf === k}">${l}</button>`).join('')}</div>` : '';
   return `${head}
     <div class="stat-row">
       <div class="stat"><b>${seen.length}</b><span>Body Count</span></div>
@@ -2384,7 +2390,7 @@ views.u = async (key) => {
     <div class="tabs" role="tablist" style="margin-top:8px">${[['seen', `Body Count (${seen.length})`], ['reviews', 'Reviews'], ['queue', `Queue (${queue.length})`]].map(([k, l]) => `<button role="tab" data-act="utab" data-k="${k}" aria-selected="${tab === k}">${l}</button>`).join('')}</div>
     <div id="u-pane">${tab === 'queue' ? (queue.length ? `<div class="grid">${queue.map((x) => card(x.m, { plain: !isMe })).join('')}</div>` : '<p class="muted">Nothing queued.</p>')
       : tab === 'reviews' ? '<div id="u-reviews" class="stack" style="gap:12px"><p class="muted">Loading reviews…</p></div>'
-      : (seen.length ? `<div class="grid">${seen.map(ratedCard).join('')}</div>` : '<p class="muted">Nothing survived yet.</p>')}</div>`;
+      : (seen.length ? `${filterBar}${seenShown.length ? `<div class="grid">${seenShown.map(ratedCard).join('')}</div>` : `<p class="muted">${uf === 'both' ? 'Nothing you\'ve both seen yet.' : 'You\'ve seen everything they have.'}</p>`}` : '<p class="muted">Nothing survived yet.</p>')}</div>`;
 };
 async function loadProfileReviews(pc, seen) {
   const box = $('#u-reviews'); if (!box) return;
@@ -2788,6 +2794,7 @@ const actions = {
     S.profile.notify = n; await store.saveProfile({ notify: n }); toast(el.checked ? 'You\'ll get those emails' : 'Those emails are off', 'mail');
   },
   fixdates() { openFixDates(); },
+  ufilter(el) { S.uFilter = el.dataset.k; route(true, true); },
   ltab(el) { S.lTab = el.dataset.k; route(true, true); },
   addtolist(el) { if (!needUser()) return; openAddToList(el.dataset.id); },
   ledit(el) { S.lEdit = S.lEdit === el.dataset.id ? null : el.dataset.id; route(true, true); },
