@@ -1181,9 +1181,9 @@ views.import = () => {
       <div class="adm-stat"><span>Watchlist matches</span><b>${f.queue.length}</b></div></div>
       <p class="muted">Only horror movies on ${esc(SITE_NAME)} can be matched, so most comedies, dramas and so on are left out. Ratings carry over as skulls (★★★½ becomes 3½ skulls). Watch dates come from your diary, or the day you logged the movie on Letterboxd.</p>
       <form class="stack" data-form="lbimport" style="gap:10px">
-        <label class="row" style="gap:10px"><input type="checkbox" name="seen" checked> Add ${newSeen.length} watched movie${newSeen.length === 1 ? '' : 's'} to my Body Count${f.seen.length - newSeen.length ? ` <span class="faint">(${f.seen.length - newSeen.length} already there)</span>` : ''}</label>
-        <label class="row" style="gap:10px"><input type="checkbox" name="rate" checked> Use my Letterboxd ratings (won't replace ratings I've already given here)</label>
-        <label class="row" style="gap:10px"><input type="checkbox" name="queue" ${newQ.length ? 'checked' : 'disabled'}> Add ${newQ.length} watchlist movie${newQ.length === 1 ? '' : 's'} to my queue</label>
+        <label class="check-row"><input type="checkbox" name="seen" checked><span>Add ${newSeen.length} watched movie${newSeen.length === 1 ? '' : 's'} to my Body Count${f.seen.length - newSeen.length ? ` <span class="faint">(${f.seen.length - newSeen.length} already there)</span>` : ''}</span></label>
+        <label class="check-row"><input type="checkbox" name="rate" checked><span>Use my Letterboxd ratings (won't replace ratings I've already given here)</span></label>
+        <label class="check-row"><input type="checkbox" name="queue" ${newQ.length ? 'checked' : 'disabled'}><span>Add ${newQ.length} watchlist movie${newQ.length === 1 ? '' : 's'} to my queue</span></label>
         <button class="btn primary" type="submit" style="justify-self:start">${icon('plus')}Import</button>
       </form>
       <details><summary class="muted">See the matched movies</summary><div class="imp-list">${f.seen.slice(0, 400).map((x) => `<span>${esc(x.m.t)} <span class="faint">(${x.m.y ?? '?'})</span>${x.rating ? ` ${skullRow(x.rating)}` : ''}</span>`).join('')}${f.queue.map((x) => `<span>${esc(x.m.t)} <span class="faint">(${x.m.y ?? '?'}) · watchlist</span></span>`).join('')}</div></details>`;
@@ -1252,7 +1252,7 @@ views.profile = (sub) => {
       <form class="panel stack" data-form="settings" style="gap:16px">
         <h2>Profile</h2>
         <label class="field">Display name (shown on movie nights)<input type="text" id="set-name" name="name" maxlength="40" value="${esc(S.profile.name)}"></label>
-        <label class="row" style="gap:10px"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}> Hide movies I've seen when browsing</label>
+        <label class="check-row"><input type="checkbox" id="set-hide" name="hideSeen" ${S.profile.hideSeen ? 'checked' : ''}><span>Hide movies I've seen when browsing</span></label>
         <button class="btn primary" type="submit" style="justify-self:start">Save profile</button>
       </form>
       ${store.getSocial && S.social ? avatarPicker() : ''}
@@ -1266,8 +1266,8 @@ views.profile = (sub) => {
       ${S.config.emailOn ? `<section class="panel stack" style="gap:12px">
         <h2>Emails</h2>
         <p class="muted" style="margin:0">Sent to ${esc(S.user.email || 'your sign-in address')}. At most one a day about streaming.</p>
-        <label class="row" style="gap:10px"><input type="checkbox" data-act="notify" data-k="friends" ${S.profile.notify?.friends !== false ? 'checked' : ''}> When someone sends me a friend request</label>
-        <label class="row" style="gap:10px"><input type="checkbox" data-act="notify" data-k="streaming" ${S.profile.notify?.streaming !== false ? 'checked' : ''}> When a movie in my queue starts streaming${S.profile.services.length ? ' on my services' : ''}</label>
+        <label class="check-row"><input type="checkbox" data-act="notify" data-k="friends" ${S.profile.notify?.friends !== false ? 'checked' : ''}><span>When someone sends me a friend request</span></label>
+        <label class="check-row"><input type="checkbox" data-act="notify" data-k="streaming" ${S.profile.notify?.streaming !== false ? 'checked' : ''}><span>When a movie in my queue starts streaming${S.profile.services.length ? ' on my services' : ''}</span></label>
       </section>` : ''}
       ${(() => {
         const hidden = [...S.mine.entries()].filter(([, st]) => st.status === 'nope').map(([id, st]) => ({ m: S.byId.get(String(id)), st })).filter((x) => x.m).sort((a, b) => b.st.at - a.st.at);
@@ -1416,8 +1416,8 @@ views.admin = async () => {
       <p class="muted">TMDB ${d.sources.tmdb ? 'connected' : 'off'}. Trakt ${d.sources.trakt ? 'connected' : 'off'}. IMDb ratings (OMDb) ${d.sources.omdb ? 'connected' : 'off'}.${d.sample ? ' Showing sample data until the first nightly refresh runs.' : ''}</p>
       <p class="muted">${stats.users} account${stats.users === 1 ? '' : 's'}.</p></div>
     <div class="panel stack"><h2>Site settings</h2>
-      <label class="row" style="gap:10px"><input type="checkbox" id="adm-posters" ${c.showPosters ? 'checked' : ''}> Show TMDB poster art instead of generated artwork</label>
-      <label class="row" style="gap:10px"><input type="checkbox" id="adm-email" ${c.emailOn ? 'checked' : ''}> Email notifications are set up (shows the email settings in everyone's Profile)</label>
+      <label class="check-row"><input type="checkbox" id="adm-posters" ${c.showPosters ? 'checked' : ''}><span>Show TMDB poster art instead of generated artwork</span></label>
+      <label class="check-row"><input type="checkbox" id="adm-email" ${c.emailOn ? 'checked' : ''}><span>Email notifications are set up (shows the email settings in everyone's Profile)</span></label>
       <p class="muted" style="font-size:.88rem">Posters belong to the studios. TMDB's API terms allow showing them with TMDB credit. Off by default.</p>
       <label class="field">Announcement (leave blank for none)<input type="text" id="adm-announce" maxlength="160" value="${esc(c.announcement || '')}"></label>
     </div>
@@ -2587,7 +2587,7 @@ function reviewsHTML(m, c) {
   let me = '';
   if (!S.user) me = '';
   else if (editing) me = `<form class="review-form" data-id="${m.id}"><textarea name="text" rows="4" maxlength="5000" placeholder="What did you think? No one can see this until you post it." required>${esc(mine?.text || '')}</textarea>
-      <div class="row" style="gap:10px;justify-content:space-between"><label class="row" style="gap:8px"><input type="checkbox" name="spoiler" ${mine?.spoiler ? 'checked' : ''}> Contains spoilers</label>
+      <div class="row" style="gap:10px;justify-content:space-between"><label class="check-row"><input type="checkbox" name="spoiler" ${mine?.spoiler ? 'checked' : ''}><span>Contains spoilers</span></label>
       <span class="row" style="gap:8px"><button class="btn small ghost" type="button" data-act="reviewcancel" data-id="${m.id}">Cancel</button><button class="btn small primary" type="submit">${mine ? 'Save review' : 'Post review'}</button></span></div>
       <p class="fine">Visible to ${esc((PRIVACY[S.social?.privacy?.reviews || 'public'] || '').toLowerCase())}. Change this in <a href="#/profile">Profile</a>.</p></form>`;
   else if (mine) me = `<div class="review mine"><div class="rv-head">${av(S.profile.name || S.user.name, '', S.user.uid)}<b>Your review</b>${mine.rating ? skullRow(mine.rating) : ''}<span class="faint">${esc(timeAgo(mine.at))}</span></div>${reviewText(mine, `${m.id}-me`)}${rxBar(`r_${m.id}_${S.user.uid}`, S.user.uid, m.id, 'r')}<div class="row" style="gap:8px"><button class="btn small ghost" data-act="reviewedit" data-id="${m.id}">Edit</button><button class="btn small ghost" data-act="reviewdel" data-id="${m.id}">Delete</button></div></div>`;
@@ -3765,7 +3765,7 @@ function renderChrome() {
     ? `<a class="icon-btn m-vs" href="#/vs" aria-label="VS matchups${vsUnvoted() ? ', one is waiting for your vote' : ''}">${icon('trophy')}${vsUnvoted() ? '<i class="vs-dot"></i>' : ''}</a><a class="icon-btn m-friends" href="#/friends" aria-label="Friends${nReq ? `, ${nReq} new request${nReq === 1 ? '' : 's'}` : ''}">${icon('users')}${nReq ? `<b class="nav-n">${nReq}</b>` : ''}</a><div class="acct"><button class="acct-btn" data-act="acct" aria-haspopup="menu" aria-expanded="${!!S.menuOpen}" aria-label="Your account">${av()}${S.requests?.incoming.length ? '<i class="acct-dot" aria-label="New friend request"></i>' : ''}<span class="acct-name">${esc(name)}</span>${icon('down', 'caret')}</button>
       <div class="acct-menu" role="menu" ${S.menuOpen ? '' : 'hidden'}>
         <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
-        <a role="menuitem" href="#/profile">${icon('gear')}Profile</a>
+        <a role="menuitem" href="#/profile">${icon('user')}Profile</a>
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
         <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
         <a role="menuitem" href="#/lists">${icon('bookmark')}Lists</a>
