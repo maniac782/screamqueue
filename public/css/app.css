@@ -1734,3 +1734,6 @@ html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has
 /* Checkbox + label: the box stays beside the text even when the text wraps */
 .check-row { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 12px; cursor: pointer; }
 .check-row input { margin-top: 2px; }
+/* Blood bookmarks are still: no falling drops, no run-in when queued, no ooze on hover. */
+.blood, .poster.just-q .blood, .card:hover .blood { animation: none !important; }
+.blood .drop { display: none !important; }

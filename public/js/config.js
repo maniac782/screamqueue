@@ -1,5 +1,5 @@
 // Bump VERSION on every change (shown in the footer and used for the offline cache).
-export const VERSION = '1.7.1';
+export const VERSION = '1.7.2';
 export const SITE_NAME = 'Scream Queue';
 export const TAGLINE = 'Find the horror movie to watch next.';
 
