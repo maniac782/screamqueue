@@ -1736,3 +1736,5 @@ html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has
 .check-row input { margin-top: 2px; }
 /* Blood bookmarks: no falling drops (the run-in when queued and the hover ooze stay). */
 .blood .drop { display: none !important; }
+/* Rating skulls (and the poster quick buttons): a long press on a phone shouldn't start selecting or open the copy menu. */
+.skulls, .skulls *, .qa-layer, .qa-layer * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
