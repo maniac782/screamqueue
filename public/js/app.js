@@ -1236,7 +1236,6 @@ async function runImport(form) {
 // Profile
 views.profile = (sub) => {
   if (!S.user) return signInPrompt('Sign in to save your name and streaming services.');
-  let theme = 'system'; try { theme = localStorage.getItem('sq-theme') || 'system'; } catch { /* ignore */ }
   const name = S.profile.name || S.user.name || '';
   if (!S.social && store.getSocial) loadSocial().then(() => { if (location.hash.startsWith('#/profile')) route(true, true); });
   S.after = () => { renderServices(); if (sub === 'services') $('#services')?.scrollIntoView({ block: 'start' }); };
@@ -1282,10 +1281,6 @@ views.profile = (sub) => {
         <h2>Import from Letterboxd</h2>
         <p class="muted" style="margin:0">Bring over your watched movies, ratings and watchlist so your Body Count and picks are ready right away.</p>
         <a class="btn" href="#/import" style="justify-self:start">${icon('plus')}Import my Letterboxd history</a>
-      </section>
-      <section class="panel stack" style="gap:14px">
-        <h2>Appearance</h2>
-        <div class="tabs" role="group" aria-label="Theme">${['system', 'dark', 'light'].map((t) => `<button data-act="theme" data-k="${t}" aria-selected="${theme === t}">${{ system: 'Match device', dark: 'Dark', light: 'Light' }[t]}</button>`).join('')}</div>
       </section>
       <section class="panel stack" style="gap:12px">
         <h2>Account</h2>
@@ -1354,7 +1349,7 @@ views.privacy = () => `<div class="page-head"><h1>Privacy Policy</h1><p class="m
       <li><b>Movie nights.</b> Movie nights you start or join, the movies suggested and the votes.</li>
       <li><b>Feedback.</b> If you use Send feedback, your message is saved with the page you were on, your browser type, the site version and your account ID. Only the site's owner can read it.</li>
       <li><b>Contact messages.</b> If you use Contact, your message, the email address and name you give, and the page and browser you were on are saved. Only the site's owner can read them, and your address is only used to reply.</li>
-      <li><b>On your device.</b> Your browser keeps a copy of your data so pages load quickly, plus your sign-in and a few display settings (theme and poster size). Demo mode keeps everything in your browser only.</li>
+      <li><b>On your device.</b> Your browser keeps a copy of your data so pages load quickly, plus your sign-in and a display setting (poster size). Demo mode keeps everything in your browser only.</li>
     </ul>
     <p>Nothing is used for advertising or tracking, and there are no analytics.</p>
     <h2>Where movie information comes from</h2>
@@ -3209,7 +3204,6 @@ const actions = {
     if (!S.p.mine && picked.length) S.p.mine = true;
     saveServicesSoon();
   },
-  theme(el) { setTheme(el.dataset.k); document.querySelectorAll('[data-act="theme"]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === el.dataset.k))); },
   acct(el, e) { e.stopPropagation(); setMenu(!S.menuOpen); },
   async install() { setMenu(false); if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderChrome(); } },
   svc(el) { const id = Number(el.dataset.k); const s = new Set(S.profile.services); s.has(id) ? s.delete(id) : s.add(id); S.profile.services = [...s]; el.setAttribute('aria-pressed', s.has(id)); },
@@ -3591,7 +3585,6 @@ document.addEventListener('input', (e) => {
   if (el.id === 'adm-feat-search') $('#adm-feat-results').innerHTML = searchList(el.value, 'feature');
   if (el.id === 'adm-hide-search') $('#adm-hide-results').innerHTML = searchList(el.value, 'hide');
   if (el.id === 'adm-fix-search') $('#adm-fix-results').innerHTML = searchList(el.value, 'fixpick');
-  if (el.hasAttribute('data-bind-theme')) setTheme(el.value);
 });
 
 // Rating preview: glow the skulls up to the half you're pointing at.
@@ -3755,11 +3748,6 @@ document.addEventListener('submit', async (e) => {
   } catch (err) { authError(err); if (form.dataset.form !== 'auth') toast(err?.message || 'That did not save.', 'x'); }
 });
 
-function setTheme(t) {
-  try { localStorage.setItem('sq-theme', t); } catch { /* ignore */ }
-  if (t === 'system') document.documentElement.removeAttribute('data-theme');
-  else document.documentElement.setAttribute('data-theme', t);
-}
 
 // ---------- chrome + router ----------
 const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick', 'Pick for Me', 'dice'], ['#/queue', 'My Queue', 'bookmark'], ['#/bodycount', 'Body Count', 'skull'], ['#/friends', 'Friends', 'users'], ['#/vs', 'VS', 'trophy'], ['#/nights', 'Movie Nights', 'clock']];
@@ -3847,7 +3835,7 @@ async function route(keepScroll, quiet) {
 
 async function boot() {
   applyPosterSize();
-  try { const t = localStorage.getItem('sq-theme'); if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t); } catch { /* ignore */ }
+  try { localStorage.removeItem('sq-theme'); } catch { /* ignore */ } // the site is always dark now
   $('#version').textContent = 'v' + VERSION;
   if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');
   $('#brand').textContent = SITE_NAME;

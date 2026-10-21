@@ -34,28 +34,7 @@
   --spring: cubic-bezier(.34, 1.4, .64, 1);
   color-scheme: dark;
 }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) {
-    --bg: #f4f3f1; --bg-2: #ecebe8; --surface: #ffffff; --raised: #eeece9;
-    --line: rgba(20, 20, 30, .09); --line-2: rgba(20, 20, 30, .16);
-    --fg: #15161a; --muted: #5d6068; --faint: #8a8d95;
-    --accent: #e3173a; --accent-2: #f2602e; --accent-soft: rgba(227, 23, 58, .1); --on-accent: #fff;
-    --glass: rgba(244, 243, 241, .78); --good: #138a66;
-    --t-fresh: #1f78c8; --t-favorite: #e3173a; --t-known: #15161a; --t-cult: #6f4bd8; --t-deep: #a87600;
-    --shadow-lg: 0 24px 50px -16px rgba(30, 20, 40, .28); --shadow-md: 0 10px 26px -12px rgba(30, 20, 40, .25);
-    color-scheme: light;
-  }
-}
-:root[data-theme="light"] {
-  --bg: #f4f3f1; --bg-2: #ecebe8; --surface: #ffffff; --raised: #eeece9;
-  --line: rgba(20, 20, 30, .09); --line-2: rgba(20, 20, 30, .16);
-  --fg: #15161a; --muted: #5d6068; --faint: #8a8d95;
-  --accent: #e3173a; --accent-2: #f2602e; --accent-soft: rgba(227, 23, 58, .1); --on-accent: #fff;
-  --glass: rgba(244, 243, 241, .78); --good: #138a66;
-  --t-fresh: #1f78c8; --t-favorite: #e3173a; --t-known: #15161a; --t-cult: #6f4bd8; --t-deep: #a87600;
-  --shadow-lg: 0 24px 50px -16px rgba(30, 20, 40, .28); --shadow-md: 0 10px 26px -12px rgba(30, 20, 40, .25);
-  color-scheme: light;
-}
+/* Always dark: it's a horror site. (No light theme.) */
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -203,8 +182,6 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--accent);
 .chip.sg[aria-pressed="true"] .sgi { display: none; }
 .tag .sgi { width: 14px; height: 14px; color: hsl(var(--h, 350) 80% 66%); }
 .hero .tag .sgi, .pick-card .tag .sgi { color: #fff; opacity: .9; }
-:root[data-theme="light"] :is(.chip, .tag, .mast) .sgi { color: hsl(var(--h, 350) 70% 42%); }
-@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) :is(.chip, .tag, .mast) .sgi { color: hsl(var(--h, 350) 70% 42%); } }
 .hero .tag .sgi, .pick-card .tag .sgi { color: #fff !important; }
 /* subgenre picker: family tabs, then that family's chips */
 .sgp { display: grid; gap: 12px; min-width: 0; container-type: inline-size; }
@@ -1749,3 +1726,8 @@ dialog.detail::backdrop, dialog.formdlg::backdrop { background: rgba(4, 4, 8, .7
 dialog.player::backdrop { background: rgba(0, 0, 0, .88); backdrop-filter: none; -webkit-backdrop-filter: none; }
 /* Nothing behind an open pop-up needs to keep animating. */
 html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has(dialog[open]) #main *::after { animation-play-state: paused !important; }
+/* Movie card flash fix (Chromium, e.g. Brave/Chrome on Mac): the whole card could vanish for a frame while scrolling,
+   mostly when the trackpad bounce kicked in at the top or bottom. No bounce inside pop-ups, and no live blur inside the
+   scrolling card (the close button had one). */
+.sheet, dialog { overscroll-behavior: none; }
+.sheet-hero .close { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(10, 10, 14, .72); }
