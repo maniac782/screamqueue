@@ -1,7 +1,9 @@
 <!doctype html>
 <html lang="en">
 <script>/* Test switch for the Brave flash: ?lite=1 turns off blur and layer effects (remembered), ?lite=0 turns them back on. */
-try { const q = new URLSearchParams(location.search).get('lite'); if (q === '1') localStorage.setItem('sq-lite', '1'); if (q === '0') localStorage.removeItem('sq-lite'); if (localStorage.getItem('sq-lite')) document.documentElement.classList.add('lite'); } catch (e) { /* ignore */ }</script>
+try { const q = new URLSearchParams(location.search).get('lite'); if (q === '1') localStorage.setItem('sq-lite', '1'); if (q === '0') localStorage.removeItem('sq-lite'); if (localStorage.getItem('sq-lite')) document.documentElement.classList.add('lite'); } catch (e) { /* ignore */ }
+/* Brave flashes the screen while scrolling over frosted-glass (backdrop blur) areas, so Brave gets solid ones instead. */
+if (navigator.brave) document.documentElement.classList.add('no-blur');</script>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">

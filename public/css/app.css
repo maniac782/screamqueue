@@ -1771,3 +1771,7 @@ html:has(#detail.closing) .detail-bd { opacity: 0; transition: opacity .15s ease
 /* Test mode (?lite=1): no frosted glass, no layer hints, no skipped off-screen shelves. For tracking down the Brave flash. */
 html.lite *, html.lite *::before, html.lite *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: auto !important; content-visibility: visible !important; contain: none !important; }
 html.lite .top, html.lite .tabbar, html.lite body::before { background: var(--bg) !important; }
+/* Brave: no frosted glass anywhere (it caused a one-frame flash while scrolling); solid backgrounds instead. */
+html.no-blur *, html.no-blur *::before, html.no-blur *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+html.no-blur .top, html.no-blur .tabbar, html.no-blur body::before { background: var(--bg) !important; }
+html.no-blur .acct-menu, html.no-blur .qs-list { background: var(--surface) !important; }
