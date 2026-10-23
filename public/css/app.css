@@ -1738,3 +1738,5 @@ html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has
 .blood .drop { display: none !important; }
 /* Rating skulls (and the poster quick buttons): a long press on a phone shouldn't start selecting or open the copy menu. */
 .skulls, .skulls *, .qa-layer, .qa-layer * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+/* "More like this" tiles: the caption under the title is the reason (e.g. "Fans also liked", "Slasher") */
+.like-this .sr-y { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

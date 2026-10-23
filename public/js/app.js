@@ -296,13 +296,13 @@ function seriesBlock(m) {
   if (!COLLECTIONS && m.col) { loadCollections().then(() => { const el = document.querySelector(`#detail[data-id="${m.id}"] .series-wrap`); if (el) el.innerHTML = seriesHTML(m); }); }
   return `<div class="series-wrap">${seriesHTML(m)}</div>`;
 }
-function seriesTile(id, title, year, posterPath, here) {
+function seriesTile(id, title, year, posterPath, here, sub = '') {
   const m = S.byId.get(String(id));
   const st = m && status(m.id);
   const seen = st && (st.status === 'seen' || st.wasSeen);
   const img = S.config.showPosters && (m?.poster || posterPath) ? `<img src="https://image.tmdb.org/t/p/w154${m?.poster || posterPath}" alt="" loading="lazy">` : '';
   const pic = `<span class="sr-pic">${m ? art(m) : `<span class="sr-blank">${esc(title)}</span>`}${img}${seen ? `<i class="sr-seen" title="You survived this one">${icon('skull')}</i>` : st?.status === 'queue' ? `<i class="sr-q" title="In your queue">${icon('bookmark', 'filled')}</i>` : ''}</span>`;
-  const label = `<span class="sr-t">${esc(title)}</span><span class="sr-y">${here ? 'This one' : year || 'Coming'}${m ? '' : ' · on TMDB'}</span>`;
+  const label = `<span class="sr-t">${esc(title)}</span><span class="sr-y">${sub ? esc(sub) : here ? 'This one' : year || 'Coming'}${m ? '' : ' · on TMDB'}</span>`;
   if (here) return `<span class="sr-tile here" aria-current="true">${pic}${label}</span>`;
   return m ? `<button class="sr-tile" data-act="opensib" data-id="${m.id}" title="${esc(title)}${year ? ` (${year})` : ''}">${pic}${label}</button>`
     : `<a class="sr-tile off" href="https://www.themoviedb.org/movie/${id}" target="_blank" rel="noopener" title="${esc(title)} isn't on ${esc(SITE_NAME)}. Opens TMDB">${pic}${label}</a>`;
@@ -323,6 +323,44 @@ function seriesHTML(m) {
       <div class="sr-row">${others.map((x) => seriesTile(x.id, x.t, x.y, x.poster, false)).join('')}</div></div>`;
   }
   return html;
+}
+// "More like this" on a movie's card: TMDB's "fans also liked" for it (both directions), shared subgenres, the same
+// director or cast, and (once you've rated enough) your own taste. Seen, hidden and same-series movies are left out.
+let recBack = null; // movie id -> ids of movies that list it in their own "fans also liked"
+function likeThis(m) {
+  if (!recBack) { recBack = new Map(); for (const x of S.movies) for (const id of x.rec || []) { const k = String(id); if (!recBack.has(k)) recBack.set(k, []); recBack.get(k).push(x.id); } }
+  const col = m.col && COLLECTIONS?.[m.col], inCol = new Set((col?.p || []).map(([id]) => String(id)));
+  const key = titleKey(m.t), sg = new Set(m.sg), dir = new Set(m.dir), cast = new Set(m.cast.slice(0, 4));
+  const sgLabel = new Map(S.data.subgenres.map((x) => [x.key, x.label]));
+  const pc = new Map(); // id -> { s, why: [[weight, text]] }
+  const add = (id, v, why) => { const k = String(id); const c = pc.get(k) || { s: 0, why: [] }; c.s += v; if (why) c.why.push([v, why]); pc.set(k, c); };
+  (m.rec || []).forEach((id, i) => add(id, 10 - i * 0.4, 'Fans also liked'));
+  (recBack.get(String(m.id)) || []).forEach((id) => add(id, 4, 'Fans also liked'));
+  for (const x of S.movies) {
+    if (x.id === m.id) continue;
+    const shared = x.sg.filter((k) => sg.has(k));
+    if (shared.length) add(x.id, (6 * shared.length) / (sg.size + x.sg.length - shared.length), sgLabel.get(shared[0]) || '');
+    if (x.dir.some((d) => dir.has(d))) add(x.id, 3, `Also by ${x.dir.find((d) => dir.has(d)).split(' ').slice(-1)[0]}`);
+    const c = x.cast.slice(0, 4).filter((n) => cast.has(n));
+    if (c.length) add(x.id, c.length, `With ${c[0].split(' ').slice(-1)[0]}`);
+  }
+  const taste = S.user ? recommend() : null, personal = taste && taste.n >= MIN_FOR_PICKS;
+  const out = [];
+  for (const [id, c] of pc) {
+    const x = S.byId.get(id); if (!x || inCol.has(id) || (m.col && x.col === m.col) || titleKey(x.t) === key) continue;
+    const st = status(x.id); if (st && (st.status === 'seen' || st.wasSeen || st.status === 'nope')) continue;
+    let s = c.s + (x.reach || 0) / 50;
+    if (personal) { const t = taste.by.get(id)?.score; if (t != null && t > 0) { s += Math.min(t, 6) * 0.8; c.why.push([Math.min(t, 6) * 0.8, 'Fits your taste']); } }
+    out.push({ m: x, s, why: c.why.sort((a, b) => b[0] - a[0])[0]?.[1] || '' });
+  }
+  return out.sort((a, b) => b.s - a.s).slice(0, 18);
+}
+function likeBlock(m) {
+  const list = likeThis(m);
+  if (!list.length) return '';
+  const personal = S.user && recommend().n >= MIN_FOR_PICKS;
+  return `<div class="series like-this"><h3>More like ${esc(m.t)} <span class="faint">· what its fans also liked${personal ? ', picked for your taste' : ''}</span></h3>
+    <div class="sr-row">${list.map((x) => seriesTile(x.m.id, x.m.t, x.m.y, x.m.poster, false, x.why && x.why !== 'Fans also liked' ? x.why : String(x.m.y || ''))).join('')}</div></div>`;
 }
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
 // Each score opens that site's page for the movie (reviews where the site has them; a search when we don't have its ID).
@@ -2713,6 +2751,7 @@ function openDetail(id) {
         <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB${SAMPLE() ? '. Sample data, not real' : ''}.</span></div>
       ${castBlock(m)}
       ${seriesBlock(m)}
+      ${likeBlock(m)}
       ${killBlock(m)}
       ${cwBlock(m)}
       ${reviewsBlock(m)}
