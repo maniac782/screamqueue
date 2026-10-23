@@ -1749,3 +1749,5 @@ a, button, input, select, textarea, label, summary { touch-action: manipulation;
 .bk-s.live.mine::after { display: none; }
 @keyframes bkGlow { 0% { opacity: 1; transform: scale(.96); } 70%, 100% { opacity: 0; transform: scale(1.04); } }
 @media (prefers-reduced-motion: reduce) { .bk-s.live::after { animation: none; } }
+/* Shelves off screen aren't laid out or painted until you scroll near them (Tonight has hundreds of posters). */
+.shelf { content-visibility: auto; contain-intrinsic-size: auto 460px; }

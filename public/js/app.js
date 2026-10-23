@@ -487,7 +487,7 @@ function quickBar(m, name) {
       <button class="qa-b" data-act="qarate" data-id="${m.id}" title="Rate it" aria-label="Rate it">${icon('skull')}</button>
       ${st && st.status !== 'nope' ? '' : `<button class="qa-b qa-nope" data-act="nope" data-id="${m.id}" data-qa="1" aria-pressed="${st?.status === 'nope'}" title="${st ? 'Hidden. Click to show it again' : 'Not interested'}" aria-label="${st ? 'Show this movie again' : 'Not interested'}">${icon('nope')}</button>`}
     </div>
-    <div class="qa-rate" hidden>${skullPicker(m, st?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button></div></div>`;
+    <div class="qa-rate" hidden></div></div>`; // the rating picker is built when you open it (keeps big pages light)
 }
 
 let shelfN = 0;
@@ -511,15 +511,28 @@ function shelf(title, desc, list, emptyText, more = '', subOf = null) {
     </div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
 }
-// Arrows hide at either end of a row (and both hide when everything fits).
-function updateRail(rail) {
-  const t = rail.querySelector('.track'); if (!t) return;
-  const max = t.scrollWidth - t.clientWidth - 4;
-  rail.toggleAttribute('data-start', t.scrollLeft <= 4);
-  rail.toggleAttribute('data-end', t.scrollLeft >= max);
+// Arrows hide at either end of a row (and both hide when everything fits). Only on devices that show the arrows
+// (mouse/trackpad); phones swipe and never see them. All rows are measured first and changed after, so the page is
+// laid out once instead of once per row (that made Tonight slow to respond on phones).
+const railArrows = () => window.matchMedia('(hover: hover)').matches && window.innerWidth > 860;
+function railState(rail) {
+  const t = rail.querySelector('.track'); if (!t) return null;
+  return [rail, t.scrollLeft <= 4, t.scrollLeft >= t.scrollWidth - t.clientWidth - 4];
 }
-function updateRails() { document.querySelectorAll('.rail').forEach(updateRail); }
-document.addEventListener('scroll', (e) => { const r = e.target.closest?.('.rail'); if (r) updateRail(r); }, true);
+function applyRail(x) { if (!x) return; x[0].toggleAttribute('data-start', x[1]); x[0].toggleAttribute('data-end', x[2]); }
+function updateRail(rail) { if (railArrows()) applyRail(railState(rail)); }
+function updateRails() { if (!railArrows()) return; [...document.querySelectorAll('.rail')].map(railState).forEach(applyRail); }
+// Each row's sideways scroll, remembered as you scroll it (so a redraw can put rows back without measuring them all).
+let railPos = {};
+const railSnapshot = () => ({ ...railPos });
+function railRestore(pos) { for (const [id, x] of Object.entries(pos || {})) { const t = document.getElementById(id); if (t && x) t.scrollLeft = x; } }
+let railRaf = 0;
+document.addEventListener('scroll', (e) => {
+  const tr = e.target.classList?.contains('track') ? e.target : null;
+  if (tr?.id) railPos[tr.id] = tr.scrollLeft;
+  const r = e.target.closest?.('.rail'); if (!r || railRaf || !railArrows()) return;
+  railRaf = requestAnimationFrame(() => { railRaf = 0; updateRail(r); });
+}, true);
 window.addEventListener('resize', () => requestAnimationFrame(updateRails));
 
 function chip(act, k, label, pressed, extra = '') {
@@ -2912,7 +2925,7 @@ const actions = {
     // Remember where we came from (page, scroll spot, and the movie that was open) so Back can return there.
     const d = $('#detail');
     const movie = d.open ? d.dataset.id : null;
-    S.trail = [...(S.trail || []), { hash: location.hash || '#/', y: window.scrollY, movie, rails: [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) }].slice(-20);
+    S.trail = [...(S.trail || []), { hash: location.hash || '#/', y: window.scrollY, movie, rails: railSnapshot() }].slice(-20);
     if (d.open) d.close();
     location.hash = `#/person/${el.dataset.k}`;
   },
@@ -3090,7 +3103,9 @@ const actions = {
   qarate(el) {
     if (!needUser()) return;
     if (window.matchMedia('(hover: none)').matches) return openRateSheet(el.dataset.id);
-    const c = el.closest('.card'); c.classList.add('rating', 'qa-on'); const r = c.querySelector('.qa-rate'); r.hidden = false;
+    const c = el.closest('.card'); c.classList.add('rating', 'qa-on'); const r = c.querySelector('.qa-rate');
+    r.innerHTML = `${skullPicker(S.byId.get(String(el.dataset.id)) || { id: el.dataset.id }, status(el.dataset.id)?.rating || 0)}<button class="qa-x" data-act="qaclose" aria-label="Close rating">${icon('x')}</button>`;
+    r.hidden = false;
     r.querySelector('button')?.focus();
   },
   rsclose() { closeRateSheet(); },
@@ -3853,21 +3868,22 @@ async function route(keepScroll, quiet) {
   const html = await view(arg);
   if (gen !== routeGen) return;
   const after = S.after; S.after = null;
-  const rails = keepScroll ? [...document.querySelectorAll('#main .track')].map((t) => t.scrollLeft) : [];
+  const rails = keepScroll ? railSnapshot() : {};
+  if (!keepScroll) railPos = {};
   const swap = () => {
     if (gen !== routeGen) return;
     $('#main').classList.toggle('quiet', !!quiet);
     if (quiet) setHTML($('#main'), html, ['results', 'bc-results']); else $('#main').innerHTML = html;
     after?.();
     syncBodyCount();
-    if (!quiet && rails.length) document.querySelectorAll('#main .track').forEach((t, i) => { if (rails[i]) t.scrollLeft = rails[i]; });
+    if (!quiet) railRestore(rails);
     window.scrollTo(0, keepScroll ? y : 0); updateRails();
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
   if (S.restore) {
     const r = S.restore; S.restore = null;
-    requestAnimationFrame(() => { document.querySelectorAll('#main .track').forEach((t, i) => { if (r.rails?.[i]) t.scrollLeft = r.rails[i]; }); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
+    requestAnimationFrame(() => { railPos = { ...(r.rails || {}) }; railRestore(r.rails); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight', ranks: 'Leaderboard' }[name] || '') : ''}`;
 }
