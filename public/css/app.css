@@ -1758,3 +1758,6 @@ dialog.detail.closing { pointer-events: none; }
 .like-head { display: grid; gap: 2px; }
 .like-head h3 { margin: 0; }
 .like-head p { margin: 0; font-size: .8rem; color: var(--faint); }
+/* Keep the open card on its own steady drawing layer (Chromium dropped it for a frame at scroll edges). */
+dialog.detail[open] { will-change: transform; backface-visibility: hidden; }
+dialog.detail[open] .sheet { contain: paint; }

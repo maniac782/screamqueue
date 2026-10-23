@@ -3565,6 +3565,18 @@ async function submitForm(form) {
     fail(e?.code === 'resource-exhausted' ? 'The site has hit its daily limit. Try again tomorrow.' : 'Couldn\'t send that. Try again in a moment.');
   }
 }
+// Computers: once a pop-up's scrolling area is at its top or bottom, extra wheel/trackpad scrolling in that direction is
+// dropped here. Chromium browsers (Brave, Chrome) on Mac sometimes skipped drawing the whole card for a frame when that
+// scroll was handed on at the edge, which showed up as a flash.
+document.addEventListener('wheel', (e) => {
+  const sc = e.target.closest?.('dialog[open] .sheet, dialog[open] .fd-body, dialog[open]'); if (!sc || e.ctrlKey) return;
+  const el = sc.matches('.sheet') ? sc : sc.querySelector?.('.sheet') || sc;
+  if (!el.contains(e.target) && el !== sc) return;
+  const max = el.scrollHeight - el.clientHeight;
+  if (max <= 0 || (e.deltaY < 0 && el.scrollTop <= 0) || (e.deltaY > 0 && el.scrollTop >= max - 1)) {
+    if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) e.preventDefault();
+  }
+}, { passive: false });
 // Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
 // scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
 (() => {
