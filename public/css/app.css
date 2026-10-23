@@ -1751,3 +1751,10 @@ a, button, input, select, textarea, label, summary { touch-action: manipulation;
 @media (prefers-reduced-motion: reduce) { .bk-s.live::after { animation: none; } }
 /* Shelves off screen aren't laid out or painted until you scroll near them (Tonight has hundreds of posters). */
 .shelf { content-visibility: auto; contain-intrinsic-size: auto 460px; }
+/* Swipe-to-close: backdrop gone as soon as you let go */
+dialog.detail.closing::backdrop { opacity: 0 !important; transition: opacity .15s ease; }
+dialog.detail.closing { pointer-events: none; }
+/* "More like this" heading: title, then a small note under it (instead of one run-on line) */
+.like-head { display: grid; gap: 2px; }
+.like-head h3 { margin: 0; }
+.like-head p { margin: 0; font-size: .8rem; color: var(--faint); }

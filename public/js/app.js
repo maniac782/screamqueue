@@ -359,7 +359,7 @@ function likeBlock(m) {
   const list = likeThis(m);
   if (!list.length) return '';
   const personal = S.user && recommend().n >= MIN_FOR_PICKS;
-  return `<div class="series like-this"><h3>More like ${esc(m.t)} <span class="faint">· what its fans also liked${personal ? ', picked for your taste' : ''}</span></h3>
+  return `<div class="series like-this"><div class="like-head"><h3>More like ${esc(m.t)}</h3><p>What its fans also liked${personal ? ', picked for your taste' : ''}.</p></div>
     <div class="sr-row">${list.map((x) => seriesTile(x.m.id, x.m.t, x.m.y, x.m.poster, false, x.why && x.why !== 'Fans also liked' ? x.why : String(x.m.y || ''))).join('')}</div></div>`;
 }
 function tomBadge(m) { const t = tom(m); return t == null ? '' : `<span class="tomato" title="Rotten Tomatoes critics score">${t >= 60 ? TOMATO : SPLAT}${t}%</span>`; }
@@ -3596,8 +3596,10 @@ async function submitForm(form) {
     const v = dy / Math.max(1, performance.now() - t0); // px per ms
     dlg.style.transition = 'transform .28s cubic-bezier(.2,.8,.2,1)';
     if (dy > 110 || v > 0.6) {
+      // The dark backdrop clears right away; the card slides off and closes a moment later.
       dlg.style.transform = 'translateY(100%)';
-      setTimeout(() => { dlg.close(); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); }, 260);
+      dlg.style.setProperty('--drag', '1'); dlg.classList.add('closing');
+      setTimeout(() => { dlg.close(); dlg.classList.remove('closing'); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); }, 220);
     } else {
       dlg.style.transform = '';
       dlg.style.removeProperty('--drag');
