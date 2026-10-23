@@ -1768,3 +1768,6 @@ dialog.detail { position: fixed; inset: 0; margin: auto; height: fit-content; z-
 html:has(#detail[open]) .detail-bd { display: block; animation: fade .3s ease; opacity: calc(1 - var(--drag, 0)); }
 html:has(#detail.closing) .detail-bd { opacity: 0; transition: opacity .15s ease; }
 @media (max-width: 700px) { dialog.detail { margin: auto 0 0; inset: 0; } }
+/* Test mode (?lite=1): no frosted glass, no layer hints, no skipped off-screen shelves. For tracking down the Brave flash. */
+html.lite *, html.lite *::before, html.lite *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: auto !important; content-visibility: visible !important; contain: none !important; }
+html.lite .top, html.lite .tabbar, html.lite body::before { background: var(--bg) !important; }

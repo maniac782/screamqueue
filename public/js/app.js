@@ -3852,7 +3852,7 @@ function renderChrome() {
         ${S.installEvt ? `<button role="menuitem" data-act="install">${icon('plus')}Install app</button>` : ''}
         <button role="menuitem" data-act="feedback">${icon('chat')}Send feedback</button>
         <button role="menuitem" data-act="signout">${icon('x')}Sign out</button>
-        <span class="acct-ver">${esc(SITE_NAME)} v${VERSION}</span>
+        <span class="acct-ver">${esc(SITE_NAME)} v${VERSION}${document.documentElement.classList.contains('lite') ? ' · test mode' : ''}</span>
       </div></div>`
     : '<a class="btn small primary" href="#/signin" data-act="gosignin">Sign in</a>';
   const notes = [];
