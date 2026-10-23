@@ -2776,7 +2776,9 @@ function openDetail(id) {
     </div></div>`;
   fxKeep.forEach((l) => dlg.append(l));
   dlg.dataset.id = m.id;
-  if (!dlg.open) { try { dlg.showModal(); } catch { dlg.setAttribute('open', ''); } }
+  // Opened as a normal (non-modal) layer with our own backdrop: Brave kept dropping the browser's modal pop-up layer
+  // for a frame while scrolling the card, which flashed the page behind it.
+  if (!dlg.open) { try { dlg.show(); } catch { dlg.setAttribute('open', ''); } }
   else { const sh = $('.sheet', dlg); if (sh) sh.scrollTop = keepScroll; }
 }
 function refreshDetail() { const d = $('#detail'); if (d.open && d.dataset.id) openDetail(d.dataset.id); }
@@ -3455,6 +3457,12 @@ document.addEventListener('click', async (e) => {
   try { await fn(el, e); } catch (err) { console.error(err); toast(err?.message || 'That did not work. Try again.', 'x'); }
 });
 $('#detail')?.addEventListener('click', (e) => { if (e.target.id === 'detail') e.target.close(); });
+$('#detail-bd')?.addEventListener('click', () => $('#detail')?.close());
+// Esc closes the card (a non-modal dialog doesn't do that on its own). A pop-up opened over it closes first.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !$('#detail')?.open || document.querySelector('dialog:modal') || document.querySelector('.rate-sheet')) return;
+  $('#detail').close();
+});
 $('#player')?.addEventListener('click', (e) => { if (e.target.id === 'player') e.target.close(); });
 $('#player')?.addEventListener('close', (e) => { e.target.innerHTML = ''; });
 $('#formdlg')?.addEventListener('click', (e) => { if (e.target.id === 'formdlg' && !e.target.dataset.locked) e.target.close(); });
@@ -3600,7 +3608,7 @@ document.addEventListener('wheel', (e) => {
     e.preventDefault();
     dy = Math.max(0, d);
     dlg.style.transform = `translateY(${dy}px)`;
-    dlg.style.setProperty('--drag', String(Math.min(1, dy / 400)));
+    dlg.style.setProperty('--drag', String(Math.min(1, dy / 400))); document.documentElement.style.setProperty('--drag', String(Math.min(1, dy / 400)));
   }, { passive: false });
   const end = () => {
     if (mode !== 'drag') { mode = null; return; }
@@ -3610,11 +3618,11 @@ document.addEventListener('wheel', (e) => {
     if (dy > 110 || v > 0.6) {
       // The dark backdrop clears right away; the card slides off and closes a moment later.
       dlg.style.transform = 'translateY(100%)';
-      dlg.style.setProperty('--drag', '1'); dlg.classList.add('closing');
-      setTimeout(() => { dlg.close(); dlg.classList.remove('closing'); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); }, 220);
+      dlg.style.setProperty('--drag', '1'); document.documentElement.style.setProperty('--drag', '1'); dlg.classList.add('closing');
+      setTimeout(() => { dlg.close(); dlg.classList.remove('closing'); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); document.documentElement.style.removeProperty('--drag'); }, 220);
     } else {
       dlg.style.transform = '';
-      dlg.style.removeProperty('--drag');
+      dlg.style.removeProperty('--drag'); document.documentElement.style.removeProperty('--drag');
       setTimeout(() => { dlg.style.transition = ''; }, 300);
     }
   };

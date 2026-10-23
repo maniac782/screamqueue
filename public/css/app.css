@@ -1761,3 +1761,10 @@ dialog.detail.closing { pointer-events: none; }
 /* Keep the open card on its own steady drawing layer (Chromium dropped it for a frame at scroll edges). */
 dialog.detail[open] { will-change: transform; backface-visibility: hidden; }
 dialog.detail[open] .sheet { contain: paint; }
+/* Movie card as a normal fixed layer (not the browser's modal top layer, which Brave dropped for a frame while
+   scrolling). Our own backdrop sits behind it and above the header and tab bar. */
+dialog.detail { position: fixed; inset: 0; margin: auto; height: fit-content; z-index: 50; }
+.detail-bd { display: none; position: fixed; inset: 0; z-index: 49; background: rgba(4, 4, 8, .78); }
+html:has(#detail[open]) .detail-bd { display: block; animation: fade .3s ease; opacity: calc(1 - var(--drag, 0)); }
+html:has(#detail.closing) .detail-bd { opacity: 0; transition: opacity .15s ease; }
+@media (max-width: 700px) { dialog.detail { margin: auto 0 0; inset: 0; } }
