@@ -1740,3 +1740,12 @@ html:has(dialog[open]) #main *, html:has(dialog[open]) #main *::before, html:has
 .skulls, .skulls *, .qa-layer, .qa-layer * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 /* "More like this" tiles: the caption under the title is the reason (e.g. "Fans also liked", "Slasher") */
 .like-this .sr-y { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Snappier taps on phones: taps on controls never wait to see if they're a double-tap zoom. */
+a, button, input, select, textarea, label, summary { touch-action: manipulation; }
+/* VS live-slot pulse without repainting every frame: the glow is its own layer that only fades and grows
+   (handled by the graphics chip), instead of an animated box-shadow that kept the page busy. */
+.bk-s.live { animation: none; box-shadow: none; position: relative; }
+.bk-s.live::after { content: ""; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 6px rgba(255, 64, 87, .35); opacity: 0; transform: scale(.96); pointer-events: none; animation: bkGlow 2.4s ease-out infinite; will-change: transform, opacity; }
+.bk-s.live.mine::after { display: none; }
+@keyframes bkGlow { 0% { opacity: 1; transform: scale(.96); } 70%, 100% { opacity: 0; transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) { .bk-s.live::after { animation: none; } }
