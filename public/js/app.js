@@ -2501,22 +2501,28 @@ function loadFriendsData() {
 }
 views.friends = async () => {
   if (!S.user) return signInPrompt('Sign in to add friends and see what they are watching.');
+  // Never wait on the network to open the page: draw it now with what's loaded, fill the rest in when it arrives.
   const have = S.frData && S.frData.uid === S.user.uid;
-  if (!have) await loadFriendsData();
+  const redraw = () => { if (location.hash.startsWith('#/friends')) route(true, true); };
+  if (!S.friends || !S.requests) loadSocial().then(redraw).catch(() => {});
+  if (!have) loadFriendsData().then(redraw).catch(() => {});
   else if (Date.now() - S.frData.at > 20000) {
     // show what we have now; refresh friends, requests and the rest quietly, then redraw if still here
     Promise.all([loadSocial(), loadFriendsData()]).then(() => { if (location.hash.startsWith('#/friends')) route(true, true); }).catch(() => {});
   }
-  const { incoming, outgoing } = S.requests;
-  const feed = S.frData.feed;
+  const loading = !have;
+  const { incoming, outgoing } = S.requests || { incoming: [], outgoing: [] };
+  const friends = S.friends || [];
+  const feed = have ? S.frData.feed : [];
   const line = ({ f, x }) => {
     const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
     const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
     return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small>${rxBar(`a_${f.uid}_${x.id}`, f.uid, x.id, 'a')}</div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
-  const everyone = S.frData.everyone.filter((p) => p.uid !== S.user.uid);
-  const rxIn = S.frData.rxIn;
+  const everyone = have ? S.frData.everyone.filter((p) => p.uid !== S.user.uid) : [];
+  const rxIn = have ? S.frData.rxIn : [];
+  const wait = '<p class="muted fr-wait">Loading…</p>';
   const rxLine = (x) => {
     const m = S.byId.get(String(x.movie)), t = m?.t || 'a movie';
     const what = x.k === 'skull' ? `gave a ${icon('skull')} to` : 'said "Same" to';
@@ -2537,19 +2543,19 @@ views.friends = async () => {
         </div>
       </section>
       <section class="panel stack" style="gap:12px">
-        <h2>Your friends${S.friends.length ? ` <span class="faint">${S.friends.length}</span>` : ''}</h2>
-        ${S.friends.length ? S.friends.map((f) => `<a class="person-row link" href="#/u/${esc(f.handle || f.uid)}">${av(f.name, '', f.uid)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${esc(handleOf(f))}</small></div>${icon('right')}</a>`).join('') : '<p class="muted">No friends yet. Search for someone above, or send them your invite link.</p>'}
+        <h2>Your friends${friends.length ? ` <span class="faint">${friends.length}</span>` : ''}</h2>
+        ${friends.length ? friends.map((f) => `<a class="person-row link" href="#/u/${esc(f.handle || f.uid)}">${av(f.name, '', f.uid)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${esc(handleOf(f))}</small></div>${icon('right')}</a>`).join('') : '<p class="muted">No friends yet. Search for someone above, or send them your invite link.</p>'}
         ${outgoing.length ? `<h3 class="muted" style="margin-top:6px">Waiting on</h3>${outgoing.map((r) => `<div class="person-row">${av(r.name, '', r.uid)}<div class="pr-name"><b>${esc(r.name || 'Someone')}</b><small>${esc(handleOf(r))}</small></div>${friendBtn(r.uid, 'outgoing')}</div>`).join('')}` : ''}
       </section>
     </div>
     <div class="stack" style="gap:24px">
     ${rxIn.length ? `<section class="panel stack" style="gap:6px"><h2>Reactions to you</h2>${rxIn.slice(0, 8).map(rxLine).join('')}</section>` : ''}
     <section class="panel stack" style="gap:6px"><h2>What your friends are watching</h2>
-      ${feed.length ? feed.slice(0, 40).map(line).join('') : `<p class="muted">${S.friends.length ? 'Nothing yet. Activity shows up here when friends queue or survive a movie.' : 'Add friends to see their activity here.'}</p>`}
+      ${loading ? wait : feed.length ? feed.slice(0, 40).map(line).join('') : `<p class="muted">${friends.length ? 'Nothing yet. Activity shows up here when friends queue or survive a movie.' : 'Add friends to see their activity here.'}</p>`}
     </section>
     <section class="panel stack" style="gap:10px"><h2>People on ${esc(SITE_NAME)}</h2>
       <p class="muted" style="font-size:.9rem">Everyone with a public profile. ${S.social?.privacy?.profile === 'public' ? 'You are listed here too.' : 'Set your profile to "Anyone signed in" in <a href="#/profile">Profile</a> to be listed.'}</p>
-      ${everyone.length ? everyone.map((p) => `<div class="person-row">${renderAvatar(p.name, p)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Horror fan')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No public profiles yet.</p>'}
+      ${loading ? wait : everyone.length ? everyone.map((p) => `<div class="person-row">${renderAvatar(p.name, p)}<a class="pr-name linkish" href="#/u/${esc(p.handle || p.uid)}"><b>${esc(p.name || 'Horror fan')}</b><small>${esc(handleOf(p))}</small></a><div class="row" style="gap:6px">${friendBtn(p.uid, stateFor(p.uid))}</div></div>`).join('') : '<p class="muted">No public profiles yet.</p>'}
     </section>
     </div>
   </div>`;
