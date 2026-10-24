@@ -2480,23 +2480,43 @@ function stateFor(uid) {
 }
 
 // Friends page: requests, find people, invite link, your friends, and what they've been watching
+// Friends page data: activity, everyone public, reactions to you. Fetched all at once (not one after another), and kept
+// so coming back to Friends shows right away while a fresh copy loads in the background.
+let frLoading = null;
+function loadFriendsData() {
+  if (frLoading) return frLoading;
+  frLoading = (async () => {
+    if (!S.social || !S.friends) await loadSocial();
+    const feedP = Promise.all((S.friends || []).map(async (f) => {
+      try { return (await store.recentOf(f.uid, 10)).filter((x) => x.status === 'seen' || x.status === 'queue').map((x) => ({ f, x })); } catch { return []; } // private or gone
+    })).then((a) => a.flat().sort((a, b) => b.x.at - a.x.at));
+    const [feed, everyone, rxIn] = await Promise.all([
+      feedP,
+      store.listPublic ? store.listPublic().catch(() => []) : [],
+      store.listRxIn ? store.listRxIn().catch(() => []) : [],
+    ]);
+    S.frData = { at: Date.now(), uid: S.user?.uid, feed, everyone, rxIn };
+  })().finally(() => { frLoading = null; });
+  return frLoading;
+}
 views.friends = async () => {
   if (!S.user) return signInPrompt('Sign in to add friends and see what they are watching.');
-  await loadSocial();
+  const have = S.frData && S.frData.uid === S.user.uid;
+  if (!have) await loadFriendsData();
+  else if (Date.now() - S.frData.at > 20000) {
+    // show what we have now; refresh friends, requests and the rest quietly, then redraw if still here
+    Promise.all([loadSocial(), loadFriendsData()]).then(() => { if (location.hash.startsWith('#/friends')) route(true, true); }).catch(() => {});
+  }
   const { incoming, outgoing } = S.requests;
-  const feed = [];
-  await Promise.all(S.friends.map(async (f) => {
-    try { for (const x of await store.recentOf(f.uid, 10)) if (x.status === 'seen' || x.status === 'queue') feed.push({ f, x }); } catch { /* private or gone */ }
-  }));
-  feed.sort((a, b) => b.x.at - a.x.at);
+  const feed = S.frData.feed;
   const line = ({ f, x }) => {
     const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
     const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
     return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small>${rxBar(`a_${f.uid}_${x.id}`, f.uid, x.id, 'a')}</div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
-  const everyone = store.listPublic ? (await store.listPublic().catch(() => [])).filter((p) => p.uid !== S.user.uid) : [];
-  const rxIn = store.listRxIn ? await store.listRxIn().catch(() => []) : [];
+  const everyone = S.frData.everyone.filter((p) => p.uid !== S.user.uid);
+  const rxIn = S.frData.rxIn;
   const rxLine = (x) => {
     const m = S.byId.get(String(x.movie)), t = m?.t || 'a movie';
     const what = x.k === 'skull' ? `gave a ${icon('skull')} to` : 'said "Same" to';
@@ -3733,6 +3753,7 @@ document.addEventListener('change', async (e) => {
 });
 
 async function afterFriendChange() {
+  S.frData = null; // friends changed: reload the activity feed
   renderChrome();
   if (/^#\/(friends|u\/)/.test(location.hash)) await route(true, true); else renderFriendSearch();
 }
