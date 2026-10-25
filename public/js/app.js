@@ -3613,43 +3613,55 @@ document.addEventListener('wheel', (e) => {
 }, { passive: false });
 // Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
 // scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
+// Smoothness: only the card's position and the backdrop's opacity change while dragging (nothing that makes the
+// browser recheck the whole page), at most once per screen refresh.
 (() => {
   const dlg = $('#detail'); if (!dlg) return;
-  let y0 = 0, x0 = 0, dy = 0, t0 = 0, mode = null, sheet = null;
+  const bd = $('#detail-bd');
+  let y0 = 0, x0 = 0, dy = 0, t0 = 0, mode = null, sheet = null, raf = 0, last = [];
   const phone = () => window.matchMedia('(max-width: 700px)').matches;
+  const paint = () => { raf = 0; dlg.style.transform = `translate3d(0, ${dy}px, 0)`; if (bd) bd.style.opacity = String(1 - Math.min(1, dy / 400)); };
+  const reset = () => { dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.willChange = ''; if (bd) { bd.style.opacity = ''; bd.style.transition = ''; } };
   dlg.addEventListener('touchstart', (e) => {
     if (!phone() || e.touches.length !== 1 || e.target.closest('.skulls, input, select, textarea, .wtw-grid')) { mode = 'off'; return; }
     sheet = dlg.querySelector('.sheet');
-    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; t0 = performance.now(); mode = null;
+    y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; dy = 0; t0 = performance.now(); mode = null; last = [[t0, y0]];
   }, { passive: true });
   dlg.addEventListener('touchmove', (e) => {
     if (mode === 'off' || mode === 'scroll') return;
-    const d = e.touches[0].clientY - y0, dx = e.touches[0].clientX - x0;
+    const y = e.touches[0].clientY, d = y - y0, dx = e.touches[0].clientX - x0;
     if (mode === null) {
       if (Math.abs(d) < 6 && Math.abs(dx) < 6) return;
       mode = d > 0 && Math.abs(d) > Math.abs(dx) && (sheet?.scrollTop || 0) <= 0 ? 'drag' : 'scroll';
       if (mode !== 'drag') return;
-      dlg.style.transition = 'none';
+      dlg.style.transition = 'none'; dlg.style.willChange = 'transform'; if (bd) bd.style.transition = 'none';
     }
     e.preventDefault();
     dy = Math.max(0, d);
-    dlg.style.transform = `translateY(${dy}px)`;
-    dlg.style.setProperty('--drag', String(Math.min(1, dy / 400))); document.documentElement.style.setProperty('--drag', String(Math.min(1, dy / 400)));
+    const now = performance.now(); last.push([now, y]); if (last.length > 5) last.shift();
+    if (!raf) raf = requestAnimationFrame(paint);
   }, { passive: false });
   const end = () => {
     if (mode !== 'drag') { mode = null; return; }
     mode = null;
-    const v = dy / Math.max(1, performance.now() - t0); // px per ms
-    dlg.style.transition = 'transform .28s cubic-bezier(.2,.8,.2,1)';
-    if (dy > 110 || v > 0.6) {
-      // The dark backdrop clears right away; the card slides off and closes a moment later.
-      dlg.style.transform = 'translateY(100%)';
-      dlg.style.setProperty('--drag', '1'); document.documentElement.style.setProperty('--drag', '1'); dlg.classList.add('closing');
-      setTimeout(() => { dlg.close(); dlg.classList.remove('closing'); dlg.style.transform = ''; dlg.style.transition = ''; dlg.style.removeProperty('--drag'); document.documentElement.style.removeProperty('--drag'); }, 220);
+    if (raf) { cancelAnimationFrame(raf); raf = 0; paint(); }
+    // speed of the last bit of the swipe, so a quick flick closes it even if it didn't go far
+    const [ta, ya] = last[0], [tb, yb] = last[last.length - 1];
+    const v = (yb - ya) / Math.max(1, tb - ta); // px per ms
+    if (dy > 110 || v > 0.5) {
+      const dist = window.innerHeight - dy, ms = Math.max(140, Math.min(300, dist / Math.max(v, 1.6)));
+      dlg.style.transition = `transform ${ms}ms cubic-bezier(.2,.7,.3,1)`;
+      if (bd) { bd.style.transition = `opacity ${ms}ms ease`; bd.style.opacity = '0'; }
+      dlg.style.transform = 'translate3d(0, 100%, 0)';
+      let done = false;
+      const finish = () => { if (done) return; done = true; dlg.close(); reset(); };
+      dlg.addEventListener('transitionend', finish, { once: true });
+      setTimeout(finish, ms + 80);
     } else {
+      dlg.style.transition = 'transform .22s cubic-bezier(.2,.8,.2,1)';
+      if (bd) { bd.style.transition = 'opacity .22s ease'; bd.style.opacity = ''; }
       dlg.style.transform = '';
-      dlg.style.removeProperty('--drag'); document.documentElement.style.removeProperty('--drag');
-      setTimeout(() => { dlg.style.transition = ''; }, 300);
+      setTimeout(reset, 260);
     }
   };
   dlg.addEventListener('touchend', end);
