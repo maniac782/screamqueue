@@ -2,7 +2,7 @@
 // TMDB has no Horror genre for TV, so shows are found by horror keywords plus a hand-picked list of well-known ones.
 // Kids, family, reality, talk, news, soap and documentary shows are left out; animation only when hand-picked.
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tagSubgenres, scoreMovies, GENRE } from './lib.mjs';
 
 const TV_SKIP_GENRES = [10762, 10751, 10764, 10767, 10763, 10766, 99, 16]; // kids, family, reality, talk, news, soap, documentary, animation
@@ -113,6 +113,7 @@ export async function refreshSeries({ tmdb, pages, pool, getJson, root, region =
       y2: statusOf(d.status) === 'on' ? null : (last ? Number(last.slice(0, 4)) : null),
       st: statusOf(d.status), date: d.first_air_date || null, last,
       next: d.next_episode_to_air?.air_date || null,
+      nextEp: d.next_episode_to_air ? [d.next_episode_to_air.season_number, d.next_episode_to_air.episode_number] : null,
       ns: seasons.length, ne: seasons.reduce((n, s) => n + s[2], 0),
       rt: d.episode_run_time?.length ? Math.round(d.episode_run_time.reduce((a, b) => a + b, 0) / d.episode_run_time.length) : null,
       ov: d.overview || '', cert: usRating(d.content_ratings),
@@ -141,6 +142,31 @@ export async function refreshSeries({ tmdb, pages, pool, getJson, root, region =
     return { ...s, flags, n: { pop: pop != null ? Math.round(pop) : null, votes } };
   });
   scored.sort((a, b) => b.buzz - a.buzz || b.reach - a.reach);
+
+  // 5. Episodes, one small file per series (loaded only when someone opens it):
+  //    data/episodes/<tmdb id>.json = { "<season>": [[episode, title, air date, runtime, summary], ...] }
+  // Seasons that are over (all episodes aired, show not adding to them) are kept from last night instead of re-fetched.
+  const EP_DIR = `${root}/public/data/episodes`;
+  await mkdir(EP_DIR, { recursive: true });
+  const todayStr = new Date().toISOString().slice(0, 10);
+  let epCalls = 0, epKept = 0;
+  await pool(scored, 6, async (sr) => {
+    const file = `${EP_DIR}/${sr.tv}.json`;
+    let prev = null; try { prev = JSON.parse(await readFile(file, 'utf8')); } catch { /* new */ }
+    const out = {};
+    for (const [n, , eps] of sr.seasons) {
+      const old = prev?.[n];
+      const settled = old && old.length >= eps && old.every((e) => e[2] && e[2] <= todayStr) && !(sr.st === 'on' && n === sr.ns);
+      if (settled) { out[n] = old; epKept++; continue; }
+      try {
+        const r = await tmdb(`/tv/${sr.tv}/season/${n}`, { language: 'en-US' }); epCalls++;
+        out[n] = (r.episodes || []).map((e) => [e.episode_number, e.name || `Episode ${e.episode_number}`, e.air_date || 0, e.runtime || 0, String(e.overview || '').slice(0, 420)]);
+      } catch { if (old) out[n] = old; }
+    }
+    await writeFile(file, JSON.stringify(out));
+  });
+  console.log(`Episodes: fetched ${epCalls} seasons, kept ${epKept} from last night.`);
+
   await writeFile(OUT, JSON.stringify({ generatedAt: new Date().toISOString(), series: scored }));
   console.log(`Wrote ${scored.length} series to public/data/series.json (OMDb calls: ${calls}).`);
   return calls;
