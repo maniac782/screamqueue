@@ -15,6 +15,7 @@ import { execFile } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUBGENRES, TIERS, GENRE, tagSubgenres, scoreMovies, usCertification } from './lib.mjs';
+import { refreshSeries } from './series.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = resolve(ROOT, 'public/data/movies.json');
@@ -445,6 +446,11 @@ async function main() {
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out));
   console.log(`Wrote ${scored.length} movies to public/data/movies.json (OMDb calls: ${omdbCalls}).`);
+
+  // Horror TV series (public/data/series.json). A failure here never stops the movie data from being saved.
+  try {
+    await refreshSeries({ tmdb, pages, pool, getJson, root: ROOT, region: REGION, omdbKey: OMDB_KEY, omdbBudget: Math.max(0, OMDB_MAX_CALLS - omdbCalls) });
+  } catch (e) { console.warn('Series skipped:', e.message); }
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
