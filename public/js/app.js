@@ -291,6 +291,20 @@ function castBlock(m) {
 // "Other versions" are movies on the site with the same title from a different year (remakes and reboots).
 let COLLECTIONS = null, colLoading = null;
 function loadCollections() { return colLoading ||= fetch('data/collections.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})).then((c) => { COLLECTIONS = c; return c; }); }
+// Search matching that ignores case, accents and punctuation: "mr crocket" finds "Mr. Crocket", "freddys" finds
+// "Freddy's", "trick r treat" finds "Trick 'r Treat".
+const foldCache = new Map();
+function fold(t) {
+  t = String(t || ''); let f = foldCache.get(t);
+  if (f == null) {
+    f = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/&/g, ' and ').replace(/['\u2018\u2019`.]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+    if (foldCache.size > 20000) foldCache.clear();
+    foldCache.set(t, f);
+  }
+  return f;
+}
+const has = (text, q) => fold(text).includes(fold(q));
+const startsQ = (text, q) => fold(text).startsWith(fold(q));
 const titleKey = (t) => String(t || '').toLowerCase().replace(/^the\s+/, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 function seriesBlock(m) {
   if (!COLLECTIONS && m.col) { loadCollections().then(() => { const el = document.querySelector(`#detail[data-id="${m.id}"] .series-wrap`); if (el) el.innerHTML = seriesHTML(m); }); }
@@ -879,7 +893,7 @@ views.ranks = async (tab) => {
 function filtered() {
   const f = S.f; const q = f.q.trim().toLowerCase();
   const list = S.movies.filter((m) =>
-    (!q || m.t.toLowerCase().includes(q) || m.dir.some((d) => d.toLowerCase().includes(q))) &&
+    (!q || has(m.t, q) || m.dir.some((d) => has(d, q))) &&
     (!f.sg.size || [...f.sg].every((k) => m.sg.includes(k))) &&
     (!f.tier.size || f.tier.has(m.tier)) &&
     (!f.mine || onMine(m)) &&
@@ -1194,7 +1208,7 @@ function renderServices() {
   const all = serviceGroups();
   const q = (S.svcq || '').trim().toLowerCase();
   const picked = all.filter(groupOn);
-  if (q) { const hits = all.filter((x) => x.label.toLowerCase().includes(q)); el.innerHTML = hits.length ? `<div class="svc-grid">${hits.map(serviceTile).join('')}</div>` : '<p class="muted">No service by that name carries horror movies right now.</p>'; return; }
+  if (q) { const hits = all.filter((x) => has(x.label, q)); el.innerHTML = hits.length ? `<div class="svc-grid">${hits.map(serviceTile).join('')}</div>` : '<p class="muted">No service by that name carries horror movies right now.</p>'; return; }
   const popular = all.filter((x) => x.popular);
   const rest = all.filter((x) => !x.popular);
   el.innerHTML = `<h3 class="svc-h">Popular services</h3><div class="svc-grid">${popular.map(serviceTile).join('')}</div>
@@ -1553,7 +1567,7 @@ function inboxHTML(kind, list, total = list?.length) {
 
 function searchList(q, act, n = 6) {
   q = q.trim().toLowerCase(); if (!q) return '';
-  return S.data.movies.filter((m) => m.t.toLowerCase().includes(q)).slice(0, n)
+  return S.data.movies.filter((m) => has(m.t, q)).slice(0, n)
     .map((m) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small" data-act="${act}" data-id="${m.id}">${{ feature: 'Feature', hide: 'Hide', fixpick: 'Edit tags', nsuggest: 'Suggest' }[act]}</button></div>`).join('') || '<p class="muted">No matches.</p>';
 }
 
@@ -1982,8 +1996,8 @@ const VS_SIZES = [2, 4, 8, 16];
 function vsbResults() {
   const q = S.vsb.q.trim().toLowerCase(); if (q.length < 2) return '';
   const have = new Set(S.vsb.entries.map((e) => `${e.l}|${e.m}`));
-  const ppl = vsPeopleList().filter((p) => p.l.toLowerCase().includes(q) || S.byId.get(String(p.m))?.t.toLowerCase().includes(q)).slice(0, 8);
-  const mov = S.movies.filter((m) => m.t.toLowerCase().includes(q)).sort((a, b) => (b.t.toLowerCase().startsWith(q) - a.t.toLowerCase().startsWith(q)) || b.reach - a.reach).slice(0, 8);
+  const ppl = vsPeopleList().filter((p) => has(p.l, q) || has(S.byId.get(String(p.m))?.t, q)).slice(0, 8);
+  const mov = S.movies.filter((m) => has(m.t, q)).sort((a, b) => (startsQ(b.t, q) - startsQ(a.t, q)) || b.reach - a.reach).slice(0, 8);
   const row = (l, m, sub, kind) => `<button type="button" class="vsb-hit" data-act="vsbadd" data-l="${esc(l)}" data-id="${m.id}" data-kind="${kind}" ${have.has(`${l}|${m.id}`) ? 'disabled' : ''}>${thumb(m)}<span><b>${esc(l)}</b><small>${esc(sub)}</small></span>${icon(have.has(`${l}|${m.id}`) ? 'check' : 'plus')}</button>`;
   const out = [...ppl.map((p) => { const m = S.byId.get(String(p.m)); return row(p.l, m, `${p.kind === 'final' ? 'Final girl' : 'Killer'} · ${m.t} (${m.y})`, p.kind); }),
     ...mov.map((m) => row(m.t, m, `Movie · ${m.y ?? ''}`, 'movie'))];
@@ -2096,7 +2110,7 @@ function renderBodyList() {
   const q = (S.bcq || '').trim().toLowerCase();
   const sg = S.bcSg || '';
   const sort = S.bcSort || 'recent';
-  let seen = seenList().filter((x) => (!q || x.t.toLowerCase().includes(q)) && (!sg || x.sg.includes(sg)));
+  let seen = seenList().filter((x) => (!q || has(x.t, q)) && (!sg || x.sg.includes(sg)));
   const by = {
     recent: (a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0),
     rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || a.t.localeCompare(b.t),
@@ -2106,7 +2120,7 @@ function renderBodyList() {
   seen.sort(by);
   let html = '';
   if (q) {
-    const notSeen = S.movies.filter((m) => m.t.toLowerCase().includes(q) && !everSeen(m) && (!sg || m.sg.includes(sg))).sort((a, b) => b.reach - a.reach).slice(0, 8);
+    const notSeen = S.movies.filter((m) => has(m.t, q) && !everSeen(m) && (!sg || m.sg.includes(sg))).sort((a, b) => b.reach - a.reach).slice(0, 8);
     html += `<div class="answer ${seen.length ? 'yes' : 'no'}">${seen.length
       ? `${icon('check')}<span><b>Yes, you've seen ${seen.length === 1 ? esc(seen[0].t) : `${seen.length} movies matching "${esc(S.bcq.trim())}"`}.</b>${seen.length === 1 ? ` ${seen[0].on ? `Watched ${esc(shortDate(seen[0].on))}.` : 'Logged before Scream Queue.'}${seen[0].st.rating ? ` You gave it ${fmtRating(seen[0].st.rating)} skulls.` : ''}` : ''}</span>`
       : `${icon('eye')}<span><b>Not in your Body Count.</b> ${notSeen.length ? 'It\'s listed below if you want to add it.' : 'No horror movie on the site matches that title.'}</span>`}</div>`;
@@ -2331,7 +2345,7 @@ views.list = async (id) => {
 function listAddResults(id) {
   const q = ($('#l-add')?.value || '').trim().toLowerCase(), box = $('#l-add-res'); if (!box) return;
   const l = listCache.get(id); const have = new Set((l?.items || []).map(String));
-  box.innerHTML = q.length < 2 ? '' : S.movies.filter((m) => m.t.toLowerCase().includes(q)).sort((a, b) => b.reach - a.reach).slice(0, 6)
+  box.innerHTML = q.length < 2 ? '' : S.movies.filter((m) => has(m.t, q)).sort((a, b) => b.reach - a.reach).slice(0, 6)
     .map((m) => `<div class="list-item with-art">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small" data-act="ladd" data-id="${id}" data-k="${m.id}" ${have.has(String(m.id)) ? 'disabled' : ''}>${have.has(String(m.id)) ? 'Added' : 'Add'}</button></div>`).join('') || '<p class="muted">No matches.</p>';
 }
 async function saveListItems(id, items) {
@@ -2684,7 +2698,7 @@ views.checklist = () => {
   if (!S.user) return signInPrompt('Sign in to check off the movies you have seen.');
   const q = (S.ckq || '').toLowerCase();
   const base = S.ckAll ? S.movies.slice().sort((a, b) => b.reach - a.reach) : essentialsList();
-  const list = base.filter((m) => !q || m.t.toLowerCase().includes(q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
+  const list = base.filter((m) => !q || has(m.t, q)).slice(0, S.ckAll ? 300 : ESSENTIALS);
   const done = base.filter(everSeen).length;
   return `<div class="page-head"><h1>What Have You Seen?</h1><p class="muted">Tap every movie you've already watched. They go into your Body Count under "Before Scream Queue", so you don't need dates.</p></div>
   <div class="row" style="justify-content:space-between">
@@ -2698,9 +2712,9 @@ views.checklist = () => {
 // ---------- quick search ----------
 function quickMatches(q) {
   q = q.trim().toLowerCase(); if (!q) return [];
-  const sg = S.data.subgenres.find((x) => x.label.toLowerCase().startsWith(q));
-  const hits = S.movies.filter((m) => m.t.toLowerCase().includes(q) || m.dir.some((d) => d.toLowerCase().includes(q)) || m.cast.some((c) => c.toLowerCase().includes(q)));
-  hits.sort((a, b) => (b.t.toLowerCase().startsWith(q) - a.t.toLowerCase().startsWith(q)) || b.reach + b.buzz - a.reach - a.buzz);
+  const sg = S.data.subgenres.find((x) => startsQ(x.label, q));
+  const hits = S.movies.filter((m) => has(m.t, q) || m.dir.some((d) => has(d, q)) || m.cast.some((c) => has(c, q)));
+  hits.sort((a, b) => (startsQ(b.t, q) - startsQ(a.t, q)) || b.reach + b.buzz - a.reach - a.buzz);
   return { sg, list: hits.slice(0, 7), total: hits.length };
 }
 function renderQuick() {
