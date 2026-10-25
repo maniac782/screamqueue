@@ -45,7 +45,7 @@ function rand(seed) {
 
 export function art(m, wide = false) {
   const k = m.sg?.[0] && SG_HUE[m.sg[0]] ? m.sg[0] : 'none';
-  const r = rand(m.id);
+  const r = rand(m.tv || m.id); // series ids look like "tv1622"
   const base = SG_HUE[k] || [350, 262];
   const second = m.sg?.[1] && SG_HUE[m.sg[1]];
   const h1 = Math.round(base[0] + (r() * 36 - 18) + 360) % 360;

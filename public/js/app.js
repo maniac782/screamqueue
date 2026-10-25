@@ -19,7 +19,7 @@ const S = {
   sgLabel: new Map(),
   tierLabel: new Map(),
   config: { showPosters: false, featured: [], hidden: [], sgFix: {}, announcement: '' },
-  f: { q: '', sg: new Set(), tier: new Set(), mine: false, hideSeen: false, decade: '', sort: 'buzz', provider: '', tom: '', limit: 60 },
+  f: { kind: 'movie', q: '', sg: new Set(), tier: new Set(), mine: false, hideSeen: false, decade: '', sort: 'buzz', provider: '', tom: '', limit: 60 },
   p: { sg: new Set(), mix: 'crowd', mine: true, queueOnly: false, recent: [], current: null },
   qTab: 'queue',
   stopNight: null,
@@ -34,6 +34,30 @@ const status = (id) => S.mine.get(String(id));
 const isSeen = (m) => status(m.id)?.status === 'seen';
 const isNope = (m) => status(m.id)?.status === 'nope'; // "Not interested": kept out of shelves, Browse and picks
 const everSeen = (m) => { const st = status(m.id); return st?.status === 'seen' || !!st?.wasSeen; };
+// ---------- TV series ----------
+// A series is saved like a movie (status queue | watching | seen = finished), plus seasons: [season numbers finished].
+// Each finished season adds 1 to your Body Count.
+const isTv = (id) => String(id).startsWith('tv');
+function seasonsDone(id, st) {
+  if (!st) return 0;
+  if (Array.isArray(st.seasons)) return st.seasons.length;
+  return st.status === 'seen' ? (S.byId.get(String(id))?.ns || st.ns || 1) : 0;
+}
+// Body Count for any saved list (yours or a friend's): movies survived + series seasons finished.
+function bodyCountOf(mv) {
+  let movies = 0, seasons = 0;
+  for (const [id, st] of mv) { if (isTv(id)) seasons += seasonsDone(id, st); else if (st.status === 'seen' || st.wasSeen) movies++; }
+  return { movies, seasons, n: movies + seasons };
+}
+function seriesProgress(m, st) {
+  if (!st) return `Series · ${m.ns} season${m.ns === 1 ? '' : 's'}`;
+  const d = seasonsDone(m.id, st);
+  if (st.status === 'seen' && d >= m.ns) return `Finished · ${m.ns} season${m.ns === 1 ? '' : 's'}${st.rating ? ` · ${fmtRating(st.rating)} skulls` : ''}`;
+  if (st.status === 'seen') return `Finished ${d} of ${m.ns} seasons`; // a new season came out since
+  if (d) return `Watching · ${d} of ${m.ns} season${m.ns === 1 ? '' : 's'} done`;
+  return st.status === 'watching' ? `Watching · ${m.ns} season${m.ns === 1 ? '' : 's'}` : `Series · ${m.ns} season${m.ns === 1 ? '' : 's'}`;
+}
+const bcLine = (c) => c.seasons ? `${c.movies} movie${c.movies === 1 ? '' : 's'} + ${c.seasons} season${c.seasons === 1 ? '' : 's'}` : '';
 const onMine = (m) => S.profile.services.some((p) => m.pv.includes(p) || m.fr.includes(p));
 const SAMPLE = () => !!S.data?.sample;
 const hue = (k) => (SG_HUE[k] || [350])[0];
@@ -84,9 +108,10 @@ function links(m) {
       ['JustWatch', `https://www.justwatch.com/us/search?q=${encodeURIComponent(m.t)}`],
     ];
   }
-  const out = [['Letterboxd reviews', `https://letterboxd.com/tmdb/${m.id}/`]];
+  const tv = m.type === 'tv';
+  const out = tv ? [] : [['Letterboxd reviews', `https://letterboxd.com/tmdb/${m.id}/`]];
   if (m.imdb?.id) out.push(['IMDb', `https://www.imdb.com/title/${m.imdb.id}/`]);
-  out.push(['TMDB', `https://www.themoviedb.org/movie/${m.id}`]);
+  out.push(['TMDB', tv ? `https://www.themoviedb.org/tv/${m.tv}` : `https://www.themoviedb.org/movie/${m.id}`]);
   if (m.wl) out.push(['All streaming options', m.wl]);
   return out;
 }
@@ -342,7 +367,8 @@ function seriesHTML(m) {
 // director or cast, and (once you've rated enough) your own taste. Seen, hidden and same-series movies are left out.
 let recBack = null; // movie id -> ids of movies that list it in their own "fans also liked"
 function likeThis(m) {
-  if (!recBack) { recBack = new Map(); for (const x of S.movies) for (const id of x.rec || []) { const k = String(id); if (!recBack.has(k)) recBack.set(k, []); recBack.get(k).push(x.id); } }
+  const tv = m.type === 'tv', pool = tv ? S.series : S.movies;
+  if (!recBack) { recBack = new Map(); for (const x of [...S.movies, ...S.series]) for (const id of x.rec || []) { const k = String(id); if (!recBack.has(k)) recBack.set(k, []); recBack.get(k).push(x.id); } }
   const col = m.col && COLLECTIONS?.[m.col], inCol = new Set((col?.p || []).map(([id]) => String(id)));
   const key = titleKey(m.t), sg = new Set(m.sg), dir = new Set(m.dir), cast = new Set(m.cast.slice(0, 4));
   const sgLabel = new Map(S.data.subgenres.map((x) => [x.key, x.label]));
@@ -350,7 +376,7 @@ function likeThis(m) {
   const add = (id, v, why) => { const k = String(id); const c = pc.get(k) || { s: 0, why: [] }; c.s += v; if (why) c.why.push([v, why]); pc.set(k, c); };
   (m.rec || []).forEach((id, i) => add(id, 10 - i * 0.4, 'Fans also liked'));
   (recBack.get(String(m.id)) || []).forEach((id) => add(id, 4, 'Fans also liked'));
-  for (const x of S.movies) {
+  for (const x of pool) {
     if (x.id === m.id) continue;
     const shared = x.sg.filter((k) => sg.has(k));
     if (shared.length) add(x.id, (6 * shared.length) / (sg.size + x.sg.length - shared.length), sgLabel.get(shared[0]) || '');
@@ -358,7 +384,7 @@ function likeThis(m) {
     const c = x.cast.slice(0, 4).filter((n) => cast.has(n));
     if (c.length) add(x.id, c.length, `With ${c[0].split(' ').slice(-1)[0]}`);
   }
-  const taste = S.user ? recommend() : null, personal = taste && taste.n >= MIN_FOR_PICKS;
+  const taste = S.user && !tv ? recommend() : null, personal = taste && taste.n >= MIN_FOR_PICKS;
   const out = [];
   for (const [id, c] of pc) {
     const x = S.byId.get(id); if (!x || inCol.has(id) || (m.col && x.col === m.col) || titleKey(x.t) === key) continue;
@@ -372,7 +398,7 @@ function likeThis(m) {
 function likeBlock(m) {
   const list = likeThis(m);
   if (!list.length) return '';
-  const personal = S.user && recommend().n >= MIN_FOR_PICKS;
+  const personal = m.type !== 'tv' && S.user && recommend().n >= MIN_FOR_PICKS;
   return `<div class="series like-this"><div class="like-head"><h3>More like ${esc(m.t)}</h3><p>What its fans also liked${personal ? ', picked for your taste' : ''}.</p></div>
     <div class="sr-row">${list.map((x) => seriesTile(x.m.id, x.m.t, x.m.y, x.m.poster, false, x.why && x.why !== 'Fans also liked' ? x.why : String(x.m.y || ''))).join('')}</div></div>`;
 }
@@ -387,7 +413,7 @@ function scoreRow(m) {
   if (t != null) parts.push(tile(`https://www.rottentomatoes.com/search?search=${q}`, 'See reviews on Rotten Tomatoes', `<span class="ico">${t >= 60 ? TOMATO : SPLAT}</span><span><b>${t}%</b><small>Critics on Rotten Tomatoes</small></span>`));
   if (m.imdb?.r) parts.push(tile(imdbUrl, 'Read reviews on IMDb', `<span class="ico imdb">${icon('star')}</span><span><b>${m.imdb.r}<i>/10</i></b><small>IMDb${m.imdb.v ? `, ${fmt(m.imdb.v)} ratings` : ''}</small></span>`));
   if (m.imdb?.mc != null) parts.push(tile(`https://www.metacritic.com/search/${q}/?category=2`, 'See reviews on Metacritic', `<span class="ico mc ${m.imdb.mc >= 61 ? 'hi' : m.imdb.mc >= 40 ? 'mid' : 'lo'}">${m.imdb.mc}</span><span><b>${m.imdb.mc}<i>/100</i></b><small>Metacritic</small></span>`));
-  if (!parts.length && m.va) parts.push(tile(`https://www.themoviedb.org/movie/${m.id}/reviews`, 'Read reviews on TMDB', `<span class="ico imdb">${icon('star')}</span><span><b>${m.va.toFixed(1)}<i>/10</i></b><small>TMDB users</small></span>`));
+  if (!parts.length && m.va) parts.push(tile(m.type === 'tv' ? `https://www.themoviedb.org/tv/${m.tv}/reviews` : `https://www.themoviedb.org/movie/${m.id}/reviews`, 'Read reviews on TMDB', `<span class="ico imdb">${icon('star')}</span><span><b>${m.va.toFixed(1)}<i>/10</i></b><small>TMDB users</small></span>`));
   return parts.length ? `<div class="scores">${parts.join('')}</div>` : '';
 }
 
@@ -478,7 +504,7 @@ function sizePicker() {
 function card(m, opts) {
   const sub = typeof opts === 'object' && opts?.sub;
   const plain = typeof opts === 'object' && opts?.plain;
-  const sg = sub || m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', ');
+  const sg = sub || (m.type === 'tv' ? seriesProgress(m, status(m.id)) : m.sg.slice(0, 2).map((k) => S.sgLabel.get(k)).join(', '));
   const name = `${m.t}${m.y ? ` (${m.y})` : ''}`;
   return `<div class="card" data-id="${m.id}">
     <button class="card-open" data-act="open" data-id="${m.id}" aria-label="${esc(name)}">
@@ -592,8 +618,10 @@ function skullPicker(m, r = 0) {
 
 // ---------- data ----------
 async function loadData() {
-  const res = await fetch('data/movies.json', { cache: 'no-cache' });
+  const [res, ser] = await Promise.all([fetch('data/movies.json', { cache: 'no-cache' }), fetch('data/series.json', { cache: 'no-cache' }).catch(() => null)]);
   S.data = await res.json();
+  // Horror TV series (ids like "tv1622"). The site works without them if the file is missing.
+  S.seriesData = ser?.ok ? ((await ser.json().catch(() => null))?.series || []) : [];
   S.provName = new Map(S.data.providers.map((p) => [p.id, p.name]));
   S.sgLabel = new Map(S.data.subgenres.map((s) => [s.key, s.label]));
   S.hasTom = S.data.movies.some((m) => m.imdb?.tom != null);
@@ -605,6 +633,8 @@ function applyConfig() {
   const fix = (m) => (S.config.sgFix?.[m.id] ? { ...m, sg: S.config.sgFix[m.id] } : m);
   S.movies = S.data.movies.filter((m) => !hidden.has(String(m.id))).map(fix);
   S.byId = new Map(S.data.movies.map((m) => [String(m.id), fix(m)]));
+  S.series = (S.seriesData || []).filter((m) => !hidden.has(String(m.id))).map(fix);
+  for (const m of S.seriesData || []) S.byId.set(String(m.id), fix(m));
 }
 async function loadMine() {
   if (!S.user) { S.mine = new Map(); S.profile = { name: '', services: [], hideSeen: false }; return; }
@@ -780,10 +810,15 @@ views.tonight = () => {
   const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach);
   const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a)));
   const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
+  // TV series shelves
+  const tvPool = (S.series || []).filter((m) => !isSeen(m) && !isNope(m));
+  const tvTop = mineFirst(tvPool).sort((a, b) => b.buzz - a.buzz);
+  const tvNew = tvPool.filter((m) => m.flags.includes('new') || m.flags.includes('newseason')).sort((a, b) => (b.last || b.date || '').localeCompare(a.last || a.date || ''));
+  const tvWatching = S.user ? [...S.mine.entries()].filter(([id, st]) => isTv(id) && st.status === 'watching').map(([id]) => S.byId.get(id)).filter(Boolean) : [];
   const firstRun = 'This shelf fills in after the next nightly data refresh.';
   return `
   <div class="qs" id="qs-wrap">
-    <label class="search qs-box"><span class="sr">Search horror movies</span>${icon('search')}<input type="search" id="qs" placeholder="Search horror movies, directors or a subgenre" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="qs-list"></label>
+    <label class="search qs-box"><span class="sr">Search horror movies</span>${icon('search')}<input type="search" id="qs" placeholder="Search horror movies, series, directors or a subgenre" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="qs-list"></label>
     <div class="qs-list" id="qs-list" role="listbox" hidden></div>
   </div>
   ${top ? `<section class="hero">
@@ -811,7 +846,10 @@ views.tonight = () => {
     : recs && recs.n < MIN_FOR_PICKS ? `<section class="shelf" data-key="picked for you"><div class="shelf-head"><div><h2>Picked for you</h2><p class="muted">Mark ${MIN_FOR_PICKS - recs.n} more movie${MIN_FOR_PICKS - recs.n === 1 ? '' : 's'} you've seen and rate them with skulls, and this shelf fills in with picks for your taste.</p></div><div class="shelf-nav"><a class="btn small" href="#/checklist">${icon('skull')}Check off ones you've seen</a></div></div></section>` : ''}
   ${fPicks.length >= 2 ? shelf('Your friends liked these', 'Rated well by your friends, and you haven\'t seen them yet.', fPicks.map((x) => x.m), '', '', (m) => fPicks.find((x) => x.m.id === m.id)?.sub) : ''}
   ${anchor ? shelf(`Because you loved ${esc(anchor.m.t)}`, 'People who liked it also liked these.', anchor.list, '') : ''}
+  ${tvWatching.length ? shelf('Keep watching', 'Series you\'re in the middle of. Tick off seasons on each one as you finish them.', tvWatching, '', '', (m) => seriesProgress(m, status(m.id))) : ''}
   ${shelf('Trending this week', 'The horror movies people are watching and talking about right now.', hot, firstRun)}
+  ${tvTop.length ? shelf(S.profile.services.length ? 'Horror series on your services' : 'Horror series', 'The horror shows people are watching. Every season you finish adds 1 to your Body Count.', tvTop, '') : ''}
+  ${tvNew.length >= 4 ? shelf('New on TV', 'New horror series and new seasons from the last few months.', tvNew, '') : ''}
   ${shelf(S.profile.services.length ? 'Crowd favorites on your services' : 'Crowd favorites', 'Widely seen and well liked. Easy to get a group on board.', crowd, S.profile.services.length ? 'Nothing from this shelf is on your services right now.' : firstRun)}
   ${inTheaters.length ? shelf('In theaters now', 'Playing in US theaters and not streaming yet.', inTheaters, '') : ''}
   ${comingSoon.length ? shelf('Coming to theaters', 'Horror opening in US theaters soon, earliest first.', comingSoon, '') : ''}
@@ -836,7 +874,7 @@ views.shelf = (slug) => {
 // Friends: you plus friends whose Body Count you're allowed to see. Everyone: people whose profile is public
 // (their card carries the number, see syncBodyCount).
 const num = (n) => Number(n || 0).toLocaleString('en-US');
-const bcCount = (mv) => { let n = 0; for (const st of mv.values()) if (st.status === 'seen' || st.wasSeen) n++; return n; };
+const bcCount = (mv) => bodyCountOf(mv).n;
 function syncBodyCount() {
   if (!S.user || !S.social || S.social.missing || !store.setBodyCount) return;
   const pub = S.social.privacy?.profile === 'public', n = bcCount(S.mine);
@@ -892,7 +930,8 @@ views.ranks = async (tab) => {
 // Browse
 function filtered() {
   const f = S.f; const q = f.q.trim().toLowerCase();
-  const list = S.movies.filter((m) =>
+  const tv = f.kind === 'tv';
+  const list = (tv ? S.series : S.movies).filter((m) =>
     (!q || has(m.t, q) || m.dir.some((d) => has(d, q))) &&
     (!f.sg.size || [...f.sg].every((k) => m.sg.includes(k))) &&
     (!f.tier.size || f.tier.has(m.tier)) &&
@@ -900,7 +939,7 @@ function filtered() {
     (!f.provider || m.pv.includes(Number(f.provider)) || m.fr.includes(Number(f.provider))) &&
     (!f.hideSeen || !isSeen(m)) && !isNope(m) &&
     (!f.decade || (m.y && Math.floor(m.y / 10) * 10 === Number(f.decade))) &&
-    (!f.tom || (tom(m) ?? -1) >= Number(f.tom)));
+    (tv || !f.tom || (tom(m) ?? -1) >= Number(f.tom)));
   const by = {
     buzz: (a, b) => b.buzz - a.buzz,
     reach: (a, b) => b.reach - a.reach,
@@ -917,26 +956,29 @@ function renderResults() {
   if (ft) { const f = S.f, n = f.sg.size + f.tier.size + [f.decade, f.provider, f.mine, f.tom, f.hideSeen].filter(Boolean).length; ft.querySelector('.f-n')?.remove(); if (n) ft.insertAdjacentHTML('beforeend', `<b class="f-n">${n}</b>`); }
   const list = filtered();
   const el = $('#results'); if (!el) return;
-  setHTML(el, `<div class="results-head"><p class="count">${list.length} movie${list.length === 1 ? '' : 's'}</p>${sizePicker()}</div>
+  const noun = S.f.kind === 'tv' ? 'series' : `movie${list.length === 1 ? '' : 's'}`;
+  setHTML(el, `<div class="results-head"><p class="count">${list.length} ${noun}</p>${sizePicker()}</div>
     ${list.length ? `<div class="grid">${list.slice(0, S.f.limit).map(card).join('')}</div>` : `<div class="empty">${icon('search')}<span>Nothing matches all of those filters. Try removing a subgenre.</span></div>`}
     ${list.length > S.f.limit ? '<div class="row" style="justify-content:center"><button class="btn" data-act="more">Show more</button></div>' : ''}`);
 }
 views.browse = () => {
   const f = S.f;
-  const decades = [...new Set(S.movies.map((m) => m.y && Math.floor(m.y / 10) * 10).filter(Boolean))].sort((a, b) => b - a);
+  const tv = f.kind === 'tv';
+  const decades = [...new Set((tv ? S.series : S.movies).map((m) => m.y && Math.floor(m.y / 10) * 10).filter(Boolean))].sort((a, b) => b - a);
   const provs = S.data.providers.filter((p) => S.movies.some((m) => m.pv.includes(p.id) || m.fr.includes(p.id)));
   S.after = renderResults;
   const any = f.sg.size || f.tier.size || f.q || f.decade || f.provider || f.mine || f.tom;
   const nOn = f.sg.size + f.tier.size + [f.decade, f.provider, f.mine, f.tom, f.hideSeen].filter(Boolean).length;
   return `<div class="page-head"><h1>Browse</h1><p class="muted">Pick a few subgenres to narrow it down. Every filter you add has to match.</p></div>
+  ${S.series?.length ? `<div class="tabs kind-tabs" role="tablist" aria-label="Movies or series">${[['movie', 'Movies'], ['tv', 'TV series']].map(([k, l]) => `<button role="tab" data-act="fkind" data-k="${k}" aria-selected="${f.kind === k}">${l}</button>`).join('')}</div>` : ''}
   <div class="filters${S.fOpen ? ' open' : ''}">
     <div class="toolbar">
-      <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="Search titles or directors" value="${esc(f.q)}"></label>
-      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z'], ...(S.user && recommend().list.length ? [['foryou', 'Picked for you']] : [])].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="search"><span class="sr">Search</span>${icon('search')}<input type="search" id="f-q" data-bind="q" placeholder="${tv ? 'Search series or creators' : 'Search titles or directors'}" value="${esc(f.q)}"></label>
+      <select id="f-sort" data-bind="sort" aria-label="Sort">${[['buzz', 'Trending now'], ['reach', 'Most watched'], ['rating', 'Highest rated'], ...(S.hasTom && !tv ? [['critics', 'Best reviewed by critics']] : []), ['newest', 'Newest'], ['title', 'Title A to Z'], ...(S.user && !tv && recommend().list.length ? [['foryou', 'Picked for you']] : [])].map(([v, l]) => `<option value="${v}" ${f.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <button class="btn f-toggle" data-act="ftoggle" aria-expanded="${!!S.fOpen}">${icon('sliders')}Filters${nOn ? `<b class="f-n">${nOn}</b>` : ''}</button>
       <div class="f-sel f-more">
       <select id="f-decade" data-bind="decade" aria-label="Decade"><option value="">Any decade</option>${decades.map((d) => `<option value="${d}" ${String(f.decade) === String(d) ? 'selected' : ''}>${d}s</option>`).join('')}</select>
-      ${S.hasTom ? `<select id="f-tom" data-bind="tom" aria-label="Critics score"><option value="">Any critics score</option>${[[60, 'Fresh (60%+)'], [75, '75% and up'], [90, '90% and up']].map(([v, l]) => `<option value="${v}" ${String(f.tom) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
+      ${S.hasTom && !tv ? `<select id="f-tom" data-bind="tom" aria-label="Critics score"><option value="">Any critics score</option>${[[60, 'Fresh (60%+)'], [75, '75% and up'], [90, '90% and up']].map(([v, l]) => `<option value="${v}" ${String(f.tom) === String(v) ? 'selected' : ''}>${l}</option>`).join('')}</select>` : ''}
       <select id="f-provider" data-bind="provider" aria-label="Streaming service"><option value="">Any service</option>${provs.map((p) => `<option value="${p.id}" ${String(f.provider) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>
       </div>
     </div>
@@ -1065,7 +1107,7 @@ function sortQueue(rows, tab, k) {
 views.queue = () => {
   if (!S.user) return signInPrompt('Sign in to keep a watch queue and track what you have seen.');
   const all = [...S.mine.entries()].map(([id, st]) => ({ m: S.byId.get(id), st, id })).filter((x) => x.m);
-  const q = all.filter((x) => x.st.status === 'queue');
+  const q = all.filter((x) => x.st.status === 'queue' || x.st.status === 'watching');
   const seen = all.filter((x) => x.st.status === 'seen');
   const tab = S.qTab;
   const base = tab === 'queue' ? q : seen;
@@ -1079,7 +1121,7 @@ views.queue = () => {
       <select id="q-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.qSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
       ${S.qSg ? `<span class="faint">${rows.length} of ${base.length}</span>` : ''}
     </div>` : `<div class="tabs" role="tablist"><button role="tab" data-act="qtab" data-k="queue" aria-selected="${tab === 'queue'}">To watch (${q.length})</button><button role="tab" data-act="qtab" data-k="seen" aria-selected="${tab === 'seen'}">Seen (${seen.length})</button></div>`;
-  const sub = (x) => (tab === 'seen' ? (x.st.rating ? `${fmtRating(x.st.rating)} skulls${x.st.seenOn ? ` · ${shortDate(x.st.seenOn)}` : ''}` : x.st.seenOn ? `Watched ${shortDate(x.st.seenOn)}` : undefined)
+  const sub = (x) => (x.m.type === 'tv' ? seriesProgress(x.m, x.st) : tab === 'seen' ? (x.st.rating ? `${fmtRating(x.st.rating)} skulls${x.st.seenOn ? ` · ${shortDate(x.st.seenOn)}` : ''}` : x.st.seenOn ? `Watched ${shortDate(x.st.seenOn)}` : undefined)
     : S.qSort.queue === 'mine' && onMine(x.m) ? servicesText(x.m) : S.qSort.queue === 'short' && x.m.rt ? `${x.m.rt} min` : S.qSort.queue === 'foryou' ? recommend().by.get(String(x.m.id))?.why : undefined);
   return `<div class="page-head"><h1>My Queue</h1><p class="muted">${q.length ? `${q.length} movie${q.length === 1 ? '' : 's'} waiting for you.` : 'Save movies here to watch later.'}</p></div>
   ${tools}
@@ -1388,6 +1430,7 @@ views.about = () => `<div class="page-head"><h1>How ${esc(SITE_NAME)} Works</h1>
     <h3>The labels on each movie</h3>
     <div class="chips">${S.data.tiers.map((t) => `<span class="tag t-${t.key}" style="--h:0"><span class="sw" style="background:var(--tc)"></span>${esc(t.label)}</span>`).join('')}</div>
     <p class="muted">New Release covers the last four months, since brand-new movies haven't had time to collect ratings. The rest go from the most-watched horror movies down to ones few people have found. The labels compare horror movies with each other, not with all movies.</p>
+    <h3>TV series and your Body Count</h3><p class="muted">Horror series are found by TMDB's horror tags plus a hand-picked list of well-known shows (TMDB has no Horror genre for TV). Every movie you survive adds 1 to your Body Count, and so does every season of a series you finish. Tick seasons off on a series' page, or press "Finished the series" to count them all.</p>
     <h3>Subgenres</h3><p class="muted">Tagged from TMDB keywords like "slasher", "demonic possession" or "found footage", plus overlaps like horror comedy and sci-fi horror. A movie can have several. The site admin can correct them.</p>
     <h3>The artwork</h3><p class="muted">Each movie gets its own generated artwork in the colors of its main subgenre, so the shelves stay readable without studio posters.</p>
     <h3 id="credits">Profile picture credits</h3>
@@ -1586,8 +1629,8 @@ const LEVELS = [[1, 'Initiate'], [5, 'Regular'], [10, 'Devotee'], [25, 'Master']
 const ESSENTIALS = 100;
 
 // Everything the user has seen, using the saved snapshot when a movie has left the nightly list.
-function seenList() {
-  return [...S.mine.entries()].filter(([, st]) => st.status === 'seen' || st.wasSeen).map(([id, st]) => {
+function seenList() { // movies only; series seasons are counted by bodyCountOf
+  return [...S.mine.entries()].filter(([id, st]) => !isTv(id) && (st.status === 'seen' || st.wasSeen)).map(([id, st]) => {
     const m = S.byId.get(id);
     return {
       id, st, m,
@@ -2148,12 +2191,17 @@ views.bodycount = () => {
   const counts = {};
   for (const x of seen) for (const k of x.sg) counts[k] = (counts[k] || 0) + 1;
   const tab = S.bcTab || 'watched';
-  if (tab === 'watched') S.after = renderBodyList;
+  const BC = bodyCountOf(S.mine);
+  const tvRows = [...S.mine.entries()].filter(([id, st]) => isTv(id) && (st.status === 'seen' || st.status === 'watching' || seasonsDone(id, st)))
+    .map(([id, st]) => ({ id, st, m: S.byId.get(id) })).filter((x) => x.m).sort((a, b) => (b.st.at || 0) - (a.st.at || 0));
+  const tvMins = tvRows.reduce((sum, x) => sum + (x.m.rt || 0) * x.m.seasons.filter(([n]) => (x.st.seasons || (x.st.status === 'seen' ? x.m.seasons.map(([k]) => k) : [])).includes(n)).reduce((e, s2) => e + s2[2], 0), 0);
+  const tabs = (cur) => `<div class="tabs" role="tablist">${[['watched', 'Movies'], ...(tvRows.length ? [['series', `Series (${tvRows.length})`]] : []), ['badges', 'Badges']].map(([k, l]) => `<button role="tab" data-act="bctab" data-k="${k}" aria-selected="${cur === k}">${l}</button>`).join('')}</div>`;
+  if (tab !== 'badges' && !(tab === 'series' && tvRows.length)) S.after = renderBodyList;
   const sgs = S.data.subgenres.filter((x) => counts[x.key]);
   return `<div class="bc-head">
-    <div class="bc-count"><b>${seen.length}</b><span>horror movie${seen.length === 1 ? '' : 's'} survived</span></div>
+    <div class="bc-count"><b>${BC.n}</b><span>${BC.seasons ? 'survived' : `horror movie${BC.n === 1 ? '' : 's'} survived`}</span></div>
     <div class="stack" style="gap:6px;min-width:0"><h1>Body Count</h1>
-      <p class="muted">${Math.round(mins / 60)} hours of horror. Average rating ${avg}. ${Object.keys(counts).length} of ${S.data.subgenres.length} subgenres explored.</p></div>
+      <p class="muted">${BC.seasons ? `${esc(bcLine(BC))}. ` : ''}${Math.round((mins + tvMins) / 60)} hours of horror. Average rating ${avg}. ${Object.keys(counts).length} of ${S.data.subgenres.length} subgenres explored.</p></div>
   </div>
   <div class="bc-bar">
   <nav class="bc-links" aria-label="Body Count tools">
@@ -2161,12 +2209,14 @@ views.bodycount = () => {
   </nav>
     <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
   </div>
-  ${tab === 'watched' ? `<div class="row bc-tools">
-      <div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="true">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="false">Badges</button></div>
+  ${tab === 'series' && tvRows.length ? `<div class="row bc-tools">${tabs('series')}</div>
+    <p class="muted" style="margin:0">Each season you finish adds 1 to your Body Count.</p>
+    <div class="grid">${tvRows.map((x) => card(x.m, { sub: seriesProgress(x.m, x.st) })).join('')}</div>` : tab !== 'badges' ? `<div class="row bc-tools">
+      ${tabs('watched')}
       <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
     </div>
-    <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools"><div class="tabs" role="tablist"><button role="tab" data-act="bctab" data-k="watched" aria-selected="false">Watched</button><button role="tab" data-act="bctab" data-k="badges" aria-selected="true">Badges</button></div></div>${badgesSection(seen, counts)}`}`;
+    <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools">${tabs('badges')}</div>${badgesSection(seen, counts)}`}`;
 };
 
 function badgesSection(seen, counts) {
@@ -2365,14 +2415,14 @@ async function openAddToList(movieId) {
   </form>`);
 }
 async function submitAddToList(f) {
-  const mid = Number(f.dataset.mid), want = new Set([...f.querySelectorAll('[name=l]:checked')].map((x) => x.value));
+  const mid = isTv(f.dataset.mid) ? f.dataset.mid : Number(f.dataset.mid), want = new Set([...f.querySelectorAll('[name=l]:checked')].map((x) => x.value)); // series ids stay "tv123"
   const btn = f.querySelector('[type=submit]'); btn.disabled = true;
   try {
     for (const [id, l] of listCache) {
       if (l.owner !== S.user.uid) continue;
-      const has = (l.items || []).map(Number).includes(mid);
+      const has = (l.items || []).map(String).includes(String(mid));
       if (want.has(id) && !has) await saveListItems(id, [...(l.items || []), mid]);
-      if (!want.has(id) && has && f.querySelector(`[name=l][value="${id}"]`)) await saveListItems(id, (l.items || []).filter((x) => Number(x) !== mid));
+      if (!want.has(id) && has && f.querySelector(`[name=l][value="${id}"]`)) await saveListItems(id, (l.items || []).filter((x) => String(x) !== String(mid)));
     }
     const nt = f.newtitle.value.trim();
     if (nt) { const id = await store.createList({ title: nt, desc: '', vis: 'public', items: [mid], name: S.profile.name || '', handle: S.social?.handle || '' }); want.add(id); }
@@ -2625,7 +2675,7 @@ views.u = async (key) => {
   const filterBar = !isMe && seen.length ? `<div class="tabs u-filter" role="tablist">${[['all', `All (${seen.length})`], ['both', `You've both seen (${both.length})`], ['them', `Only them (${seen.length - both.length})`]].map(([k, l]) => `<button role="tab" data-act="ufilter" data-k="${k}" aria-selected="${uf === k}">${l}</button>`).join('')}</div>` : '';
   return `${head}
     <div class="stat-row">
-      <div class="stat"><b>${seen.length}</b><span>Body Count</span></div>
+      <div class="stat"><b>${movies ? bodyCountOf(movies).n : seen.length}</b><span>Body Count</span></div>
       <div class="stat"><b>${avg}</b><span>Average rating</span></div>
       <div class="stat"><b>${queue.length}</b><span>In their queue</span></div>
       ${isMe ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
@@ -2713,7 +2763,7 @@ views.checklist = () => {
 function quickMatches(q) {
   q = q.trim().toLowerCase(); if (!q) return [];
   const sg = S.data.subgenres.find((x) => startsQ(x.label, q));
-  const hits = S.movies.filter((m) => has(m.t, q) || m.dir.some((d) => has(d, q)) || m.cast.some((c) => has(c, q)));
+  const hits = [...S.movies, ...(S.series || [])].filter((m) => has(m.t, q) || m.dir.some((d) => has(d, q)) || m.cast.some((c) => has(c, q)));
   hits.sort((a, b) => (startsQ(b.t, q) - startsQ(a.t, q)) || b.reach + b.buzz - a.reach - a.buzz);
   return { sg, list: hits.slice(0, 7), total: hits.length };
 }
@@ -2729,12 +2779,13 @@ function renderQuick() {
   const pplRows = ppl.map(([id, n, c, ph]) => `<button class="qs-row qs-person" data-act="person" data-k="${id}"><span class="qs-face">${face(ph || null, n, 'w92')}</span><span class="nm"><b>${esc(n)}</b><small>${c} horror movie${c === 1 ? '' : 's'}</small></span></button>`).join('');
   const rows = list.map((m, i) => {
     const st = status(m.id);
-    const tag = st?.status === 'queue' ? `<span class="qs-tag q">${icon('bookmark')}Queued</span>` : everSeen(m) ? `<span class="qs-tag s">${icon('skull')}Survived</span>` : '';
-    return `<button class="qs-row" role="option" data-act="open" data-id="${m.id}" data-i="${i}">${thumb(m)}<span class="nm"><b>${esc(m.t)}</b><small>${[m.y, m.dir[0], servicesText(m)].filter(Boolean).map(esc).join(' · ')}</small></span>${tag}</button>`;
+    const tag = st?.status === 'queue' ? `<span class="qs-tag q">${icon('bookmark')}Queued</span>` : st?.status === 'watching' ? `<span class="qs-tag q">${icon('eye')}Watching</span>` : everSeen(m) ? `<span class="qs-tag s">${icon('skull')}Survived</span>` : '';
+    const info = m.type === 'tv' ? ['TV series', m.y, `${m.ns} season${m.ns === 1 ? '' : 's'}`, servicesText(m)] : [m.y, m.dir[0], servicesText(m)];
+    return `<button class="qs-row" role="option" data-act="open" data-id="${m.id}" data-i="${i}">${thumb(m)}<span class="nm"><b>${esc(m.t)}</b><small>${info.filter(Boolean).map(esc).join(' · ')}</small></span>${tag}</button>`;
   }).join('');
   box.innerHTML = `${sg ? `<button class="qs-row qs-sg" data-act="sgbrowse" data-k="${sg.key}" style="--h:${hue(sg.key)}"><span class="sgdot">${sgIcon(sg.key)}</span><span class="nm"><b>Browse ${esc(sg.label)}</b><small>Subgenre</small></span></button>` : ''}
     ${pplRows}
-    ${rows || (pplRows ? '' : '<p class="qs-empty">No horror movie on the site matches that.</p>')}
+    ${rows || (pplRows ? '' : '<p class="qs-empty">No horror movie or series on the site matches that.</p>')}
     ${total > list.length ? `<button class="qs-more" data-act="qsall">See all ${total} results</button>` : ''}`;
   box.hidden = false; inp.setAttribute('aria-expanded', 'true');
   S.qsIdx = -1;
@@ -2756,6 +2807,60 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => { if (!e.target.closest('#qs-wrap')) { const b = $('#qs-list'); if (b) b.hidden = true; } });
 
 // ---------- detail sheet ----------
+// Details card for a TV series: years, seasons and episodes, Watching / Finished, a tick for each season you finish.
+function seriesSheetHTML(m, st, provs) {
+  const tr = trendLine(m), rc = reachLine(m);
+  const done = new Set(Array.isArray(st?.seasons) ? st.seasons : st?.status === 'seen' ? m.seasons.map(([k]) => k) : []);
+  const finished = st?.status === 'seen' && m.seasons.every(([k]) => done.has(k));
+  const watching = st?.status === 'watching';
+  const years = m.y ? (m.st === 'on' ? `${m.y}–` : m.y2 && m.y2 !== m.y ? `${m.y}–${m.y2}` : String(m.y)) : '';
+  const onAir = m.st === 'on' ? (m.next ? `Returning: new episode ${new Date(m.next + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: m.next.slice(0, 4) === today().slice(0, 4) ? undefined : 'numeric' })}` : 'Still running') : m.st === 'cancel' ? 'Canceled' : 'Ended';
+  const seasonRows = m.seasons.map(([n, name, eps, yr, pic]) => {
+    const on = done.has(n);
+    return `<div class="tvs-row${on ? ' on' : ''}">
+      <span class="tvs-pic">${S.config.showPosters && pic ? `<img src="https://image.tmdb.org/t/p/w92${pic}" alt="" loading="lazy">` : `<b>${n}</b>`}</span>
+      <span class="tvs-name"><b>${esc(name)}</b><small>${eps} episode${eps === 1 ? '' : 's'}${yr ? ` · ${yr}` : ''}</small></span>
+      <button class="tvs-tick" data-act="tvseason" data-id="${m.id}" data-k="${n}" aria-pressed="${on}" title="${on ? 'Finished. Tap to untick' : 'Mark this season finished'}">${on ? `${icon('check')}Done` : 'Finished it?'}</button>
+    </div>`;
+  }).join('');
+  const nDone = m.seasons.filter(([k]) => done.has(k)).length;
+  return `<div class="sheet"><span class="grab" aria-hidden="true"></span>
+    <div class="sheet-hero">${wideArt(m)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
+    <div class="sheet-title ${S.config.showPosters && m.poster ? 'with-poster' : ''}">
+      ${S.config.showPosters && m.poster ? `<img class="sheet-poster" src="https://image.tmdb.org/t/p/w342${m.poster}" alt="${esc(m.t)} poster">` : ''}
+      <div class="stack" style="gap:8px;min-width:0">
+      <span class="tv-pill">${icon('tv')}TV series</span>
+      <h2>${esc(m.t)}</h2>
+      <div class="facts">${[years, `${m.ns} season${m.ns === 1 ? '' : 's'}`, `${m.ne} episodes`, m.rt && `${m.rt} min episodes`, m.cert, m.net?.[0], m.dir.length && `Created by ${m.dir.join(' and ')}`].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
+    </div></div>
+    <div class="sheet-body">
+      <div class="actions">
+        ${finished ? '' : watching ? '' : queueBtn(m, 'primary')}
+        ${finished ? '' : `<button class="btn${watching ? ' primary' : ''}" data-act="watching" data-id="${m.id}" aria-pressed="${watching}">${icon('eye')}${watching ? 'Watching' : 'I\'m watching it'}</button>`}
+        <button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${finished}" title="${finished ? 'Tap to mark not finished' : 'Every season done'}">${icon('skull')}${finished ? 'Survived it' : 'Finished the series'}</button>
+        ${st && st.status !== 'nope' ? skullPicker(m, st.rating || 0) : ''}
+        <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
+        ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}Not interested</button>`}
+      </div>
+      <div class="release">${icon(m.st === 'on' ? 'play' : 'clock')}<span>${esc(onAir)}<small>${m.ns} season${m.ns === 1 ? '' : 's'}, ${m.ne} episodes${m.net?.length ? ` · ${esc(m.net.join(', '))}` : ''}</small></span></div>
+      ${m.yt ? `<div class="row" style="gap:10px">${trailerBtn(m)}</div>` : ''}
+      ${scoreRow(m)}
+      <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
+      ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
+      <section class="tvs"><div class="like-head"><h3>Seasons</h3><p>${S.user ? `Tick each season you finish. Each one adds 1 to your Body Count${nDone ? ` (${nDone} of ${m.ns} done)` : ''}.` : 'Sign in to tick off seasons. Each one adds 1 to your Body Count.'}</p></div>
+        <div class="tvs-list">${seasonRows}</div></section>
+      <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
+        <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
+        <span class="fine">Tap a service to see it on JustWatch. Streaming data from JustWatch via TMDB.</span></div>
+      ${m.cast.length ? `<p class="muted">With ${esc(m.cast.join(', '))}</p>` : ''}
+      ${likeBlock(m)}
+      <div class="signals">
+        <div class="signal"><span class="ico">${icon('flame')}</span><div><b>${esc(tr.b)}</b><span>${esc(tr.s)}</span></div></div>
+        <div class="signal reach t-${m.tier}"><span class="ico">${icon('eye')}</span><div><b>${esc(rc.b)}</b><span>${esc(rc.s)}</span></div></div>
+      </div>
+      <div class="linkrow">${links(m).map(([l, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener">${icon('link')}${l}</a>`).join('')}</div>
+    </div></div>`;
+}
 function openDetail(id) {
   const m = S.byId.get(String(id)); if (!m) return;
   const dlg = $('#detail');
@@ -2780,7 +2885,8 @@ function openDetail(id) {
     + (m.rent ? `<div class="wtw-group"><span class="wtw-h">Rent or buy</span><div class="wtw-grid">${m.wl ? `<a class="wtw rent" href="${esc(m.wl)}" target="_blank" rel="noopener"><span class="ph">${icon('play')}</span><span class="nm"><b>See rental prices</b><small>Apple TV, Prime Video, Fandango and more</small></span>${icon('right', 'go')}</a>` : '<span class="muted">Available to rent or buy.</span>'}</div></div>` : '');
   const keepScroll = dlg.open ? $('.sheet', dlg)?.scrollTop : 0;
   const fxKeep = [...dlg.querySelectorAll('.fx-layer')];
-  dlg.innerHTML = `<div class="sheet"><span class="grab" aria-hidden="true"></span>
+  if (m.type === 'tv') dlg.innerHTML = seriesSheetHTML(m, st, provs);
+  else dlg.innerHTML = `<div class="sheet"><span class="grab" aria-hidden="true"></span>
     <div class="sheet-hero">${wideArt(m)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
     <div class="sheet-title ${S.config.showPosters && m.poster ? 'with-poster' : ''}">
       ${S.config.showPosters && m.poster ? `<img class="sheet-poster" src="https://image.tmdb.org/t/p/w342${m.poster}" alt="${esc(m.t)} poster">` : ''}
@@ -2899,11 +3005,26 @@ async function unstamp(id) {
 function markJust(id, kind = 's') { const j = { id: String(id), kind }; S.just = j; setTimeout(() => { if (S.just === j) S.just = null; }, 1200); }
 
 // ---------- actions ----------
+// Series "Finished" button: every season done (Body Count + however many seasons that adds). Tap again to undo.
+async function seriesFinished(el, st, prev) {
+  const id = el.dataset.id, m = S.byId.get(String(id)); if (!m) return;
+  if (st?.status === 'seen' && seasonsDone(id, st) >= m.ns) {
+    await setStatus(id, { status: 'watching', seasons: [] });
+    toast('Marked not finished', 'x', undoTo(id, prev));
+  } else {
+    const before = seasonsDone(id, st), add = m.ns - before;
+    const r = rectOf(el); markJust(id);
+    await setStatus(id, { status: 'seen', seasons: m.seasons.map(([k]) => k), rating: st?.rating || 0, seenOn: today() });
+    burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+${add}</b>`);
+    toast(`Series survived. Body Count +${add}`, 'skull', undoTo(id, prev));
+  }
+  await refreshAll();
+}
 async function setStatus(id, data) {
   if (!needUser()) return;
   const m = S.byId.get(String(id));
   const prev = S.mine.get(String(id)) || {};
-  const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null, poster: m.poster || null } : {};
+  const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null, poster: m.poster || null, ...(m.type === 'tv' ? { tv: 1, ns: m.ns } : {}) } : {};
   const next = { ...prev, ...snap, ...data };
   delete next.at;
   S.mine.set(String(id), { ...next, at: Date.now() });
@@ -2987,6 +3108,7 @@ const actions = {
     box.querySelectorAll('.bkf-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === r)));
     box.querySelectorAll('.bkf-panel').forEach((p) => { p.hidden = p.dataset.r !== r; });
   },
+  fkind(el) { S.f.kind = el.dataset.k; S.f.limit = 60; if (S.f.kind === 'tv') { S.f.tom = ''; if (S.f.sort === 'critics' || S.f.sort === 'foryou') S.f.sort = 'buzz'; } route(true, true); },
   ftoggle(el) { S.fOpen = !S.fOpen; el.closest('.filters')?.classList.toggle('open', S.fOpen); el.setAttribute('aria-expanded', String(S.fOpen)); },
   funbrowse() { S.f.sg = new Set(['fun']); S.f.limit = 60; S.f.sort = 'reach'; location.hash = '#/browse'; },
   foryou() { S.f.sort = 'foryou'; S.f.limit = 60; location.hash = '#/browse'; },
@@ -3152,6 +3274,28 @@ const actions = {
   },
   rsclose() { closeRateSheet(); },
   qaclose(el) { const c = el.closest('.card'); c.classList.remove('rating', 'qa-on'); c.querySelector('.qa-rate').hidden = true; },
+  async watching(el) { // series: "I'm watching this" (tap again to take it back to your queue, or off your lists)
+    if (!needUser()) return;
+    const id = el.dataset.id, st = status(id), prev = st ? { ...st } : null;
+    if (st?.status === 'watching') {
+      if (seasonsDone(id, st)) { toast('You have seasons done. Untick them to stop watching', 'clock'); return; }
+      S.mine.delete(String(id)); await store.removeMovie(id); toast('Not watching', 'x', undoTo(id, prev));
+    } else { await setStatus(id, { status: 'watching', seasons: st?.seasons || [] }); toast('Watching. Tick off seasons as you finish them', 'eye', undoTo(id, prev)); }
+    await refreshAll();
+  },
+  async tvseason(el) { // tick a season finished (each adds 1 to your Body Count); all ticked = series finished
+    if (!needUser()) return;
+    const id = el.dataset.id, m = S.byId.get(String(id)); if (!m) return;
+    const st = status(id), prev = st ? { ...st } : null, n = Number(el.dataset.k);
+    const have = new Set(Array.isArray(st?.seasons) ? st.seasons : st?.status === 'seen' ? m.seasons.map(([k]) => k) : []);
+    const on = !have.has(n); on ? have.add(n) : have.delete(n);
+    const seasons = [...have].sort((a, b) => a - b);
+    const all = m.seasons.every(([k]) => have.has(k));
+    await setStatus(id, { status: all ? 'seen' : 'watching', seasons, ...(all && !st?.seenOn ? { seenOn: today() } : {}) });
+    if (on) { const r = rectOf(el); burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); }
+    toast(on ? (all ? `Series finished! Body Count +1 (${m.ns} season${m.ns === 1 ? '' : 's'} in all)` : `Season ${n} done. Body Count +1`) : `Season ${n} unticked`, on ? 'skull' : 'x', undoTo(id, prev));
+    await refreshAll();
+  },
   async queue(el) {
     if (!needUser()) return;
     const st = status(el.dataset.id);
@@ -3176,6 +3320,7 @@ const actions = {
     if (!needUser()) return;
     const st = status(el.dataset.id);
     const prev = st ? { ...st } : null;
+    if (isTv(el.dataset.id)) return seriesFinished(el, st, prev);
     if (st?.status === 'seen') { // tap again to take it back off your Body Count
       await unstamp(el.dataset.id);
       S.mine.delete(String(el.dataset.id)); await store.removeMovie(el.dataset.id);
@@ -3205,6 +3350,13 @@ const actions = {
     let k = Number(el.dataset.k);
     const st = status(el.dataset.id);
     if ((st?.rating || 0) === k) k = 0; // tap your current rating again to clear it
+    if (isTv(el.dataset.id)) { // rating a series doesn't finish it; it starts it if it's new to you
+      if (!needUser()) return;
+      await setStatus(el.dataset.id, st ? { rating: k } : { status: 'watching', rating: k, seasons: [] });
+      if (el.closest('.rate-sheet')) closeRateSheet();
+      toast(k ? `Rated ${fmtRating(k)} of 5` : 'Rating cleared', 'skull', undoTo(el.dataset.id, st ? { ...st } : null));
+      await refreshAll(); return;
+    }
     const already = st?.status === 'seen' || st?.wasSeen;
     // Rating a movie you haven't marked seen counts as seeing it: same stamp, splatter and +1 as the Seen button.
     const r = !already ? rectOf(el.closest('.card') || el.closest('.skulls') || el) : null;
@@ -3896,7 +4048,7 @@ function renderChrome() {
         <div class="acct-head">${av('lg')}<span><b>${esc(name)}</b><small>${esc(S.user.email || '')}</small></span></div>
         <a role="menuitem" href="#/profile">${icon('user')}Profile</a>
         <a role="menuitem" href="#/profile/services">${icon('tv')}Streaming services<small>${serviceGroups().filter(groupOn).length || 'None yet'}</small></a>
-        <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${seenList().length}</small></a>
+        <a role="menuitem" href="#/bodycount">${icon('skull')}Body Count<small>${bodyCountOf(S.mine).n}</small></a>
         <a role="menuitem" href="#/lists">${icon('bookmark')}Lists</a>
         <a role="menuitem" href="#/friends">${icon('users')}Friends${S.requests?.incoming.length ? `<small class="pill-n">${S.requests.incoming.length}</small>` : `<small>${(S.friends || []).length || ''}</small>`}</a>
         <a role="menuitem" class="m-only-item" href="#/vs">${icon('trophy')}VS matchups</a>
