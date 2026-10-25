@@ -1793,3 +1793,34 @@ html.no-blur .acct-menu, html.no-blur .qs-list { background: var(--surface) !imp
 .tvs-tick .ic { width: 14px; height: 14px; }
 .tvs-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .kind-tabs { justify-self: start; }
+/* Episodes inside a season */
+.tvs-season { display: grid; gap: 6px; }
+.tvs-name { all: unset; cursor: pointer; display: grid; min-width: 0; -webkit-tap-highlight-color: transparent; }
+.tvs-name small { display: inline-flex; align-items: center; gap: 4px; }
+.tvs-name .chev { width: 14px; height: 14px; transition: transform .2s; }
+.tvs-name[aria-expanded="true"] .chev { transform: rotate(180deg); }
+.tvs-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.ep-list { display: grid; margin: 0 0 8px 20px; border-left: 2px solid var(--line); }
+.ep { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 8px 4px 8px 12px; border-bottom: 1px solid var(--line); }
+.ep:last-child { border-bottom: 0; }
+.ep-n { font-weight: 800; color: var(--faint); font-size: .85rem; padding-top: 2px; text-align: right; }
+.ep.on .ep-n { color: var(--accent); }
+.ep.next { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 10px; }
+.ep-d summary { cursor: pointer; list-style: none; display: grid; gap: 1px; }
+.ep-d summary::-webkit-details-marker { display: none; }
+.ep-d summary b { font-size: .92rem; }
+.ep.on .ep-d summary b { color: var(--muted); }
+.ep-d summary small { color: var(--faint); font-size: .76rem; }
+.ep-d p { margin: 6px 0 0; font-size: .85rem; color: var(--muted); }
+.ep-mark { all: unset; cursor: pointer; display: inline-grid; place-items: center; min-width: 30px; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line-2); font-size: .74rem; font-weight: 700; color: var(--muted); -webkit-tap-highlight-color: transparent; }
+.ep-mark:hover { border-color: var(--accent); color: var(--fg); }
+.ep-mark[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; padding: 0 8px; }
+.ep-mark .ic { width: 14px; height: 14px; }
+.ep-soon { font-size: .72rem; color: var(--faint); padding-top: 6px; }
+.ep-wait { margin: 0 0 8px 22px; font-size: .85rem; }
+.ep-next { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--accent-soft); }
+.ep-next .ic { width: 20px; height: 20px; color: var(--accent); flex: none; }
+.ep-next span { display: grid; min-width: 0; }
+.ep-next small { font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.ep-next b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 520px) { .ep-list { margin-left: 8px; } }

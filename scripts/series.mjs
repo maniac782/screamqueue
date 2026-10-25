@@ -38,6 +38,8 @@ function trailerFor(d) {
   vids.sort((a, b) => score(b) - score(a) || String(b.published_at).localeCompare(String(a.published_at)));
   return vids[0]?.key || null;
 }
+// Summaries cut at a word, not mid-word.
+const clip = (t, n = 420) => { t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length <= n ? t : t.slice(0, t.lastIndexOf(' ', n)) + '…'; };
 const statusOf = (s) => (s === 'Returning Series' || s === 'In Production' || s === 'Planned' ? 'on' : s === 'Canceled' ? 'cancel' : 'end');
 
 // tmdb(path, params), pages(path, params, count), pool(items, n, fn), getJson(url) come from refresh-data.mjs.
@@ -160,7 +162,7 @@ export async function refreshSeries({ tmdb, pages, pool, getJson, root, region =
       if (settled) { out[n] = old; epKept++; continue; }
       try {
         const r = await tmdb(`/tv/${sr.tv}/season/${n}`, { language: 'en-US' }); epCalls++;
-        out[n] = (r.episodes || []).map((e) => [e.episode_number, e.name || `Episode ${e.episode_number}`, e.air_date || 0, e.runtime || 0, String(e.overview || '').slice(0, 420)]);
+        out[n] = (r.episodes || []).map((e) => [e.episode_number, e.name || `Episode ${e.episode_number}`, e.air_date || 0, e.runtime || 0, clip(e.overview)]);
       } catch { if (old) out[n] = old; }
     }
     await writeFile(file, JSON.stringify(out));

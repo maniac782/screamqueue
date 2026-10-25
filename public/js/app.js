@@ -49,8 +49,31 @@ function bodyCountOf(mv) {
   for (const [id, st] of mv) { if (isTv(id)) seasons += seasonsDone(id, st); else if (st.status === 'seen' || st.wasSeen) movies++; }
   return { movies, seasons, n: movies + seasons };
 }
+// Episodes: loaded per series when its card opens (data/episodes/<tmdb id>.json, { season: [[ep, title, date, mins, summary]] }).
+const EPS = new Map(); // tmdb id -> episodes object, or null when there's no file
+function loadEpisodes(m) {
+  if (EPS.has(m.tv)) return;
+  EPS.set(m.tv, undefined);
+  fetch(`data/episodes/${m.tv}.json`, { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+    .then((x) => { EPS.set(m.tv, x); if ($('#detail')?.open && $('#detail').dataset.id === m.id) refreshDetail(); });
+}
+// st.ep = [season, episode] you've watched up to. The next one to watch:
+function nextEp(m, st) {
+  const cnt = new Map(m.seasons.map(([n, , c]) => [n, c]));
+  if (!st?.ep) {
+    const done = new Set(Array.isArray(st?.seasons) ? st.seasons : []);
+    const first = m.seasons.find(([n]) => !done.has(n));
+    return first ? [first[0], 1] : null;
+  }
+  const [a, b] = st.ep;
+  if (b < (cnt.get(a) || 0)) return [a, b + 1];
+  const nx = m.seasons.find(([n]) => n > a);
+  return nx ? [nx[0], 1] : null;
+}
+const epTag = (x) => `S${x[0]} E${x[1]}`;
 function seriesProgress(m, st) {
   if (!st) return `Series · ${m.ns} season${m.ns === 1 ? '' : 's'}`;
+  if (st.status === 'watching' && st.ep) { const nx = nextEp(m, st); if (nx) return `Next: ${epTag(nx)} · ${seasonsDone(m.id, st)} of ${m.ns} seasons done`; }
   const d = seasonsDone(m.id, st);
   if (st.status === 'seen' && d >= m.ns) return `Finished · ${m.ns} season${m.ns === 1 ? '' : 's'}${st.rating ? ` · ${fmtRating(st.rating)} skulls` : ''}`;
   if (st.status === 'seen') return `Finished ${d} of ${m.ns} seasons`; // a new season came out since
@@ -2815,14 +2838,39 @@ function seriesSheetHTML(m, st, provs) {
   const watching = st?.status === 'watching';
   const years = m.y ? (m.st === 'on' ? `${m.y}–` : m.y2 && m.y2 !== m.y ? `${m.y}–${m.y2}` : String(m.y)) : '';
   const onAir = m.st === 'on' ? (m.next ? `Returning: new episode ${new Date(m.next + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: m.next.slice(0, 4) === today().slice(0, 4) ? undefined : 'numeric' })}` : 'Still running') : m.st === 'cancel' ? 'Canceled' : 'Ended';
+  // Episodes: each season opens to its episode list; "Watched" marks that episode and everything before it.
+  loadEpisodes(m);
+  const E = EPS.get(m.tv); // undefined while loading, null if missing
+  const nx = (watching || st?.ep) && !finished ? nextEp(m, st) : null;
+  S.tvOpen ||= {};
+  if (!S.tvOpen[m.id]) S.tvOpen[m.id] = nx ? [nx[0]] : [];
+  const open = new Set(S.tvOpen[m.id]);
+  const upTo = st?.ep; // [season, episode]
+  const watched = (n, e) => done.has(n) || (upTo && (n < upTo[0] || (n === upTo[0] && e <= upTo[1])));
+  const nowD = today();
+  const fmtD = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
+  const epList = (n) => {
+    if (E === undefined) return '<p class="muted ep-wait">Loading episodes…</p>';
+    const list = E?.[n];
+    if (!list?.length) return '<p class="muted ep-wait">The episode list for this season isn\'t available yet.</p>';
+    return `<div class="ep-list">${list.map(([e, title, date, mins, ov]) => {
+      const aired = !date || date <= nowD, w = watched(n, e), isNext = nx && nx[0] === n && nx[1] === e;
+      return `<div class="ep${w ? ' on' : ''}${isNext ? ' next' : ''}">
+        <span class="ep-n">${e}</span>
+        <details class="ep-d"><summary><b>${esc(title)}</b><small>${[isNext ? 'Up next' : '', aired ? fmtD(date) : `Airs ${fmtD(date)}`, mins ? `${mins} min` : ''].filter(Boolean).join(' · ')}</small></summary><p>${ov ? esc(ov) : 'No summary yet.'}</p></details>
+        ${aired ? `<button class="ep-mark" data-act="tvep" data-id="${m.id}" data-s="${n}" data-e="${e}" aria-pressed="${!!w}" title="${w ? 'Watched. Tap your latest one to step back' : 'Watched this one and everything before it'}">${w ? icon('check') : 'Watched'}</button>` : '<span class="ep-soon">Soon</span>'}
+      </div>`;
+    }).join('')}</div>`;
+  };
   const seasonRows = m.seasons.map(([n, name, eps, yr, pic]) => {
-    const on = done.has(n);
-    return `<div class="tvs-row${on ? ' on' : ''}">
+    const on = done.has(n), isOpen = open.has(n);
+    return `<div class="tvs-season${isOpen ? ' open' : ''}"><div class="tvs-row${on ? ' on' : ''}">
       <span class="tvs-pic">${S.config.showPosters && pic ? `<img src="https://image.tmdb.org/t/p/w92${pic}" alt="" loading="lazy">` : `<b>${n}</b>`}</span>
-      <span class="tvs-name"><b>${esc(name)}</b><small>${eps} episode${eps === 1 ? '' : 's'}${yr ? ` · ${yr}` : ''}</small></span>
+      <button class="tvs-name" data-act="tvopen" data-id="${m.id}" data-k="${n}" aria-expanded="${isOpen}"><b>${esc(name)}</b><small>${eps} episode${eps === 1 ? '' : 's'}${yr ? ` · ${yr}` : ''} ${icon('down', 'chev')}</small></button>
       <button class="tvs-tick" data-act="tvseason" data-id="${m.id}" data-k="${n}" aria-pressed="${on}" title="${on ? 'Finished. Tap to untick' : 'Mark this season finished'}">${on ? `${icon('check')}Done` : 'Finished it?'}</button>
-    </div>`;
+    </div>${isOpen ? epList(n) : ''}</div>`;
   }).join('');
+  const nxTitle = nx && E?.[nx[0]]?.find(([e]) => e === nx[1])?.[1];
   const nDone = m.seasons.filter(([k]) => done.has(k)).length;
   return `<div class="sheet"><span class="grab" aria-hidden="true"></span>
     <div class="sheet-hero">${wideArt(m)}<button class="icon-btn close" data-act="close" aria-label="Close">${icon('x')}</button></div>
@@ -2847,7 +2895,8 @@ function seriesSheetHTML(m, st, provs) {
       ${scoreRow(m)}
       <div class="row" style="gap:8px">${m.sg.map(sgTag).join('') || '<span class="faint">No subgenre tags yet</span>'}</div>
       ${m.ov ? `<p style="font-size:1.02rem;max-width:66ch">${esc(m.ov)}</p>` : ''}
-      <section class="tvs"><div class="like-head"><h3>Seasons</h3><p>${S.user ? `Tick each season you finish. Each one adds 1 to your Body Count${nDone ? ` (${nDone} of ${m.ns} done)` : ''}.` : 'Sign in to tick off seasons. Each one adds 1 to your Body Count.'}</p></div>
+      <section class="tvs"><div class="like-head"><h3>Seasons</h3><p>${S.user ? `Open a season to mark episodes as you watch, or tick the whole season. Each finished season adds 1 to your Body Count${nDone ? ` (${nDone} of ${m.ns} done)` : ''}.` : 'Sign in to track episodes and seasons. Each finished season adds 1 to your Body Count.'}</p></div>
+        ${nx ? `<div class="ep-next">${icon('play')}<span><small>Up next</small><b>${epTag(nx)}${nxTitle ? ` · ${esc(nxTitle)}` : ''}</b></span></div>` : ''}
         <div class="tvs-list">${seasonRows}</div></section>
       <div class="stack" style="gap:10px"><h3>Where to watch in the US</h3>
         <div class="providers">${provs || '<span class="muted">Not on a streaming service right now.</span>'}</div>
@@ -3009,12 +3058,13 @@ function markJust(id, kind = 's') { const j = { id: String(id), kind }; S.just =
 async function seriesFinished(el, st, prev) {
   const id = el.dataset.id, m = S.byId.get(String(id)); if (!m) return;
   if (st?.status === 'seen' && seasonsDone(id, st) >= m.ns) {
-    await setStatus(id, { status: 'watching', seasons: [] });
+    await setStatus(id, { status: 'watching', seasons: [], ep: null });
     toast('Marked not finished', 'x', undoTo(id, prev));
   } else {
     const before = seasonsDone(id, st), add = m.ns - before;
     const r = rectOf(el); markJust(id);
-    await setStatus(id, { status: 'seen', seasons: m.seasons.map(([k]) => k), rating: st?.rating || 0, seenOn: today() });
+    const lastS = m.seasons[m.seasons.length - 1];
+    await setStatus(id, { status: 'seen', seasons: m.seasons.map(([k]) => k), ep: [lastS[0], lastS[2]], rating: st?.rating || 0, seenOn: today() });
     burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+${add}</b>`);
     toast(`Series survived. Body Count +${add}`, 'skull', undoTo(id, prev));
   }
@@ -3283,6 +3333,27 @@ const actions = {
     } else { await setStatus(id, { status: 'watching', seasons: st?.seasons || [] }); toast('Watching. Tick off seasons as you finish them', 'eye', undoTo(id, prev)); }
     await refreshAll();
   },
+  tvopen(el) { const id = el.dataset.id, n = Number(el.dataset.k); S.tvOpen ||= {}; const set = new Set(S.tvOpen[id] || []); set.has(n) ? set.delete(n) : set.add(n); S.tvOpen[id] = [...set]; refreshDetail(); },
+  async tvep(el) { // "watched up to here": this episode and everything before it; seasons fill in as they complete
+    if (!needUser()) return;
+    const id = el.dataset.id, m = S.byId.get(String(id)); if (!m) return;
+    const st = status(id), prev = st ? { ...st } : null, sN = Number(el.dataset.s), eN = Number(el.dataset.e);
+    const cnt = new Map(m.seasons.map(([n, , c]) => [n, c]));
+    let ep = [sN, eN];
+    if (st?.ep && st.ep[0] === sN && st.ep[1] === eN) { // tap your latest one again to step back one
+      if (eN > 1) ep = [sN, eN - 1];
+      else { const pv = [...m.seasons].reverse().find(([n]) => n < sN); ep = pv ? [pv[0], pv[2]] : null; }
+    }
+    const seasons = ep ? m.seasons.filter(([n, , c]) => n < ep[0] || (n === ep[0] && ep[1] >= c)).map(([n]) => n) : [];
+    const all = m.seasons.every(([n]) => seasons.includes(n));
+    const before = seasonsDone(id, st);
+    await setStatus(id, { status: all ? 'seen' : 'watching', seasons, ep, ...(all && !st?.seenOn ? { seenOn: today() } : {}) });
+    const gained = seasons.length - before;
+    if (gained > 0) { const r = rectOf(el); burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+${gained}</b>`); }
+    const nx = nextEp(m, status(id));
+    toast(all ? 'Series survived! Every season counted' : gained > 0 ? `Season done. Body Count +${gained}${nx ? `. Next: ${epTag(nx)}` : ''}` : ep ? `Watched up to ${epTag(ep)}${nx ? `. Next: ${epTag(nx)}` : ''}` : 'Back to the start', gained > 0 || all ? 'skull' : 'eye', undoTo(id, prev));
+    await refreshAll();
+  },
   async tvseason(el) { // tick a season finished (each adds 1 to your Body Count); all ticked = series finished
     if (!needUser()) return;
     const id = el.dataset.id, m = S.byId.get(String(id)); if (!m) return;
@@ -3291,7 +3362,10 @@ const actions = {
     const on = !have.has(n); on ? have.add(n) : have.delete(n);
     const seasons = [...have].sort((a, b) => a - b);
     const all = m.seasons.every(([k]) => have.has(k));
-    await setStatus(id, { status: all ? 'seen' : 'watching', seasons, ...(all && !st?.seenOn ? { seenOn: today() } : {}) });
+    const lastDone = seasons.length ? m.seasons.find(([k]) => k === seasons[seasons.length - 1]) : null;
+    const ep = on ? (st?.ep && (st.ep[0] > n || (st.ep[0] === n && st.ep[1] >= m.seasons.find(([k]) => k === n)[2])) ? st.ep : [n, m.seasons.find(([k]) => k === n)[2]])
+      : (st?.ep && st.ep[0] >= n ? (lastDone ? [lastDone[0], lastDone[2]] : null) : st?.ep || null);
+    await setStatus(id, { status: all ? 'seen' : 'watching', seasons, ep, ...(all && !st?.seenOn ? { seenOn: today() } : {}) });
     if (on) { const r = rectOf(el); burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); }
     toast(on ? (all ? `Series finished! Body Count +1 (${m.ns} season${m.ns === 1 ? '' : 's'} in all)` : `Season ${n} done. Body Count +1`) : `Season ${n} unticked`, on ? 'skull' : 'x', undoTo(id, prev));
     await refreshAll();
