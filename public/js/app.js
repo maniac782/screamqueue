@@ -3851,6 +3851,28 @@ document.addEventListener('wheel', (e) => {
     if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) e.preventDefault();
   }
 }, { passive: false });
+// Tap debugging (?tapdebug=1 turns it on, ?tapdebug=0 off): a small log in the corner of what the phone reports for
+// each touch, so we can see what iPhone does with a tap during scrolling.
+(() => {
+  try { const q = new URLSearchParams(location.search).get('tapdebug'); if (q === '1') localStorage.setItem('sq-tapdebug', '1'); if (q === '0') localStorage.removeItem('sq-tapdebug'); } catch { /* ignore */ }
+  let on = false; try { on = !!localStorage.getItem('sq-tapdebug'); } catch { /* ignore */ }
+  if (!on) return;
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:6px;bottom:90px;z-index:999;max-width:62vw;padding:6px 8px;border-radius:10px;background:rgba(0,0,0,.82);color:#9f9;font:11px/1.35 ui-monospace,Menlo,monospace;pointer-events:none;white-space:pre-wrap';
+  document.body.append(box);
+  const lines = []; let t0 = 0, lastScroll = 0;
+  const log = (s) => { lines.push(s); while (lines.length > 14) lines.shift(); box.textContent = lines.join('\n'); };
+  const ms = () => Math.round(performance.now() - t0);
+  const what = (el) => { const x = el?.closest?.('[data-act], a, button, summary, input'); return x ? (x.dataset?.act || x.tagName.toLowerCase()) : (el?.className?.toString().slice(0, 14) || el?.tagName || '?'); };
+  addEventListener('scroll', () => { lastScroll = performance.now(); }, { capture: true, passive: true });
+  document.addEventListener('touchstart', (e) => { t0 = performance.now(); log(`— start on ${what(e.target)}${performance.now() - lastScroll < 200 ? ' (was scrolling)' : ''}`); }, { capture: true, passive: true });
+  document.addEventListener('touchmove', (e) => { const t = e.touches[0]; if (t) log(`move ${ms()}ms`); }, { capture: true, passive: true });
+  document.addEventListener('touchend', () => log(`end ${ms()}ms`), { capture: true, passive: true });
+  document.addEventListener('touchcancel', () => log(`CANCEL ${ms()}ms`), { capture: true, passive: true });
+  document.addEventListener('pointerdown', () => log(`pdown ${ms()}ms`), { capture: true, passive: true });
+  document.addEventListener('pointercancel', () => log(`PCANCEL ${ms()}ms`), { capture: true, passive: true });
+  document.addEventListener('click', (e) => log(`click ${ms()}ms on ${what(e.target)}${e.isTrusted ? '' : ' (ours)'}`), true);
+})();
 // Phones: on iPhone, a tap while the page (or a row of posters) is still gliding, even a hair, only stops the glide and
 // the tap is lost. When a finger comes down and up without sliding and no click follows, click what was tapped.
 (() => {
