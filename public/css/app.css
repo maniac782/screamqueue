@@ -1824,3 +1824,5 @@ html.no-blur .acct-menu, html.no-blur .qs-list { background: var(--surface) !imp
 .ep-next small { font-size: .7rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
 .ep-next b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 520px) { .ep-list { margin-left: 8px; } }
+/* Poster rows snap gently (they used to snap hard after every swipe, keeping them moving, which made iPhone eat taps). */
+.track { scroll-snap-type: x proximity; }

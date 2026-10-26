@@ -3851,6 +3851,33 @@ document.addEventListener('wheel', (e) => {
     if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) e.preventDefault();
   }
 }, { passive: false });
+// Phones: on iPhone, a tap while the page (or a row of posters) is still gliding, even a hair, only stops the glide and
+// the tap is lost. When a finger comes down and up without sliding and no click follows, click what was tapped.
+(() => {
+  let tap = null;
+  const TARGET = '[data-act], a[href], button, summary, label, input, select, textarea, [role="tab"]';
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) { tap = null; return; }
+    const t = e.touches[0];
+    tap = { x: t.clientX, y: t.clientY, at: performance.now(), el: e.target.closest?.(TARGET) || null, clicked: false };
+  }, { passive: true, capture: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!tap) return;
+    const t = e.touches[0];
+    if (Math.abs(t.clientX - tap.x) > 10 || Math.abs(t.clientY - tap.y) > 10) tap = null; // that's a swipe, not a tap
+  }, { passive: true, capture: true });
+  document.addEventListener('touchcancel', () => { tap = null; }, { passive: true, capture: true });
+  document.addEventListener('click', () => { if (tap) tap.clicked = true; }, true);
+  document.addEventListener('touchend', () => {
+    const t = tap; if (!t?.el || performance.now() - t.at > 700) return;
+    setTimeout(() => {
+      if (t.clicked || t !== tap || !t.el.isConnected || t.el.disabled) return;
+      tap = null;
+      if (t.el.matches('input:not([type=checkbox]):not([type=radio]), select, textarea')) t.el.focus();
+      else t.el.click();
+    }, 140);
+  }, { passive: true, capture: true });
+})();
 // Phones: drag the details sheet down to dismiss it (like the X). Only starts when the sheet is
 // scrolled to the top and the finger moves mostly downward, so normal scrolling still works.
 // Smoothness: only the card's position and the backdrop's opacity change while dragging (nothing that makes the
