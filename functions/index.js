@@ -10,6 +10,7 @@
      kept at most 30 days (their terms), and a monthly budget keeps us inside the free plan's 5,000 calls. */
 const {onDocumentCreated, onDocumentWritten} = require('firebase-functions/v2/firestore');
 const {onSchedule} = require('firebase-functions/v2/scheduler');
+const {onRequest} = require('firebase-functions/v2/https');
 const {defineSecret, defineString} = require('firebase-functions/params');
 const logger = require('firebase-functions/logger');
 const admin = require('firebase-admin');
@@ -199,4 +200,59 @@ exports.dtddCleanup = onSchedule({schedule: '15 4 * * *', timeZone: 'America/New
   const b = db.batch(); old.docs.forEach((d) => b.delete(d.ref));
   if (!old.empty) await b.commit();
   logger.info('DoesTheDogDie cleanup', {removed: old.size});
+});
+
+// ---------- link previews for shared movies and series ----------
+// screamqueue.web.app/m/<id> (Hosting sends /m/** here). Chat apps (Messages, WhatsApp, Discord...) read the title,
+// description and picture from this page for the preview; people are sent straight on to the site with the card open.
+let shareData = null, shareAt = 0;
+async function shareCatalog() {
+  if (!shareData || Date.now() - shareAt > HOUR) {
+    const get = (f) => fetch(SITE_URL.value() + '/data/' + f).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [mv, tv, cfg] = await Promise.all([get('movies.json'), get('series.json'), db.doc('config/site').get().then((d) => d.data() || {}).catch(() => ({}))]);
+    const byId = new Map();
+    for (const m of mv?.movies || []) byId.set(String(m.id), m);
+    for (const m of tv?.series || []) byId.set(String(m.id), m);
+    const prov = new Map((mv?.providers || []).map((p) => [p.id, p.name]));
+    shareData = {byId, prov, posters: !!cfg.showPosters}; shareAt = Date.now();
+  }
+  return shareData;
+}
+exports.share = onRequest({maxInstances: 3, memory: '256MiB'}, async (req, res) => {
+  const id = decodeURIComponent(String(req.path || '').replace(/^\/+m\/+/, '').split('/')[0] || '').trim();
+  const site = SITE_URL.value();
+  const back = site + '/' + (id ? '?m=' + encodeURIComponent(id) : '');
+  try {
+    const {byId, prov, posters} = await shareCatalog();
+    const m = /^(tv)?\d{1,9}$/.test(id) ? byId.get(id) : null;
+    if (!m) { res.redirect(302, site + '/'); return; }
+    const tv = m.type === 'tv';
+    const title = m.t + (m.y ? ' (' + m.y + ')' : '') + (tv ? ' · TV series' : '');
+    const where = [...new Set([...(m.pv || []), ...(m.fr || [])].map((p) => prov.get(p)).filter(Boolean).map((n) => n.replace(/ (with Ads|Standard with Ads|Premium Plus|Premium|Amazon Channel|Apple TV Channel|Roku Premium Channel)$/i, '')))].slice(0, 3);
+    const facts = [tv ? m.ns + ' season' + (m.ns === 1 ? '' : 's') : (m.rt ? m.rt + ' min' : ''), m.imdb?.r ? '★ ' + m.imdb.r + ' IMDb' : '', where.length ? 'Streaming on ' + where.join(', ') : ''].filter(Boolean).join(' · ');
+    const ov = String(m.ov || '').replace(/\s+/g, ' ').trim();
+    const desc = (facts ? facts + '. ' : '') + (ov.length > 220 ? ov.slice(0, ov.lastIndexOf(' ', 220)) + '…' : ov);
+    // Wide backdrop makes the biggest preview; the poster is the fallback. Without poster art on the site, the site's own image.
+    const img = posters && m.bd ? 'https://image.tmdb.org/t/p/w1280' + m.bd : posters && m.poster ? 'https://image.tmdb.org/t/p/w780' + m.poster : site + '/icons/og.jpg';
+    const url = site + '/m/' + encodeURIComponent(m.id);
+    res.set('Cache-Control', 'public, max-age=600, s-maxage=86400');
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send('<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>' + esc(title) + ' · Scream Queue</title>' +
+      '<meta name="description" content="' + esc(desc) + '">' +
+      '<meta property="og:site_name" content="Scream Queue"><meta property="og:type" content="' + (tv ? 'video.tv_show' : 'video.movie') + '">' +
+      '<meta property="og:title" content="' + esc(title) + '"><meta property="og:description" content="' + esc(desc) + '">' +
+      '<meta property="og:image" content="' + esc(img) + '"><meta property="og:url" content="' + esc(url) + '">' +
+      '<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="' + esc(title) + '">' +
+      '<meta name="twitter:description" content="' + esc(desc) + '"><meta name="twitter:image" content="' + esc(img) + '">' +
+      '<meta name="theme-color" content="#0f1013">' +
+      '<meta http-equiv="refresh" content="0; url=' + esc(back) + '">' +
+      '<script>location.replace(' + JSON.stringify(back) + ')</script>' +
+      '</head><body style="background:#0f1013;color:#eee;font-family:system-ui,sans-serif;padding:24px">' +
+      '<p>Opening <a style="color:#ff4057" href="' + esc(back) + '">' + esc(title) + ' on Scream Queue</a>…</p></body></html>');
+  } catch (e) {
+    logger.warn('share preview failed', {id, e: String(e)});
+    res.redirect(302, back);
+  }
 });
