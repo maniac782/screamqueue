@@ -2887,6 +2887,7 @@ function seriesSheetHTML(m, st, provs) {
         ${finished ? '' : `<button class="btn${watching ? ' primary' : ''}" data-act="watching" data-id="${m.id}" aria-pressed="${watching}">${icon('eye')}${watching ? 'Watching' : 'I\'m watching it'}</button>`}
         <button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${finished}" title="${finished ? 'Tap to mark not finished' : 'Every season done'}">${icon('skull')}${finished ? 'Survived it' : 'Finished the series'}</button>
         ${st && st.status !== 'nope' ? skullPicker(m, st.rating || 0) : ''}
+        <button class="btn ghost small" data-act="shareitem" data-id="${m.id}">${icon('share')}Share</button>
         <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
         ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}Not interested</button>`}
       </div>
@@ -2947,6 +2948,7 @@ function openDetail(id) {
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
+        <button class="btn ghost small" data-act="shareitem" data-id="${m.id}">${icon('share')}Share</button>
         <button class="btn ghost small" data-act="addtolist" data-id="${m.id}">${icon('plus')}Add to list</button>
         ${st && st.status !== 'nope' ? `<button class="btn ghost small" data-act="forget" data-id="${m.id}">Remove from my lists</button>` : `<button class="btn ghost small" data-act="nope" data-id="${m.id}" aria-pressed="${st?.status === 'nope'}">${icon('nope')}${st ? 'Hidden. Show it again' : 'Not interested'}</button>`}</div>
       ${releaseHTML(m)}
@@ -3176,6 +3178,18 @@ const actions = {
     if (T?.br?.id === id) T.brRes = await resolveVs(T.br, true);
     renderChrome();
     await route(true, true);
+  },
+  // Share a movie or series: the phone's share sheet (Messages, WhatsApp...) where there is one, otherwise copy the link.
+  // The link (screamqueue.web.app/?m=<id>) opens the site with that card showing.
+  async shareitem(el) {
+    const m = S.byId.get(String(el.dataset.id)); if (!m) return;
+    const url = `${location.origin}/?m=${encodeURIComponent(m.id)}`;
+    const where = servicesText(m).replace(/ \+\d+$/, ' and more');
+    const text = `${m.t}${m.y ? ` (${m.y})` : ''}${m.type === 'tv' ? ' · horror series' : ''}${where && !/^(Not streaming|Rent or buy)$/.test(where) ? ` · streaming on ${where}` : ''}`;
+    try {
+      if (navigator.share) { await navigator.share({ title: m.t, text, url }); return; }
+      await navigator.clipboard.writeText(`${text}\n${url}`); toast('Link copied. Paste it anywhere', 'link');
+    } catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
   },
   async vsshare(el) {
     const url = `${location.origin}${location.pathname}#/vs/${el.dataset.id}`;
@@ -4255,6 +4269,11 @@ async function boot() {
     loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); if (u && !S.profile.setup) openSetup(); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
     else await route(!first, !first);
+    if (first) { // shared link: open that movie or series, then tidy the address back to the page
+      const sm = new URLSearchParams(location.search).get('m');
+      if (sm && S.byId.has(String(sm))) openDetail(sm);
+      if (sm) { const q = new URLSearchParams(location.search); q.delete('m'); history.replaceState(history.state, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash); }
+    }
     first = false;
   });
   window.addEventListener('hashchange', () => {
