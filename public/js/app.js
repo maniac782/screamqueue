@@ -1590,11 +1590,14 @@ S.afterAbout = () => { if (S.scrollCredits) { S.scrollCredits = false; requestAn
 views.admin = async () => {
   if (!S.user?.isAdmin) return `<div class="empty">${icon('shield')}<span>This page is for site admins.</span></div>`;
   const A = S.adm;
-  if (!A.data || A.stale) {
+  // Never wait on the network to open the page: show it now, fill in when the data arrives.
+  if ((!A.data || A.stale) && !A.loading) {
     A.stale = false;
-    const [users, fbs, cts] = await Promise.all([store.adminUsers().catch((e) => { console.warn(e); return null; }), store.listInbox('feedback').catch(() => null), store.listInbox('contact').catch(() => null)]);
-    A.data = { users, feedback: fbs, contact: cts, at: Date.now() };
+    A.loading = Promise.all([store.adminUsers().catch((e) => { console.warn(e); return null; }), store.listInbox('feedback').catch(() => null), store.listInbox('contact').catch(() => null)])
+      .then(([users, fbs, cts]) => { A.data = { users, feedback: fbs, contact: cts, at: Date.now() }; })
+      .finally(() => { A.loading = null; if (location.hash.startsWith('#/admin')) route(true, true); });
   }
+  if (!A.data) return `<div class="adm-head"><div class="page-head"><h1>Admin</h1></div></div><div class="empty">${icon('clock')}<span>Loading users, feedback and messages…</span></div>`;
   const { users, feedback, contact } = A.data;
   const week = Date.now() - 7 * DAY;
   const tiles = [['Users', users ? users.length : '—'], ['Active this week', users ? users.filter((u) => u.lastSeen > week).length : '—'], ['New this week', users ? users.filter((u) => u.created > week).length : '—'], ['Public profiles', users ? users.filter((u) => u.privacy === 'public').length : '—']];
@@ -3380,7 +3383,7 @@ const actions = {
     </form>`);
   },
   admtab(el) { S.adm.tab = el.dataset.k; S.adm.q = ''; route(true, true); },
-  admreload() { S.adm.stale = true; route(true, true).then(() => toast('Reloaded', 'check')); },
+  admreload() { S.adm.stale = true; route(true, true); toast('Reloading…', 'clock'); },
   async admnopic(el) {
     if (!confirm('Remove this person\'s uploaded profile photo? They go back to their initials.')) return;
     await store.adminRemovePhoto(el.dataset.k);
