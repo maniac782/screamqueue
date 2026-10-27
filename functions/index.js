@@ -230,7 +230,9 @@ exports.share = onRequest({maxInstances: 3, memory: '256MiB'}, async (req, res) 
     const title = m.t + (m.y ? ' (' + m.y + ')' : '') + (tv ? ' · TV series' : '');
     const where = [...new Set([...(m.pv || []), ...(m.fr || [])].map((p) => prov.get(p)).filter(Boolean).map((n) => n.replace(/ (with Ads|Standard with Ads|Premium Plus|Premium|Amazon Channel|Apple TV Channel|Roku Premium Channel)$/i, '')))].slice(0, 3);
     const facts = [tv ? m.ns + ' season' + (m.ns === 1 ? '' : 's') : (m.rt ? m.rt + ' min' : ''), m.imdb?.r ? '★ ' + m.imdb.r + ' IMDb' : '', where.length ? 'Streaming on ' + where.join(', ') : ''].filter(Boolean).join(' · ');
-    const ov = String(m.ov || '').replace(/\s+/g, ' ').trim();
+    let ovText = m.ov;
+    if (!ovText && m.hov) ovText = (await fetch(site + '/data/ov/' + (Number(m.id) % 100) + '.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})))[m.id];
+    const ov = String(ovText || '').replace(/\s+/g, ' ').trim();
     const desc = (facts ? facts + '. ' : '') + (ov.length > 220 ? ov.slice(0, ov.lastIndexOf(' ', 220)) + '…' : ov);
     // Wide backdrop makes the biggest preview; the poster is the fallback. Without poster art on the site, the site's own image.
     const img = posters && m.bd ? 'https://image.tmdb.org/t/p/w1280' + m.bd : posters && m.poster ? 'https://image.tmdb.org/t/p/w780' + m.poster : site + '/icons/og.jpg';

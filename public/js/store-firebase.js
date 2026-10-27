@@ -2,24 +2,26 @@
 import { firebaseConfig } from './config.js';
 
 const V = '10.14.1';
-const { initializeApp } = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`);
-const A = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`);
-const F = await import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`);
+// All three load at once (they used to load one after another), and index.html starts them before this file even runs.
+const [{ initializeApp }, A, F] = await Promise.all(['app', 'auth', 'firestore'].map((x) => import(`https://www.gstatic.com/firebasejs/${V}/firebase-${x}.js`)));
 
 const app = initializeApp(firebaseConfig);
 const auth = A.getAuth(app);
 const db = F.initializeFirestore(app, { localCache: F.persistentLocalCache() });
 
 let current = null;
-const uid = () => auth.currentUser?.uid;
+// hintUid: the account from last visit, used while sign-in is still being restored so the page can show right away.
+let hintUid = null;
+const uid = () => auth.currentUser?.uid || hintUid;
 const userDoc = () => F.doc(db, 'users', uid());
 
 export const store = {
   demo: false,
 
+  hint(u) { hintUid = u || null; },
   init(onUser) {
     A.onAuthStateChanged(auth, async (u) => {
-      if (!u) { current = null; onUser(null); return; }
+      if (!u) { current = null; hintUid = null; onUser(null); return; }
       let isAdmin = false;
       try { isAdmin = (await F.getDoc(F.doc(db, 'admins', u.uid))).exists(); } catch { /* not admin */ }
       const ref = F.doc(db, 'users', u.uid);

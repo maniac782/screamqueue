@@ -3,7 +3,9 @@
 <script>/* Test switch for the Brave flash: ?lite=1 turns off blur and layer effects (remembered), ?lite=0 turns them back on. */
 try { const q = new URLSearchParams(location.search).get('lite'); if (q === '1') localStorage.setItem('sq-lite', '1'); if (q === '0') localStorage.removeItem('sq-lite'); if (localStorage.getItem('sq-lite')) document.documentElement.classList.add('lite'); } catch (e) { /* ignore */ }
 /* Brave flashes the screen while scrolling over frosted-glass (backdrop blur) areas, so Brave gets solid ones instead. */
-if (navigator.brave) document.documentElement.classList.add('no-blur');</script>
+if (navigator.brave) document.documentElement.classList.add('no-blur');
+/* Start downloading the movie lists right away, alongside the code (js/app.js picks these up). */
+try { window.SQ_EARLY = { 'movies.json': fetch('data/movies.json', { cache: 'no-cache' }), 'series.json': fetch('data/series.json', { cache: 'no-cache' }) }; } catch (e) { /* ignore */ }</script>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -28,6 +30,16 @@ if (navigator.brave) document.documentElement.classList.add('no-blur');</script>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="css/app.css">
+  <!-- Start the site's code, the sign-in and database code (keep the version in step with js/store-firebase.js) downloading together -->
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+  <link rel="modulepreload" href="js/store-firebase.js">
+  <link rel="modulepreload" href="js/config.js">
+  <link rel="modulepreload" href="js/icons.js">
+  <link rel="modulepreload" href="js/art.js">
+  <link rel="modulepreload" href="js/sg.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js">
+  <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js">
 </head>
 <body>
   <header class="top">

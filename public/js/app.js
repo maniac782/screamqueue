@@ -555,6 +555,25 @@ function quickBar(m, name) {
 
 let shelfN = 0;
 const SHELF_ROW = 18;
+// Tonight builds the first few shelves right away; the rest fill in just before you scroll to them (each shelf is
+// up to 18 posters, and building all of them at once made the page slow to appear on phones). Once a shelf has been
+// shown it stays built when the page redraws.
+const EAGER_SHELVES = 4;
+const shownShelves = new Set();
+const shelfCards = (list, subOf) => list.slice(0, SHELF_ROW).map((m) => card(m, subOf ? { sub: subOf(m) } : undefined)).join('');
+const lazyShelf = (slug, onTonight) => onTonight && shelfN > EAGER_SHELVES && !shownShelves.has(slug) && 'IntersectionObserver' in window;
+let shelfObs = null;
+function fillShelf(t) {
+  const slug = t.dataset.lazy, sh = S.shelves?.[slug]; if (!sh) return;
+  shownShelves.add(slug); t.removeAttribute('data-lazy');
+  t.innerHTML = shelfCards(sh.list, sh.subOf);
+  updateRail(t.closest('.rail'));
+}
+function watchLazyShelves() {
+  const ts = document.querySelectorAll('#main .track[data-lazy]'); if (!ts.length) return;
+  shelfObs ||= new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { shelfObs.unobserve(e.target); fillShelf(e.target); } }), { rootMargin: '900px 0px' });
+  ts.forEach((t) => shelfObs.observe(t));
+}
 const shelfSlug = (t) => String(t).replace(/<[^>]+>/g, '').toLowerCase().replace(/&[a-z]+;/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 // A row of up to 18 cards. Every shelf links to a page with all of its movies (#/shelf/<slug>), unless it brings its own link.
 function shelf(title, desc, list, emptyText, more = '', subOf = null) {
@@ -569,7 +588,7 @@ function shelf(title, desc, list, emptyText, more = '', subOf = null) {
       ${nav ? `<div class="shelf-nav">${nav}</div>` : ''}</div>
     ${list.length ? `<div class="rail" data-start="1">
       <button class="rail-btn prev" data-act="scroll" data-k="-1" data-target="${id}" aria-label="Scroll ${esc(plain)} back" tabindex="-1">${icon('left')}</button>
-      <div class="track" id="${id}">${list.slice(0, SHELF_ROW).map((m) => card(m, subOf ? { sub: subOf(m) } : undefined)).join('')}</div>
+      <div class="track" id="${id}"${lazyShelf(slug, onTonight) ? ` data-lazy="${slug}"></div>` : `>${shelfCards(list, subOf)}</div>`}
       <button class="rail-btn next" data-act="scroll" data-k="1" data-target="${id}" aria-label="Scroll ${esc(plain)} forward" tabindex="-1">${icon('right')}</button>
     </div>` : `<div class="empty">${icon('clock')}<span>${emptyText}</span></div>`}
   </section>`;
@@ -640,11 +659,52 @@ function skullPicker(m, r = 0) {
 }
 
 // ---------- data ----------
+// Movie data loads from the copy saved on this device when there is one (instant), and the latest copy is fetched in
+// the background; if it changed, the page quietly redraws.
+async function fetchData(fromCache) {
+  const get = async (f) => {
+    if (fromCache) { const hit = await caches?.match(new URL(`data/${f}`, location.href).href).catch(() => null); return hit ? hit.json().catch(() => null) : null; }
+    const early = window.SQ_EARLY?.[f]; if (early) delete window.SQ_EARLY[f]; // started by index.html
+    const r = await (early || fetch(`data/${f}`, { cache: 'no-cache' })).catch(() => null); return r?.ok ? r.json().catch(() => null) : null;
+  };
+  const [data, ser] = await Promise.all([get('movies.json'), get('series.json')]);
+  return data?.movies ? { data, series: ser?.series || [] } : null;
+}
 async function loadData() {
-  const [res, ser] = await Promise.all([fetch('data/movies.json', { cache: 'no-cache' }), fetch('data/series.json', { cache: 'no-cache' }).catch(() => null)]);
-  S.data = await res.json();
+  let got = 'caches' in window ? await fetchData(true) : null;
+  if (got) {
+    fetchData(false).then((fresh) => {
+      if (!fresh || fresh.data.generatedAt === S.data?.generatedAt) return;
+      useData(fresh); applyConfig(); recBack = null; softRoute();
+    });
+  } else got = await fetchData(false);
+  if (!got) throw new Error('movie data unavailable');
+  performance.mark?.('sq-data-fetched');
+  useData(got);
+  performance.mark?.('sq-data-ready');
+}
+// The movie file leaves out empty fields to stay small; fill in the defaults the site expects, once.
+function normalize(m) {
+  for (const k of ['pv', 'fr', 'rec', 'sg', 'dir', 'cast', 'g', 'flags']) if (!m[k]) m[k] = [];
+  if (!m.n) m.n = {};
+  if (m.w && !m.wl) m.wl = m.type === 'tv' ? `https://www.themoviedb.org/tv/${m.tv}/watch?locale=US` : `https://www.themoviedb.org/movie/${m.id}/watch?locale=US`;
+  if (m.buzz == null) m.buzz = 0; if (m.reach == null) m.reach = 0;
+  return m;
+}
+// Plot summaries for less-busy movies live in 100 small files (data/ov/N.json), loaded when one opens.
+const ovLoading = new Map();
+function loadOv(m) {
+  if (m.ov || !m.hov) return Promise.resolve();
+  const k = Number(m.id) % 100;
+  if (!ovLoading.has(k)) ovLoading.set(k, fetch(`data/ov/${k}.json`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+    .then((sh) => { for (const [id, ov] of Object.entries(sh)) { const x = S.byId.get(String(id)); if (x && !x.ov) x.ov = ov; } }));
+  return ovLoading.get(k);
+}
+function useData({ data, series }) {
+  data.movies.forEach(normalize); series.forEach(normalize);
+  S.data = data;
   // Horror TV series (ids like "tv1622"). The site works without them if the file is missing.
-  S.seriesData = ser?.ok ? ((await ser.json().catch(() => null))?.series || []) : [];
+  S.seriesData = series;
   S.provName = new Map(S.data.providers.map((p) => [p.id, p.name]));
   S.sgLabel = new Map(S.data.subgenres.map((s) => [s.key, s.label]));
   S.hasTom = S.data.movies.some((m) => m.imdb?.tom != null);
@@ -659,11 +719,23 @@ function applyConfig() {
   S.series = (S.seriesData || []).filter((m) => !hidden.has(String(m.id))).map(fix);
   for (const m of S.seriesData || []) S.byId.set(String(m.id), fix(m));
 }
+// Last visit's account, settings and saved movies, kept on this device so the shelves can show the moment the page
+// opens; the real copy loads right after and replaces it.
+const SNAP = 'sq-session';
+function saveSession() {
+  clearTimeout(saveSession.t);
+  saveSession.t = setTimeout(() => {
+    try { if (S.user && !store.demo) localStorage.setItem(SNAP, JSON.stringify({ v: 1, user: S.user, profile: S.profile, mine: [...S.mine], at: Date.now() })); } catch { /* storage full or blocked */ }
+  }, 600);
+}
+function readSession() { try { const x = JSON.parse(localStorage.getItem(SNAP) || 'null'); return x?.v === 1 && x.user?.uid && Array.isArray(x.mine) ? x : null; } catch { return null; } }
+function clearSession() { clearTimeout(saveSession.t); try { localStorage.removeItem(SNAP); } catch { /* ignore */ } }
 async function loadMine() {
   if (!S.user) { S.mine = new Map(); S.profile = { name: '', services: [], hideSeen: false }; return; }
   [S.profile, S.mine] = await Promise.all([store.getProfile(), store.loadMyMovies()]);
   S.f.hideSeen = S.profile.hideSeen;
   if (!S.profile.services.length) S.p.mine = false;
+  saveSession();
 }
 
 // ---------- views ----------
@@ -792,7 +864,7 @@ async function loadFriendMovies() {
   if (S.friendMovies || !S.user || !store.moviesOf || !S.friends?.length) return;
   S.friendMovies = new Map();
   await Promise.all(S.friends.slice(0, 40).map(async (f) => { try { S.friendMovies.set(f.uid, { f, mv: await store.moviesOf(f.uid) }); } catch { /* private */ } }));
-  if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
+  if (!location.hash || location.hash === '#/' || location.hash === '#') softRoute();
 }
 function friendPicks() {
   if (!S.friendMovies) return [];
@@ -1060,13 +1132,14 @@ function renderPick(animate) {
     el.innerHTML = `<div class="pick-card empty-pick"><div class="stack" style="justify-items:center;padding:28px">${icon('dice')}<p>${S.p.current === false ? 'Nothing fits all of those choices. Loosen a filter and try again.' : 'Choose a mood, then press Pick for Me.'}</p></div></div>`;
     return;
   }
+  if (!m.ov && m.hov) loadOv(m).then(() => { const p = document.querySelector('.pick-card .pick-ov'); if (p && m.ov && String(S.p.current) === String(m.id)) p.textContent = m.ov; });
   el.innerHTML = `<div class="pick-card ${animate ? 'spin' : ''}">
     ${wideArt(m)}<div class="shade"></div>
     <div class="body">
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}${tomBadge(m)}<span>${esc(servicesText(m))}</span></div>
       <h2>${esc(m.t)}</h2>
       ${(() => { const why = tasteReady() && recommend().by.get(String(m.id))?.why; return why ? `<p class="pick-why">${icon('skull')}${esc(why)}</p>` : ''; })()}
-      ${m.ov ? `<p>${esc(m.ov)}</p>` : ''}
+      ${m.ov ? `<p>${esc(m.ov)}</p>` : m.hov ? '<p class="pick-ov"></p>' : ''}
       <div class="row">${m.sg.slice(0, 4).map(sgTag).join('')}</div>
       <div class="row"><button class="btn primary" data-act="repick">${icon('dice')}Pick another</button>${queueBtn(m)}<button class="btn" data-act="open" data-id="${m.id}">Details</button></div>
       ${(() => {
@@ -1918,7 +1991,7 @@ async function vsTonight() {
   const [res, brRes] = await Promise.all([v ? resolveVs(v) : null, br ? resolveVs(br) : null]);
   S.vsTonight = { v, br, res, brRes, at: Date.now() };
   renderChrome();
-  if (!location.hash || location.hash === '#/' || location.hash === '#') route(true, true);
+  if (!location.hash || location.hash === '#/' || location.hash === '#') softRoute();
 }
 // Is there an open matchup today that you haven't voted on? (lights the dot on the phone VS button)
 function vsUnvoted() {
@@ -2913,6 +2986,7 @@ function seriesSheetHTML(m, st, provs) {
 }
 function openDetail(id) {
   const m = S.byId.get(String(id)); if (!m) return;
+  if (!m.ov && m.hov) loadOv(m).then(() => { const d = $('#detail'); if (d.open && d.dataset.id === String(m.id)) refreshDetail(); });
   const dlg = $('#detail');
   const st = status(m.id);
   const seen = st?.status === 'seen' || !!st?.wasSeen; // a queued rewatch still shows your rating and watch date
@@ -3545,7 +3619,7 @@ const actions = {
   acct(el, e) { e.stopPropagation(); setMenu(!S.menuOpen); },
   async install() { setMenu(false); if (S.installEvt) { S.installEvt.prompt(); S.installEvt = null; renderChrome(); } },
   svc(el) { const id = Number(el.dataset.k); const s = new Set(S.profile.services); s.has(id) ? s.delete(id) : s.add(id); S.profile.services = [...s]; el.setAttribute('aria-pressed', s.has(id)); },
-  async signout() { setMenu(false); await store.signOut(); location.hash = '#/'; },
+  async signout() { setMenu(false); clearSession(); await store.signOut(); location.hash = '#/'; },
   resetdemo() { store.resetDemo(); location.hash = '#/'; },
   gosignin() { S.afterSignIn = location.hash || '#/'; },
   authtab(el) { S.authTab = el.dataset.k; route(true); },
@@ -3600,6 +3674,7 @@ function authError(e) {
 }
 
 async function refreshAll() {
+  saveSession();
   refreshDetail();
   if (location.hash.startsWith('#/night/')) return;
   await flip(async () => {
@@ -4220,6 +4295,9 @@ window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); S.in
 // Every render gets a number; a slower, older render that finishes late is thrown away
 // instead of painting over a newer one.
 let routeGen = 0;
+// Background updates (friends, VS, settings, fresh data) that land close together share one quiet redraw.
+let softT = 0;
+function softRoute() { clearTimeout(softT); softT = setTimeout(() => route(true, true), 120); }
 async function route(keepScroll, quiet) {
   const gen = ++routeGen;
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
@@ -4231,7 +4309,9 @@ async function route(keepScroll, quiet) {
   const view = views[{ trophies: 'bodycount' }[name] || name || 'tonight'] || views.tonight;
   renderChrome();
   const y = window.scrollY;
+  performance.mark?.('sq-view-start');
   const html = await view(arg);
+  performance.mark?.('sq-view-built');
   if (gen !== routeGen) return;
   const after = S.after; S.after = null;
   const rails = keepScroll ? railSnapshot() : {};
@@ -4243,7 +4323,8 @@ async function route(keepScroll, quiet) {
     after?.();
     syncBodyCount();
     if (!quiet) railRestore(rails);
-    window.scrollTo(0, keepScroll ? y : 0); updateRails();
+    window.scrollTo(0, keepScroll ? y : 0); updateRails(); watchLazyShelves();
+    performance.mark?.('sq-swapped');
   };
   if (!quiet && document.startViewTransition && !reduceMotion() && !window.matchMedia('(hover: none)').matches) { const vt = document.startViewTransition(swap); vt.ready.catch(() => {}); vt.finished.catch(() => {}); await vt.updateCallbackDone.catch(() => {}); }
   else swap();
@@ -4254,6 +4335,12 @@ async function route(keepScroll, quiet) {
   document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight', ranks: 'Leaderboard' }[name] || '') : ''}`;
 }
 
+// Shared link (?m=<id>): open that movie or series, then tidy the address back to the page.
+function openShared() {
+  const sm = new URLSearchParams(location.search).get('m');
+  if (sm && S.byId.has(String(sm))) openDetail(sm);
+  if (sm) { const q = new URLSearchParams(location.search); q.delete('m'); history.replaceState(history.state, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash); }
+}
 async function boot() {
   applyPosterSize();
   try { localStorage.removeItem('sq-theme'); } catch { /* ignore */ } // the site is always dark now
@@ -4261,21 +4348,44 @@ async function boot() {
   if (/^#\/settings/.test(location.hash)) history.replaceState(null, '', '#/profile');
   $('#brand').textContent = SITE_NAME;
   $('#mark').innerHTML = '<img src="icons/logo-96.png" alt="" width="48" height="48">';
-  [S.config] = await Promise.all([store.getConfig(), loadData()]);
+  // Site settings: last visit's copy first (instant), the latest right after.
+  let cfg = null; try { cfg = JSON.parse(localStorage.getItem('sq-config') || 'null'); } catch { /* ignore */ }
+  const cfgP = store.getConfig().then((c) => { try { localStorage.setItem('sq-config', JSON.stringify(c)); } catch { /* ignore */ } return c; });
+  if (cfg) {
+    S.config = cfg;
+    cfgP.then((c) => { if (JSON.stringify(c) !== JSON.stringify(S.config)) { S.config = c; applyConfig(); renderChrome(); softRoute(); } }).catch(() => {});
+    await loadData();
+  } else [S.config] = await Promise.all([cfgP, loadData()]);
   applyConfig();
+  // Show the page now with last visit's account and saved movies; sign-in and the real data catch up quietly.
+  const snap = store.demo ? null : readSession();
+  let early = false;
+  if (snap) {
+    S.user = snap.user; S.profile = snap.profile; S.mine = new Map(snap.mine);
+    S.f.hideSeen = !!S.profile.hideSeen;
+    store.hint?.(snap.user.uid);
+    if (location.hash !== '#/signin') { await route(); early = true; }
+  }
   let first = true;
   store.init(async (u) => {
+    if (first && early && u && u.uid === snap.user.uid) {
+      // same account as last time: the page is already showing; bring in the fresh copy behind it
+      first = false;
+      S.user = u;
+      watchRequests();
+      loadMine().then(() => softRoute()).catch(() => {});
+      loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) softRoute(); if (!S.profile.setup) openSetup(); }).catch(() => {});
+      openShared();
+      return;
+    }
+    if (!u) clearSession();
     S.user = u;
     await loadMine();
     watchRequests();
-    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) route(true, true); if (u && !S.profile.setup) openSetup(); }).catch(() => {});
+    loadSocial().then(() => { renderChrome(); if (/^#\/(profile|friends)|^#?\/?$/.test(location.hash)) softRoute(); if (u && !S.profile.setup) openSetup(); }).catch(() => {});
     if (u && location.hash === '#/signin') { location.hash = S.afterSignIn || '#/'; }
-    else await route(!first, !first);
-    if (first) { // shared link: open that movie or series, then tidy the address back to the page
-      const sm = new URLSearchParams(location.search).get('m');
-      if (sm && S.byId.has(String(sm))) openDetail(sm);
-      if (sm) { const q = new URLSearchParams(location.search); q.delete('m'); history.replaceState(history.state, '', location.pathname + (q.toString() ? `?${q}` : '') + location.hash); }
-    }
+    else await route(!(first && !early), !(first && !early));
+    if (first) openShared();
     first = false;
   });
   window.addEventListener('hashchange', () => {

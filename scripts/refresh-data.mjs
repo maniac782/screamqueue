@@ -125,6 +125,11 @@ async function main() {
   let previous = { movies: [] };
   try { previous = JSON.parse(await readFile(OUT, 'utf8')); } catch { /* first run */ }
   const prevById = new Map((previous.movies || []).map((m) => [m.id, m]));
+  // OMDb scores with the date they were fetched live in their own file (not sent to browsers); older runs kept them in movies.json.
+  try {
+    const st = JSON.parse(await readFile(resolve(ROOT, 'public/data/omdb-cache.json'), 'utf8'));
+    for (const [id, imdb] of Object.entries(st)) { const m = prevById.get(Number(id)); if (m) m.imdb = imdb; else prevById.set(Number(id), { id: Number(id), imdb, _o: 1 }); }
+  } catch { /* first run with the separate file */ }
 
   console.log('Collecting candidates from TMDB…');
   const weekly = (await pages('/trending/movie/week', { language: 'en-US' }, 15)).filter((m) => m.genre_ids?.includes(GENRE.horror));
@@ -361,7 +366,7 @@ async function main() {
   const nsCutoff = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10);
   let nsNew = 0;
   for (const r of rows) {
-    const prev = prevById.get(r.id);
+    const prev0 = prevById.get(r.id), prev = prev0?._o ? null : prev0; // _o: only OMDb scores known, not last night's services
     const nowP = [...r.pv, ...r.fr];
     if (prev) {
       const before = new Set([...(prev.pv || []), ...(prev.fr || [])]);
@@ -443,6 +448,38 @@ async function main() {
     providers: providerList.filter((p, i) => i < 80 || usedProviders.has(p.id)),
     movies: scored,
   };
+  // Slim the file browsers download (it was 5+ MB): no empty fields, OMDb fetch dates kept in their own file,
+  // TMDB "where to watch" links rebuilt in the browser, and plot summaries in 100 small files loaded when a movie opens.
+  // Summaries stay inline for what the front page and Pick for Me lean on (trending, new, featured, well-known).
+  let featured = new Set();
+  try {
+    const doc = await getJson('https://firestore.googleapis.com/v1/projects/screamqueue/databases/(default)/documents/config/site');
+    for (const v of doc.fields?.featured?.arrayValue?.values || []) featured.add(Number(v.integerValue ?? v.doubleValue ?? v.stringValue));
+  } catch { /* no featured list */ }
+  const omdbState = {};
+  const ovShards = Array.from({ length: 100 }, () => ({}));
+  const WL = /^https:\/\/www\.themoviedb\.org\/movie\/\d+[^/?]*\/watch\?locale=US$/;
+  out.movies = out.movies.map((m) => {
+    const o = {};
+    for (const [k, v] of Object.entries(m)) {
+      if (v == null || v === false || v === '' || (Array.isArray(v) && !v.length)) continue;
+      o[k] = v;
+    }
+    if (o.imdb) {
+      omdbState[o.id] = o.imdb;
+      const { at, ...rest } = o.imdb; const im = {}; for (const [k, v] of Object.entries(rest)) if (v != null) im[k] = v; o.imdb = im;
+    }
+    if (o.n) { const n = {}; if (o.n.votes != null) n.votes = o.n.votes; if (o.n.trakt != null) n.trakt = o.n.trakt; if (Object.keys(n).length) o.n = n; else delete o.n; }
+    if (o.wl && WL.test(o.wl)) { delete o.wl; o.w = 1; }
+    const keepOv = featured.has(o.id) || (o.flags || []).some((f) => f === 'hot' || f === 'new' || f === 'soon') || (o.buzz || 0) >= 55 || (o.reach || 0) >= 80;
+    if (o.ov && !keepOv) { ovShards[o.id % 100][o.id] = o.ov; delete o.ov; o.hov = 1; }
+    return o;
+  });
+  const OV_DIR = resolve(ROOT, 'public/data/ov');
+  await rm(OV_DIR, { recursive: true, force: true });
+  await mkdir(OV_DIR, { recursive: true });
+  await Promise.all(ovShards.map((sh, i) => writeFile(resolve(OV_DIR, `${i}.json`), JSON.stringify(sh))));
+  await writeFile(resolve(ROOT, 'public/data/omdb-cache.json'), JSON.stringify(omdbState));
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out));
   console.log(`Wrote ${scored.length} movies to public/data/movies.json (OMDb calls: ${omdbCalls}).`);
