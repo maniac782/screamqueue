@@ -3183,7 +3183,9 @@ const actions = {
   // The link (screamqueue.web.app/?m=<id>) opens the site with that card showing.
   async shareitem(el) {
     const m = S.byId.get(String(el.dataset.id)); if (!m) return;
-    const url = `${location.origin}/?m=${encodeURIComponent(m.id)}`;
+    // On the real site the link is /m/<id>: a small server page gives chat apps the title, description and picture
+    // for the preview, then opens the card. Anywhere else (local copies) it's ?m=<id>.
+    const url = /\.web\.app$|\.firebaseapp\.com$/.test(location.hostname) ? `${location.origin}/m/${encodeURIComponent(m.id)}` : `${location.origin}/?m=${encodeURIComponent(m.id)}`;
     const where = servicesText(m).replace(/ \+\d+$/, ' and more');
     const text = `${m.t}${m.y ? ` (${m.y})` : ''}${m.type === 'tv' ? ' · horror series' : ''}${where && !/^(Not streaming|Rent or buy)$/.test(where) ? ` · streaming on ${where}` : ''}`;
     try {
