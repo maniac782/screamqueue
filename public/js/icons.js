@@ -4,6 +4,7 @@ const P = {
   podium: '<path d="M9 10h6v10H9zM3 14h6v6H3zM15 13h6v7h-6z"/><path d="m12 3 .9 1.9 2.1.3-1.5 1.4.4 2.1-1.9-1-1.9 1 .4-2.1L9 5.2l2.1-.3z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c.8-3.8 3.9-6 7.5-6s6.7 2.2 7.5 6"/>',
   share: '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M6 11H5a1 1 0 0 0-1 1v8a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1h-1"/>',
+  pumpkin: '<path d="M12 7c-1.2-.9-2.8-1.2-4.3-.7C4.9 7.2 3.6 10.2 4.2 13.4c.6 3.4 3.3 5.6 6 5.6h3.6c2.7 0 5.4-2.2 6-5.6.6-3.2-.7-6.2-3.5-7.1-1.5-.5-3.1-.2-4.3.7z"/><path d="M12 7V4.5c0-.8.6-1.5 1.5-1.5"/><path d="M8.5 11.5l1.2 1.2M15.5 11.5l-1.2 1.2M9 15.5c1.8 1 4.2 1 6 0"/>',
   home: '<path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1z"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   dice: '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.2" fill="currentColor"/><circle cx="15" cy="15" r="1.2" fill="currentColor"/><circle cx="15" cy="9" r="1.2" fill="currentColor"/><circle cx="9" cy="15" r="1.2" fill="currentColor"/>',

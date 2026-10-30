@@ -1826,3 +1826,19 @@ html.no-blur .acct-menu, html.no-blur .qs-list { background: var(--surface) !imp
 @media (max-width: 520px) { .ep-list { margin-left: 8px; } }
 /* Poster rows snap gently (they used to snap hard after every swipe, keeping them moving, which made iPhone eat taps). */
 .track { scroll-snap-type: x proximity; }
+/* ---------- Halloween season ---------- */
+:root { --pumpkin: #ff7a1a; }
+.hs-btn .ic { color: var(--pumpkin); }
+.hs-btn.on { border-color: var(--pumpkin); background: color-mix(in srgb, var(--pumpkin) 14%, transparent); }
+.hs-pill { display: inline-flex; align-items: center; gap: 6px; width: fit-content; padding: 3px 10px; border-radius: 999px; font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; background: color-mix(in srgb, var(--pumpkin) 16%, transparent); color: var(--pumpkin); }
+.hs-pill .ic { width: 14px; height: 14px; }
+.page-head > .hs-pill { justify-self: start; }
+.hs-top { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.hs-stat { display: flex; align-items: baseline; gap: 10px; }
+.hs-stat b { font-family: var(--font-display); font-weight: 800; font-size: 3rem; line-height: 1; color: var(--pumpkin); }
+.hs-stat span { color: var(--muted); font-weight: 600; }
+.hs-tip { display: flex; gap: 10px; align-items: flex-start; font-size: .9rem; }
+.hs-tip .ic { width: 18px; height: 18px; color: var(--pumpkin); flex: none; margin-top: 2px; }
+.ch-strip.hs-strip > .ic:first-child { color: var(--pumpkin); }
+a.stat.link { text-decoration: none; color: inherit; }
+a.stat.link b { color: var(--pumpkin); }

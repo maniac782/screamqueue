@@ -34,6 +34,24 @@ const status = (id) => S.mine.get(String(id));
 const isSeen = (m) => status(m.id)?.status === 'seen';
 const isNope = (m) => status(m.id)?.status === 'nope'; // "Not interested": kept out of shelves, Browse and picks
 const everSeen = (m) => { const st = status(m.id); return st?.status === 'seen' || !!st?.wasSeen; };
+// ---------- Halloween season ----------
+// Separate from Body Count (which is "have I ever seen it"): what you watched this September and October, rewatches
+// included, saved on the movie as hs: { "2026": "2026-10-12" }.
+const hsYear = () => Number(today().slice(0, 4));
+const inSeason = () => ['09', '10'].includes(today().slice(5, 7));
+const lastSeasonYear = () => (today().slice(5, 7) < '09' ? hsYear() - 1 : hsYear());
+const hsOn = (st, y = hsYear()) => st?.hs?.[y] || null;
+const mdDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+const hsAdd = (st) => (inSeason() ? { hs: { ...(st?.hs || {}), [hsYear()]: today() } } : {});
+function seasonList(mv, y) {
+  return [...mv.entries()].filter(([, st]) => st?.hs?.[y]).map(([id, st]) => ({ id, st, m: S.byId.get(String(id)), on: st.hs[y] }))
+    .filter((x) => x.m).sort((a, b) => b.on.localeCompare(a.on) || (b.st.at || 0) - (a.st.at || 0));
+}
+function seasonBtn(m, st) {
+  if (!inSeason() || m.type === 'tv') return '';
+  const on = hsOn(st);
+  return `<button class="btn hs-btn${on ? ' on' : ''}" data-act="hswatch" data-id="${m.id}" aria-pressed="${!!on}" title="${on ? 'Tap to take it off your Halloween season' : 'Log it for this Halloween season, rewatches included'}">${icon('pumpkin')}${on ? `Watched this Halloween · ${esc(mdDate(on))}` : 'Watched it this Halloween'}</button>`;
+}
 // ---------- TV series ----------
 // A series is saved like a movie (status queue | watching | seen = finished), plus seasons: [season numbers finished].
 // Each finished season adds 1 to your Body Count.
@@ -101,7 +119,8 @@ function toast(msg, ic = 'check', undo = null, alt = null) {
   setTimeout(() => t.remove(), undo || alt ? 6000 : 2600);
 }
 // "Seen before": the movie was watched some other time, so it gets no watch date (keeps it out of October and the year).
-const seenBefore = (id) => ({ label: 'Seen before', fn: async () => { await setStatus(id, { seenOn: '' }); toast('Logged as seen before, with no watch date', 'clock'); refreshDetail(); } });
+const seenBefore = (id) => ({ label: 'Seen before', fn: async () => { const hs = { ...(status(id)?.hs || {}) }; delete hs[hsYear()]; await setStatus(id, { seenOn: '', hs }); // not watched now, so not this Halloween either
+ toast('Logged as seen before, with no watch date', 'clock'); refreshDetail(); } });
 // Put a movie back the way it was before a queue/seen tap.
 function undoTo(id, prev) {
   return async () => {
@@ -933,6 +952,7 @@ views.tonight = () => {
     const C = challengeStats(Number(t.slice(0, 4)));
     return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31 days${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
+  ${S.user && inSeason() ? (() => { const n = seasonList(S.mine, hsYear()).length; return `<a class="ch-strip hs-strip" href="#/season" data-key="season">${icon('pumpkin')}<span><b>Your Halloween ${hsYear()}</b> ${n ? `${n} movie${n === 1 ? '' : 's'} this season` : 'log what you watch this season'}</span>${icon('right')}</a>`; })() : ''}
   ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
   ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '') : ''}
   ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
@@ -1020,6 +1040,39 @@ views.ranks = async (tab) => {
   }
   return `${head}${rows.length ? `<div class="rk-list">${rankRows(rows)}</div>` : `<div class="empty">${icon('podium')}<span>No public Body Counts yet.</span></div>`}${you}
     <p class="faint" style="font-size:.85rem">Only people whose profile is public appear here. The top 50 are shown.</p>`;
+};
+
+// ---------- Halloween season page (#/season, #/season/<username>) ----------
+views.season = async (arg) => {
+  const y = lastSeasonYear(), now = inSeason() && y === hsYear();
+  let mine = !arg, who = null, mv = null, priv = false;
+  if (arg) {
+    const pc = await store.getProfileCard?.(arg).catch(() => null);
+    if (!pc) return `<div class="empty">${icon('search')}<span>That profile wasn't found.</span></div>`;
+    if (pc.uid === S.user?.uid) mine = true;
+    else { who = pc; try { mv = await store.moviesOf(pc.uid); } catch { priv = true; } }
+  }
+  if (mine) { if (!S.user) return signInPrompt(`Sign in to keep your Halloween ${y} list.`); mv = S.mine; }
+  const name = mine ? 'You' : (who.name || 'They');
+  const head = `<div class="page-head"><span class="hs-pill">${icon('pumpkin')}Halloween season</span><h1>Halloween ${y}</h1>
+    <p class="muted">${mine ? 'What you' : `What ${esc(who.name || 'they')}`} watched from September 1 to October 31${mine ? ', rewatches included. It\'s separate from your Body Count, which counts each movie once, ever.' : '.'}</p></div>`;
+  if (priv || !mv) return `${head}<div class="empty">${icon('eye')}<span>${esc(who?.name || 'This person')} keeps their movies private.</span></div>`;
+  const list = seasonList(mv, y);
+  const share = mine && list.length ? `<button class="btn" data-act="hsshare">${icon('share')}Share my Halloween ${y}</button>` : '';
+  const stat = `<div class="hs-stat"><b>${list.length}</b><span>horror movie${list.length === 1 ? '' : 's'} this season</span></div>`;
+  const tip = mine && now ? `<p class="muted hs-tip">${icon('pumpkin')}<span>On any movie, tap <b>Watched it this Halloween</b>, including ones you've seen before. Marking a movie seen in September or October adds it here too.</span></p>` : '';
+  const grid = list.length ? `<div class="grid">${list.map((x) => card(x.m, { plain: !mine, sub: `${mdDate(x.on)}${x.st.rating ? ` · ${fmtRating(x.st.rating)} skulls` : ''}` })).join('')}</div>`
+    : `<div class="empty">${icon('pumpkin')}<span>${mine ? (now ? 'Nothing yet this season. Go watch something scary.' : `Nothing logged for Halloween ${y}.`) : `${esc(name)} hasn't logged anything for Halloween ${y}.`}</span></div>`;
+  // Friends' seasons (yours only)
+  let friends = '';
+  if (mine && S.friends?.length) {
+    if (!S.friendMovies) loadFriendMovies().then(() => { if (location.hash.startsWith('#/season')) route(true, true); });
+    const rows = S.friendMovies ? [...S.friendMovies.values()].map(({ f, mv: fm }) => ({ f, n: seasonList(fm, y).length })).filter((x) => x.n).sort((a, b) => b.n - a.n) : null;
+    friends = `<section class="panel stack" style="gap:10px"><h2>Your friends this season</h2>${rows == null ? '<p class="muted">Loading…</p>' : rows.length
+      ? rows.map(({ f, n }) => `<a class="person-row link" href="#/season/${esc(f.handle || f.uid)}">${av(f.name, '', f.uid)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${n} movie${n === 1 ? '' : 's'}</small></div>${icon('right')}</a>`).join('')
+      : '<p class="muted">None of your friends have logged a movie this season yet.</p>'}</section>`;
+  }
+  return `${head}<div class="hs-top">${stat}${share}</div>${tip}${grid}${friends}`;
 };
 
 // Browse
@@ -2191,7 +2244,9 @@ async function adminVsHTML() {
 // Every October: 31 horror movies in 31 days. Each day of the month gets a square; logging a movie with
 // that watch date fills it. Finishing earns a badge for that year.
 function challengeStats(year) {
-  const oct = seenList().filter((x) => x.on && x.on.startsWith(`${year}-10-`));
+  // first watches and Halloween-season rewatches in October both fill days
+  const oct = [];
+  for (const x of seenList()) for (const d of new Set([x.on, x.st.hs?.[year]])) if (d && d.startsWith(`${year}-10-`)) oct.push(d === x.on ? x : { ...x, on: d });
   const byDay = Array.from({ length: 31 }, (_, i) => oct.filter((x) => Number(x.on.slice(8, 10)) === i + 1));
   // The challenge counts days with a movie, so catching up on old favorites in one sitting fills one day, not thirty.
   const d = byDay.filter((x) => x.length).length;
@@ -2304,7 +2359,7 @@ views.bodycount = () => {
   </div>
   <div class="bc-bar">
   <nav class="bc-links" aria-label="Body Count tools">
-    <a class="bc-link" href="#/year">${icon('star')}Your ${today().slice(0, 4)}</a><a class="bc-link" href="#/challenge">${icon('trophy')}31 Days</a><a class="bc-link" href="#/ranks">${icon('podium')}Leaderboard</a><a class="bc-link" href="#/checklist">${icon('check')}Check off movies</a>${catchUpDays().length ? `<button class="bc-link" data-act="fixdates" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}
+    <a class="bc-link" href="#/year">${icon('star')}Your ${today().slice(0, 4)}</a><a class="bc-link" href="#/challenge">${icon('trophy')}31 Days</a><a class="bc-link" href="#/ranks">${icon('podium')}Leaderboard</a>${inSeason() || seasonList(S.mine, lastSeasonYear()).length ? `<a class="bc-link" href="#/season">${icon('pumpkin')}Halloween ${lastSeasonYear()}</a>` : ''}<a class="bc-link" href="#/checklist">${icon('check')}Check off movies</a>${catchUpDays().length ? `<button class="bc-link" data-act="fixdates" title="Clear the watch date on movies you logged in bulk">${icon('clock')}Fix watch dates</button>` : ''}
   </nav>
     <label class="search bc-search"><span class="sr">Have I seen it?</span>${icon('search')}<input type="search" id="bc-q" placeholder="Have I seen it? Type a title" value="${esc(S.bcq || '')}" autocomplete="off"></label>
   </div>
@@ -2679,7 +2734,8 @@ views.friends = async () => {
   const feed = have ? S.frData.feed : [];
   const line = ({ f, x }) => {
     const m = S.byId.get(String(x.id)); const t = m?.t || x.title || 'a movie';
-    const what = x.status === 'seen' ? `survived <b>${esc(t)}</b>${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
+    const hs = x.hs?.[lastSeasonYear()];
+    const what = x.status === 'seen' ? `${hs ? 'watched' : 'survived'} <b>${esc(t)}</b>${hs ? ` for <a class="linkish" href="#/season/${esc(f.handle || f.uid)}">Halloween ${lastSeasonYear()}</a>` : ''}${x.rating ? ` and gave it ${skullRow(x.rating)}` : ''}` : `queued <b>${esc(t)}</b>`;
     return `<div class="feed-item">${av(f.name, '', f.uid)}<div class="feed-body"><span><a href="#/u/${esc(f.handle || f.uid)}" class="linkish">${esc(f.name)}</a> ${what}</span><small class="faint">${esc(timeAgo(x.at))}</small>${rxBar(`a_${f.uid}_${x.id}`, f.uid, x.id, 'a')}</div>${m ? `<button class="feed-thumb" data-act="open" data-id="${m.id}" aria-label="${esc(t)}">${thumb(m)}</button>` : ''}</div>`;
   };
   const handle = S.social?.handle;
@@ -2775,6 +2831,7 @@ views.u = async (key) => {
   return `${head}
     <div class="stat-row">
       <div class="stat"><b>${movies ? bodyCountOf(movies).n : seen.length}</b><span>Body Count</span></div>
+      ${movies && seasonList(movies, lastSeasonYear()).length ? `<a class="stat link" href="#/season/${esc(pc.handle || pc.uid)}"><b>${seasonList(movies, lastSeasonYear()).length}</b><span>Halloween ${lastSeasonYear()}</span></a>` : ''}
       <div class="stat"><b>${avg}</b><span>Average rating</span></div>
       <div class="stat"><b>${queue.length}</b><span>In their queue</span></div>
       ${isMe ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
@@ -3023,6 +3080,7 @@ function openDetail(id) {
     </div></div>
     <div class="sheet-body">
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
+        ${seasonBtn(m, st)}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         <button class="btn ghost small" data-act="shareitem" data-id="${m.id}">${icon('share')}Share</button>
@@ -3417,6 +3475,31 @@ const actions = {
   },
   rsclose() { closeRateSheet(); },
   qaclose(el) { const c = el.closest('.card'); c.classList.remove('rating', 'qa-on'); c.querySelector('.qa-rate').hidden = true; },
+  async hsshare() {
+    const y = lastSeasonYear(), list = seasonList(S.mine, y);
+    const url = `${location.origin}/#/season/${encodeURIComponent(S.social?.handle || S.user.uid)}`;
+    const text = `My Halloween ${y}: ${list.length} horror movie${list.length === 1 ? '' : 's'} so far${list.length ? `, including ${list.slice(0, 3).map((x) => x.m.t).join(', ')}` : ''}.`;
+    try { if (navigator.share) { await navigator.share({ title: `My Halloween ${y}`, text, url }); return; } await navigator.clipboard.writeText(`${text}\n${url}`); toast('Copied. Paste it anywhere', 'link'); }
+    catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+  },
+  async hswatch(el) { // "Watched it this Halloween": logs a season watch (counts as seen if it's new to you)
+    if (!needUser()) return;
+    const id = el.dataset.id, st = status(id), prev = st ? { ...st } : null, y = hsYear();
+    if (hsOn(st)) {
+      const hs = { ...st.hs }; delete hs[y];
+      await setStatus(id, { hs });
+      toast(`Taken off your Halloween ${y}`, 'x', undoTo(id, prev));
+    } else {
+      const known = st?.status === 'seen' || !!st?.wasSeen;
+      const r = rectOf(el);
+      const base = st?.status === 'seen' ? {} : st?.status === 'queue' && st.wasSeen ? { status: 'seen' } : { status: 'seen', seenOn: today(), rating: st?.rating || 0 };
+      await setStatus(id, { ...base, hs: { ...(st?.hs || {}), [y]: today() } });
+      burst(null, 'blood', r); if (!known) floatUp(r, `${icon('skull')}<b>+1</b>`);
+      const n = seasonList(S.mine, y).length;
+      toast(`${known ? 'Logged' : 'Body Count +1. Logged'} for Halloween ${y} (${n} so far)`, 'pumpkin', undoTo(id, prev));
+    }
+    await refreshAll();
+  },
   async watching(el) { // series: "I'm watching this" (tap again to take it back to your queue, or off your lists)
     if (!needUser()) return;
     const id = el.dataset.id, st = status(id), prev = st ? { ...st } : null;
@@ -3497,7 +3580,7 @@ const actions = {
       return;
     }
     if (st?.status === 'queue' && st.wasSeen) { // watched the queued rewatch: back to Body Count with a fresh watch date, rating kept
-      await setStatus(el.dataset.id, { status: 'seen', seenOn: today() });
+      await setStatus(el.dataset.id, { status: 'seen', seenOn: today(), ...hsAdd(st) });
       toast('Rewatch logged and taken off your queue', 'skull', undoTo(el.dataset.id, prev));
       await sendOff(el.dataset.id, 'seen');
       await refreshAll();
@@ -3505,7 +3588,7 @@ const actions = {
     }
     const r = rectOf(el);
     markJust(el.dataset.id);
-    await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today() });
+    await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today(), ...hsAdd(st) });
     const leaving = await willVanish(el.dataset.id);
     burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull');
     toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev), seenBefore(el.dataset.id));
@@ -3528,7 +3611,7 @@ const actions = {
     // Rating a movie you haven't marked seen counts as seeing it: same stamp, splatter and +1 as the Seen button.
     const r = !already ? rectOf(el.closest('.card') || el.closest('.skulls') || el) : null;
     if (!already) markJust(el.dataset.id);
-    await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today() });
+    await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today(), ...hsAdd(st) });
     const leaving = !already && await willVanish(el.dataset.id);
     if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull'); }
     if (el.closest('.rate-sheet')) closeRateSheet();
@@ -4252,7 +4335,7 @@ const NAV = [['#/', 'Tonight', 'home'], ['#/browse', 'Browse', 'grid'], ['#/pick
 const TABS = ['#/', '#/browse', '#/pick', '#/queue', '#/bodycount'];
 function renderChrome() {
   const here = '#/' + (location.hash.replace(/^#\/?/, '').split('/')[0] || '');
-  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/' && here === '#/shelf') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies' || here === '#/ranks')) ? 'aria-current="page"' : '');
+  const cur = (h) => (h === here || (h === '#/nights' && here === '#/night') || (h === '#/' && here === '#/shelf') || (h === '#/bodycount' && (here === '#/checklist' || here === '#/trophies' || here === '#/ranks' || here === '#/season')) ? 'aria-current="page"' : '');
   const nReqs = S.requests?.incoming.length || 0;
   $('#nav').innerHTML = NAV.map(([h, l]) => `<a href="${h}" ${cur(h)}>${l}${h === '#/friends' && nReqs ? `<b class="nav-n">${nReqs}</b>` : ''}</a>`).join('');
   $('#tabbar').innerHTML = NAV.filter(([h]) => TABS.includes(h)).map(([h, l, ic]) => `<a href="${h}" ${cur(h)}>${icon(ic)}<span>${l.replace('Movie Nights', 'Nights').replace('My Queue', 'Queue').replace('Pick for Me', 'Pick')}</span></a>`).join('');
@@ -4335,7 +4418,7 @@ async function route(keepScroll, quiet) {
     const r = S.restore; S.restore = null;
     requestAnimationFrame(() => { railPos = { ...(r.rails || {}) }; railRestore(r.rails); updateRails(); window.scrollTo(0, r.y); if (r.movie) openDetail(r.movie); });
   }
-  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight', ranks: 'Leaderboard' }[name] || '') : ''}`;
+  document.title = `${SITE_NAME}${name ? ' · ' + ({ browse: 'Browse', pick: 'Pick for Me', queue: 'My Queue', nights: 'Movie Nights', night: 'Movie Night', settings: 'Settings', admin: 'Admin', signin: 'Sign In', about: 'How It Works', trophies: 'Body Count', bodycount: 'Body Count', profile: 'Profile', year: 'Year in Horror', challenge: '31 Days of Horror', import: 'Import from Letterboxd', checklist: 'Checklist', person: 'Cast', friends: 'Friends', vs: 'VS', lists: 'Lists', list: 'List', u: 'Profile', privacy: 'Privacy', contact: 'Contact', shelf: 'Tonight', ranks: 'Leaderboard', season: 'Halloween Season' }[name] || '') : ''}`;
 }
 
 // Shared link (?m=<id>): open that movie or series, then tidy the address back to the page.
