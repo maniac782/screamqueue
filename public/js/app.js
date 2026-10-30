@@ -1085,8 +1085,9 @@ views.ranks = async (tab) => {
 views.season = async (arg) => {
   const y = lastSeasonYear(), now = inSeason() && y === hsYear();
   let mine = !arg, who = null, mv = null, priv = false;
+  if (arg && !S.user) return signInPrompt(`Sign in to see this Halloween ${y} list. It's free, and you can start your own.`);
   if (arg) {
-    const pc = await store.getProfileCard?.(arg).catch(() => null);
+    const pc = await store.getProfileCard?.(decodeURIComponent(arg)).catch(() => null);
     if (!pc) return `<div class="empty">${icon('search')}<span>That profile wasn't found.</span></div>`;
     if (pc.uid === S.user?.uid) mine = true;
     else { who = pc; try { mv = await store.moviesOf(pc.uid); } catch { priv = true; } }
@@ -4456,6 +4457,9 @@ async function route(keepScroll, quiet) {
   const gen = ++routeGen;
   if (S.stopNight) { S.stopNight(); S.stopNight = null; }
   if (!quiet && !keepScroll && $('#detail')?.open) $('#detail').close();
+  // Some apps glue the share message onto the end of a shared link (".../#/season/dan My Halloween 2026: ...").
+  // Keep only the link part so it still opens.
+  { const h = location.hash, cut = h.search(/%20|\s|%0A/i); if (cut > 0 && /^#\/(season|u|night|list)\//.test(h)) history.replaceState(history.state, '', location.pathname + location.search + h.slice(0, cut)); }
   const [name, arg] = location.hash.replace(/^#\/?/, '').split('/');
   // The home page doesn't need "#/" in the address, so links copied from it are clean (screamqueue.web.app/).
   if (!name && location.hash) history.replaceState(history.state, '', location.pathname + location.search);
