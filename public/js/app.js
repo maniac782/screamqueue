@@ -1239,12 +1239,12 @@ function sortQueue(rows, tab, k) {
   const t = (a, b) => a.m.t.localeCompare(b.m.t);
   const score = (m) => m.imdb?.r ?? m.va ?? 0;
   const by = {
-    added: (a, b) => b.st.at - a.st.at, oldest: (a, b) => a.st.at - b.st.at,
+    added: (a, b) => (b.st.added || b.st.at) - (a.st.added || a.st.at), oldest: (a, b) => (a.st.added || a.st.at) - (b.st.added || b.st.at),
     foryou: (a, b) => recScore(b.m) - recScore(a.m) || score(b.m) - score(a.m),
-    mine: (a, b) => onMine(b.m) - onMine(a.m) || b.st.at - a.st.at,
+    mine: (a, b) => onMine(b.m) - onMine(a.m) || (b.st.added || b.st.at) - (a.st.added || a.st.at),
     rated: (a, b) => score(b.m) - score(a.m) || t(a, b),
     short: (a, b) => (a.m.rt || 999) - (b.m.rt || 999) || t(a, b),
-    recent: (a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at,
+    recent: (a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || (b.st.added || b.st.at) - (a.st.added || a.st.at),
     rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || t(a, b),
     low: (a, b) => ((a.st.rating || 99) - (b.st.rating || 99)) || t(a, b),
     title: t,
@@ -2309,7 +2309,7 @@ function renderBodyList() {
   const sort = S.bcSort || 'recent';
   let seen = seenList().filter((x) => (!q || has(x.t, q)) && (!sg || x.sg.includes(sg)));
   const by = {
-    recent: (a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.at || 0) - (a.st.at || 0),
+    recent: (a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.added || b.st.at || 0) - (a.st.added || a.st.at || 0),
     rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || a.t.localeCompare(b.t),
     title: (a, b) => a.t.localeCompare(b.t),
     year: (a, b) => (b.y || 0) - (a.y || 0),
@@ -3213,6 +3213,9 @@ async function setStatus(id, data) {
   const prev = S.mine.get(String(id)) || {};
   const snap = m ? { title: m.t, y: m.y ?? null, sg: m.sg, rt: m.rt ?? null, tier: m.tier, date: m.date || null, poster: m.poster || null, ...(m.type === 'tv' ? { tv: 1, ns: m.ns } : {}) } : {};
   const next = { ...prev, ...snap, ...data };
+  // When it first went on your lists. Lists sort by this as a tie-breaker, so rating it or logging a Halloween
+  // watch later doesn't make it jump to the top.
+  if (!next.added) next.added = prev.at || Date.now();
   delete next.at;
   S.mine.set(String(id), { ...next, at: Date.now() });
   await store.setMovie(id, next);
