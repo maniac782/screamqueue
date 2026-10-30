@@ -955,7 +955,11 @@ views.tonight = () => {
     return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31 days${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
   ${S.user && inSeason() ? (() => { const n = seasonList(S.mine, hsYear()).length; return `<a class="ch-strip hs-strip" href="#/season" data-key="season">${icon('pumpkin')}<span><b>Your Halloween ${hsYear()}</b> ${n ? `${n} movie${n === 1 ? '' : 's'} this season` : 'log what you watch this season'}</span>${icon('right')}</a>`; })() : ''}
-  ${featured.length > 1 ? shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '') : ''}
+  ${featured.length > 1 ? (() => { // the row skips the first one (it's the big movie up top); See all lists every featured movie
+    const html = shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '');
+    if (S.shelves?.featured) S.shelves.featured.list = featured;
+    return html;
+  })() : ''}
   ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '') : ''}
   ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
   ${vsTonightHTML()}
