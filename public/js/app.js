@@ -902,6 +902,53 @@ function friendPicks() {
     .map((x) => ({ m: x.m, sub: x.who.length === 1 ? `${x.who[0].name} gave it ${fmtRating(x.who[0].r)}` : `${x.who.length} friends loved it` }));
 }
 
+// The big movie at the top. With several featured movies it becomes a carousel that rotates every 10 seconds
+// (dots to jump, swipe on phones, pauses while hovered or while a card is open).
+let heroIdx = 0, heroLast = Date.now();
+function heroSlide(m, isFeat, on) {
+  return `<div class="hero-slide${on ? ' on' : ''}" ${on ? '' : 'aria-hidden="true"'}>
+    ${wideArt(m)}<div class="shade"></div>
+    <div class="hero-body">
+      <span class="eyebrow">${icon(isFeat ? 'star' : 'flame')}${isFeat ? 'Featured tonight' : esc(trendLine(m).b)}</span>
+      <h1>${esc(m.t)}</h1>
+      <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}${tomBadge(m)}<span>${esc(servicesText(m))}</span></div>
+      ${m.ov ? `<p class="ov">${esc(m.ov)}</p>` : ''}
+      <div class="row"><button class="btn primary" data-act="open" data-id="${m.id}">${icon('play')}See details</button>${queueBtn(m, 'glass')}${m.yt ? trailerBtn(m, 'glass') : ''}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
+    </div>
+  </div>`;
+}
+function heroHTML(list, isFeat) {
+  if (list.length < 2) return `<section class="hero" data-key="hero">${heroSlide(list[0], isFeat, true)}</section>`;
+  if (heroIdx >= list.length) heroIdx = 0;
+  if (!document.querySelector('.hero-rot')) heroLast = Date.now(); // a fresh visit gets the full 10 seconds
+  return `<section class="hero hero-rot" data-key="hero-rot" aria-roledescription="carousel" aria-label="Featured movies">
+    ${list.map((m, i) => heroSlide(m, isFeat, i === heroIdx)).join('')}
+    <div class="hero-dots">${list.map((m, i) => `<button class="hero-dot${i === heroIdx ? ' on' : ''}" data-act="herogo" data-i="${i}" aria-label="Show ${esc(m.t)}"></button>`).join('')}</div>
+  </section>`;
+}
+function heroGo(i) {
+  const h = document.querySelector('.hero-rot'); if (!h) return;
+  const slides = h.querySelectorAll('.hero-slide'), dots = h.querySelectorAll('.hero-dot'); const n = slides.length;
+  heroIdx = ((i % n) + n) % n; heroLast = Date.now();
+  slides.forEach((el, k) => { el.classList.toggle('on', k === heroIdx); if (k === heroIdx) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', 'true'); });
+  dots.forEach((el, k) => el.classList.toggle('on', k === heroIdx));
+}
+setInterval(() => {
+  const h = document.querySelector('.hero-rot');
+  if (!h || document.hidden || h.matches(':hover') || h.contains(document.activeElement) || $('#detail')?.open) return;
+  if (Date.now() - heroLast < 9500) return;
+  heroGo(heroIdx + 1);
+}, 1000);
+{ let sx = 0, sy = 0, on = false;
+  document.addEventListener('touchstart', (e) => { on = !!e.target.closest?.('.hero-rot'); if (on) { sx = e.touches[0].clientX; sy = e.touches[0].clientY; heroLast = Date.now(); } }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    if (!on) return; on = false;
+    const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+    if (Math.abs(dx) > 45 && Math.abs(dx) > Math.abs(dy) * 1.5) heroGo(heroIdx + (dx < 0 ? 1 : -1));
+    else heroLast = Date.now();
+  }, { passive: true });
+}
+
 views.tonight = () => {
   shelfN = 0; S.shelves = {};
   if (S.user && S.friends?.length && !S.friendMovies) loadFriendMovies();
@@ -937,16 +984,7 @@ views.tonight = () => {
     <label class="search qs-box"><span class="sr">Search horror movies</span>${icon('search')}<input type="search" id="qs" placeholder="Search horror movies, series, directors or a subgenre" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="qs-list"></label>
     <div class="qs-list" id="qs-list" role="listbox" hidden></div>
   </div>
-  ${top ? `<section class="hero">
-    ${wideArt(top)}<div class="shade"></div>
-    <div class="hero-body">
-      <span class="eyebrow">${icon(featured[0] ? 'star' : 'flame')}${featured[0] ? 'Featured tonight' : esc(trendLine(top).b)}</span>
-      <h1>${esc(top.t)}</h1>
-      <div class="facts">${[top.y, top.rt && `${top.rt} min`, top.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(top) ? `<span class="star">${rating(top)}</span>` : ''}${tomBadge(top)}<span>${esc(servicesText(top))}</span></div>
-      ${top.ov ? `<p class="ov">${esc(top.ov)}</p>` : ''}
-      <div class="row"><button class="btn primary" data-act="open" data-id="${top.id}">${icon('play')}See details</button>${queueBtn(top, 'glass')}${top.yt ? trailerBtn(top, 'glass') : ''}<a class="btn glass m-hide" href="#/pick">${icon('dice')}Pick for Me</a></div>
-    </div>
-  </section>` : ''}
+  ${top ? heroHTML(featured.length > 1 ? featured : [top], !!featured[0]) : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
   ${(() => {
     const t = today(); const mo = t.slice(5, 7), d = Number(t.slice(8, 10));
@@ -955,11 +993,6 @@ views.tonight = () => {
     return `<a class="ch-strip" href="#/challenge" data-key="challenge">${icon('trophy')}<span><b>31 Days of Horror</b> ${mo === '10' ? `${C.n} of 31 days${C.n >= 31 ? '. Done!' : C.n >= d ? ', on pace' : `, ${d - C.n} behind`}` : 'starts October 1'}</span><span class="ch-mini">${prog(C.n, 31)}</span>${icon('right')}</a>`;
   })()}
   ${S.user && inSeason() ? (() => { const n = seasonList(S.mine, hsYear()).length; return `<a class="ch-strip hs-strip" href="#/season" data-key="season">${icon('pumpkin')}<span><b>Your Halloween ${hsYear()}</b> ${n ? `${n} movie${n === 1 ? '' : 's'} this season` : 'log what you watch this season'}</span>${icon('right')}</a>`; })() : ''}
-  ${featured.length > 1 ? (() => { // the row skips the first one (it's the big movie up top); See all lists every featured movie
-    const html = shelf('Featured', 'Hand-picked for the site.', featured.slice(1), '');
-    if (S.shelves?.featured) S.shelves.featured.list = featured;
-    return html;
-  })() : ''}
   ${spooky.length >= 6 ? shelf('Halloween classics', 'October favorites, from family-friendly fun to the movies that made the holiday scary.', spooky, '') : ''}
   ${newOnStreaming.length ? shelf('From your queue, now streaming', `Just arrived on ${S.profile.services.length ? 'your services' : 'a streaming service'} in the last few weeks.`, newOnStreaming.map((x) => x.m), '', '', (m) => newOnStreaming.find((x) => x.m.id === m.id)?.sub) : ''}
   ${vsTonightHTML()}
@@ -1700,7 +1733,7 @@ views.admin = async () => {
     </div>
   </div>
   <div class="stack">
-    <div class="panel stack"><h2>Featured</h2><p class="muted" style="margin:0;font-size:.88rem">The first one is the big movie at the top of Tonight; the rest get their own shelf. Set an end date if you like; leave it blank to keep it featured. Changes save right away.</p><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
+    <div class="panel stack"><h2>Featured</h2><p class="muted" style="margin:0;font-size:.88rem">They take turns as the big movie at the top of Tonight, rotating every 10 seconds, in this order. Set an end date if you like; leave it blank to keep it featured. Changes save right away.</p><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
       <label class="search"><span class="sr">Search a title to feature</span>${icon('search')}<input type="search" id="adm-feat-search" placeholder="Search to feature"></label><div id="adm-feat-results" class="list"></div></div>
     <div class="panel stack"><h2>Add a movie</h2>
       <p class="muted" style="margin:0;font-size:.9rem">For movies TMDB doesn't call horror that you still want here. Halloween favorites like Hocus Pocus are added automatically. Find the movie on <a href="https://www.themoviedb.org" target="_blank" rel="noopener">themoviedb.org</a> and paste its link (or its number).</p>
@@ -3246,6 +3279,7 @@ async function patchConfig(fn, msg = 'Saved for everyone') {
 }
 
 const actions = {
+  herogo: (el) => heroGo(Number(el.dataset.i)),
   opensib(el) { openDetail(el.dataset.id); const sh = $('#detail .sheet'); if (sh) sh.scrollTo({ top: 0, behavior: canFx() ? 'smooth' : 'auto' }); },
   open: (el) => { const b = $('#qs-list'); if (b) b.hidden = true; openDetail(el.dataset.id); },
   close: () => $('#detail').close(),

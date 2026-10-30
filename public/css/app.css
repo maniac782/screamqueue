@@ -1847,3 +1847,16 @@ a.stat.link b { color: var(--pumpkin); }
 .feat-until input[type="date"] { min-height: 30px; padding: 2px 8px; font-size: .8rem; width: auto; }
 .list-item.expired > span:first-of-type, .list-item.expired .thumb { opacity: .55; }
 .feat-until b { color: var(--accent); }
+
+/* ---------- hero carousel (several featured movies) ---------- */
+.hero-slide { grid-area: 1 / 1; position: relative; display: grid; align-items: end; isolation: isolate; min-height: inherit; }
+.hero-rot { touch-action: pan-y; }
+.hero-rot .hero-slide { opacity: 0; visibility: hidden; transition: opacity .9s var(--ease), visibility 0s linear .9s; }
+.hero-rot .hero-slide.on { opacity: 1; visibility: visible; transition: opacity .9s var(--ease), visibility 0s; z-index: 1; }
+.hero-rot .hero-slide:not(.on) .art, .hero-rot .hero-slide:not(.on) .hero-body > * { animation: none !important; }
+.hero-rot .hero-body { padding-bottom: clamp(40px, 5vw, 60px); }
+.hero-dots { position: absolute; z-index: 2; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; gap: 4px; }
+.hero-dot { width: 26px; height: 26px; border: 0; padding: 0; background: none; cursor: pointer; display: grid; place-items: center; }
+.hero-dot::before { content: ''; width: 8px; height: 8px; border-radius: 99px; background: rgba(255,255,255,.4); transition: width .3s var(--ease), background .3s; }
+.hero-dot.on::before { width: 22px; background: #fff; }
+.hero-dot:focus-visible { outline: 2px solid #fff; outline-offset: -4px; border-radius: 99px; }
