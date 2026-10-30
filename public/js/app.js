@@ -1085,9 +1085,9 @@ views.ranks = async (tab) => {
 views.season = async (arg) => {
   const y = lastSeasonYear(), now = inSeason() && y === hsYear();
   let mine = !arg, who = null, mv = null, priv = false;
-  if (arg && !S.user) return signInPrompt(`Sign in to see this Halloween ${y} list. It's free, and you can start your own.`);
   if (arg) {
     const pc = await store.getProfileCard?.(decodeURIComponent(arg)).catch(() => null);
+    if (!pc && !S.user) return signInPrompt(`This Halloween ${y} list is only shown to signed-in members. Sign in to see it.`);
     if (!pc) return `<div class="empty">${icon('search')}<span>That profile wasn't found.</span></div>`;
     if (pc.uid === S.user?.uid) mine = true;
     else { who = pc; try { mv = await store.moviesOf(pc.uid); } catch { priv = true; } }
@@ -1112,7 +1112,8 @@ views.season = async (arg) => {
       ? rows.map(({ f, n }) => `<a class="person-row link" href="#/season/${esc(f.handle || f.uid)}">${av(f.name, '', f.uid)}<div class="pr-name"><b>${esc(f.name || 'Friend')}</b><small>${n} movie${n === 1 ? '' : 's'}</small></div>${icon('right')}</a>`).join('')
       : '<p class="muted">None of your friends have logged a movie this season yet.</p>'}</section>`;
   }
-  return `${head}<div class="hs-top">${stat}${share}</div>${tip}${grid}${friends}`;
+  const join = S.user ? '' : `<div class="intro"><p class="muted">Keep your own Halloween list, track your Body Count and find what to watch next. It's free.</p><a class="btn small primary" href="#/signin" data-act="gosignin">${icon('pumpkin')}Start your Halloween ${y}</a></div>`;
+  return `${head}<div class="hs-top">${stat}${share}</div>${tip}${grid}${join}${friends}`;
 };
 
 // Browse
@@ -2845,21 +2846,22 @@ async function renderFriendSearch() {
 
 // Someone's page: their Body Count, ratings, reviews and queue (if their privacy setting lets you), plus a comparison with yours
 views.u = async (key) => {
-  if (!S.user) return signInPrompt('Sign in to see people\'s Body Counts and add friends.');
+  // Public profiles open for anyone with the link; everything else needs an account.
   key = decodeURIComponent(key || '');
-  if (!S.social) await loadSocial();
+  if (S.user && !S.social) await loadSocial();
   const pc = await store.getProfileCard(key).catch(() => null);
+  if (!pc && !S.user) return signInPrompt('This profile is only shown to signed-in members. Sign in to see it.');
   if (!pc) return `<div class="empty">${icon('users')}<span>We couldn't find that person. Their username may have changed.</span></div>`;
-  const isMe = pc.uid === S.user.uid;
-  const state = isMe ? 'me' : stateFor(pc.uid);
+  const isMe = !!S.user && pc.uid === S.user.uid;
+  const state = isMe ? 'me' : S.user ? stateFor(pc.uid) : 'none';
   let movies = null;
   try { movies = isMe ? S.mine : await store.moviesOf(pc.uid); } catch { movies = null; }
   const priv = pc.privacy?.profile || 'friends';
-  const head = `<div class="profile-head">${pc.uid === S.user.uid ? renderAvatar(pc.name, myCard(), 'xl') : renderAvatar(pc.name, pc, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
-    <div class="row" style="gap:8px">${isMe ? `<a class="btn small" href="#/profile">${icon('gear')}Edit profile &amp; privacy</a>` : friendBtn(pc.uid, state)}</div></div></div>`;
+  const head = `<div class="profile-head">${isMe ? renderAvatar(pc.name, myCard(), 'xl') : renderAvatar(pc.name, pc, 'xl')}<div class="stack" style="gap:6px;min-width:0"><h1>${esc(pc.name || 'Horror fan')}</h1><p class="muted">${esc(handleOf(pc))}${handleOf(pc) ? ' · ' : ''}${isMe ? `This is how others see you (${esc(PRIVACY[priv].toLowerCase())})` : { public: 'Public profile', friends: 'Friends-only profile', private: 'Private profile' }[priv]}</p>
+    <div class="row" style="gap:8px">${isMe ? `<a class="btn small" href="#/profile">${icon('gear')}Edit profile &amp; privacy</a>` : S.user ? friendBtn(pc.uid, state) : `<a class="btn small primary" href="#/signin" data-act="gosignin">${icon('users')}Join to add ${esc(pc.name || 'them')} as a friend</a>`}</div></div></div>`;
   const theirLists = isMe ? (await store.myLists().catch(() => [])).filter((l) => l.vis !== 'private') : await store.listsOf(pc.uid).catch(() => []);
   const listsSec = theirLists.filter((l) => (l.items || []).length).length ? `<section class="stack" style="gap:10px"><h2>${isMe ? 'Your lists' : 'Lists'}</h2><div class="lc-grid">${theirLists.filter((l) => (l.items || []).length).map(listCard).join('')}</div></section>` : '';
-  if (!movies) return `${head}${listsSec}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
+  if (!movies) return `${head}${listsSec}<div class="empty">${icon('shield')}<span>${priv === 'private' ? `${esc(pc.name || 'This person')} keeps their Body Count private.` : `${esc(pc.name || 'This person')} shares their Body Count with friends only.${!S.user ? ' Sign in and send a friend request to see it.' : state === 'none' ? ' Send a friend request to see it.' : ''}`}</span></div>`;
   const list = [...movies.entries()].map(([id, st]) => ({ id, st, m: S.byId.get(String(id)) }));
   const seen = list.filter((x) => x.st.status === 'seen' || x.st.wasSeen).sort((a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || b.st.at - a.st.at);
   const queue = list.filter((x) => x.st.status === 'queue' && x.m).sort((a, b) => b.st.at - a.st.at);
@@ -2876,17 +2878,17 @@ views.u = async (key) => {
   const ratedCard = (x) => x.m ? card(x.m, { plain: !isMe, you: youOf(x.id), sub: x.st.rating ? `${isMe ? '' : 'Their rating: '}${fmtRating(x.st.rating)} skulls` : undefined }) : ''; // unrated: the usual subgenre line
   const uf = isMe ? 'all' : (S.uFilter || 'all');
   const seenShown = uf === 'both' ? seen.filter((x) => youOf(x.id)) : uf === 'them' ? seen.filter((x) => !youOf(x.id)) : seen;
-  const filterBar = !isMe && seen.length ? `<div class="tabs u-filter" role="tablist">${[['all', `All (${seen.length})`], ['both', `You've both seen (${both.length})`], ['them', `Only them (${seen.length - both.length})`]].map(([k, l]) => `<button role="tab" data-act="ufilter" data-k="${k}" aria-selected="${uf === k}">${l}</button>`).join('')}</div>` : '';
+  const filterBar = !isMe && S.user && seen.length ? `<div class="tabs u-filter" role="tablist">${[['all', `All (${seen.length})`], ['both', `You've both seen (${both.length})`], ['them', `Only them (${seen.length - both.length})`]].map(([k, l]) => `<button role="tab" data-act="ufilter" data-k="${k}" aria-selected="${uf === k}">${l}</button>`).join('')}</div>` : '';
   return `${head}
     <div class="stat-row">
       <div class="stat"><b>${movies ? bodyCountOf(movies).n : seen.length}</b><span>Body Count</span></div>
       ${movies && seasonList(movies, lastSeasonYear()).length ? `<a class="stat link" href="#/season/${esc(pc.handle || pc.uid)}"><b>${seasonList(movies, lastSeasonYear()).length}</b><span>Halloween ${lastSeasonYear()}</span></a>` : ''}
       <div class="stat"><b>${avg}</b><span>Average rating</span></div>
       <div class="stat"><b>${queue.length}</b><span>In their queue</span></div>
-      ${isMe ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
+      ${isMe || !S.user ? '' : `<div class="stat"><b>${both.length}</b><span>You've both seen</span></div>`}
     </div>
     ${listsSec}
-    ${!isMe && (loved.length || diffs.length) ? `<section class="panel stack" style="gap:14px">
+    ${!isMe && S.user && (loved.length || diffs.length) ? `<section class="panel stack" style="gap:14px">
       <h2>You vs. ${esc(pc.name || 'them')}</h2>
       ${diffs.length ? `<div class="stack" style="gap:6px">${diffs.slice(0, 5).map((x) => `<div class="cmp-row"><button class="linkish" data-act="open" data-id="${x.id}">${esc(x.m?.t || x.st.title || 'Movie')}</button><span>You ${skullRow(x.mine)}</span><span>${esc(pc.name || 'Them')} ${skullRow(x.st.rating)}</span></div>`).join('')}</div>` : ''}
       ${loved.length ? `<h3>They loved it, you haven't seen it</h3><div class="grid">${loved.slice(0, 12).map(ratedCard).join('')}</div>` : ''}

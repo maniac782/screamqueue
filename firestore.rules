@@ -7,12 +7,13 @@ service cloud.firestore {
     function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(me())); }
     function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
     function isFriend(uid) { return signedIn() && exists(/databases/$(database)/documents/friends/$(uid)/list/$(me())); }
-    // Can the signed-in person see this user's Body Count, ratings and queue? (their profile privacy setting)
+    // Can this visitor see this user's Body Count, ratings and queue? (their profile privacy setting)
+    // Public profiles are open to anyone with the link, signed in or not.
     function canView(uid) {
-      return signedIn() && (uid == me() || isAdmin() || (
+      return (signedIn() && (uid == me() || isAdmin())) || (
         exists(/databases/$(database)/documents/profiles/$(uid)) && (
           get(/databases/$(database)/documents/profiles/$(uid)).data.privacy.profile == 'public'
-          || (get(/databases/$(database)/documents/profiles/$(uid)).data.privacy.profile == 'friends' && isFriend(uid)))));
+          || (get(/databases/$(database)/documents/profiles/$(uid)).data.privacy.profile == 'friends' && isFriend(uid))));
     }
 
     // Site settings: featured / hidden movies, subgenre fixes, poster toggle, announcement.
@@ -69,9 +70,10 @@ service cloud.firestore {
       }
     }
 
-    // Public profile card: name, @handle and privacy settings. Signed-in people can look each other up.
+    // Public profile card: name, @handle and privacy settings. Signed-in people can look each other up;
+    // anyone can open a public one from a shared link.
     match /profiles/{uid} {
-      allow read: if signedIn();
+      allow read: if signedIn() || resource.data.privacy.profile == 'public';
       allow write: if signedIn() && uid == me()
         && request.resource.data.keys().hasOnly(['name', 'nameLower', 'handle', 'privacy', 'at', 'av', 'photo', 'bc'])
         && (!('bc' in request.resource.data) || (request.resource.data.bc is int && request.resource.data.bc >= 0 && request.resource.data.bc <= 20000 && request.resource.data.privacy.profile == 'public'))
@@ -85,7 +87,8 @@ service cloud.firestore {
     }
     // Unique @usernames: lowercase letters, numbers and _, 3 to 20 long.
     match /usernames/{handle} {
-      allow read: if signedIn();
+      allow get: if true; // turns a shared @username link into an account id; the profile rules decide what shows
+      allow list: if signedIn();
       allow create: if signedIn() && handle.matches('^[a-z0-9_]{3,20}$') && request.resource.data.keys().hasOnly(['uid']) && request.resource.data.uid == me();
       allow delete: if signedIn() && resource.data.uid == me();
     }
