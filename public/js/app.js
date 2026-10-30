@@ -42,6 +42,8 @@ const inSeason = () => ['09', '10'].includes(today().slice(5, 7));
 const lastSeasonYear = () => (today().slice(5, 7) < '09' ? hsYear() - 1 : hsYear());
 const hsOn = (st, y = hsYear()) => st?.hs?.[y] || null;
 const mdDate = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+// Your latest watch of a movie: a rewatch or a Halloween-season watch counts, the first watch date stays as it was.
+const lastWatched = (st) => [st?.lw, st?.seenOn, ...Object.values(st?.hs || {})].filter(Boolean).sort().pop() || '';
 const hsAdd = (st) => (inSeason() ? { hs: { ...(st?.hs || {}), [hsYear()]: today() } } : {});
 function seasonList(mv, y) {
   return [...mv.entries()].filter(([, st]) => st?.hs?.[y]).map(([id, st]) => ({ id, st, m: S.byId.get(String(id)), on: st.hs[y] }))
@@ -119,7 +121,7 @@ function toast(msg, ic = 'check', undo = null, alt = null) {
   setTimeout(() => t.remove(), undo || alt ? 6000 : 2600);
 }
 // "Seen before": the movie was watched some other time, so it gets no watch date (keeps it out of October and the year).
-const seenBefore = (id) => ({ label: 'Seen before', fn: async () => { const hs = { ...(status(id)?.hs || {}) }; delete hs[hsYear()]; await setStatus(id, { seenOn: '', hs }); // not watched now, so not this Halloween either
+const seenBefore = (id) => ({ label: 'Seen before', fn: async () => { const hs = { ...(status(id)?.hs || {}) }; delete hs[hsYear()]; const st0 = status(id); await setStatus(id, { seenOn: '', hs, ...(st0?.lw === today() ? { lw: '' } : {}) }); // not watched now, so not this Halloween either
  toast('Logged as seen before, with no watch date', 'clock'); refreshDetail(); } });
 // Put a movie back the way it was before a queue/seen tap.
 function undoTo(id, prev) {
@@ -1232,9 +1234,9 @@ views.pick = () => {
 // Sorting for both My Queue tabs (remembered per tab while you're on the site).
 const Q_SORTS = {
   queue: [['added', 'Recently added'], ['oldest', 'Added longest ago'], ['foryou', 'Best match for you'], ['mine', 'On my services first'], ['rated', 'Highest rated'], ['short', 'Shortest first'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
-  seen: [['recent', 'Most recent'], ['rating', 'Your highest rated'], ['low', 'Your lowest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
+  seen: [['watched', 'Recently watched'], ['recent', 'First seen, newest'], ['rating', 'Your highest rated'], ['low', 'Your lowest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
 };
-S.qSort = { queue: 'added', seen: 'recent' }; S.qSg = '';
+S.qSort = { queue: 'added', seen: 'watched' }; S.qSg = '';
 function sortQueue(rows, tab, k) {
   const t = (a, b) => a.m.t.localeCompare(b.m.t);
   const score = (m) => m.imdb?.r ?? m.va ?? 0;
@@ -1245,6 +1247,7 @@ function sortQueue(rows, tab, k) {
     rated: (a, b) => score(b.m) - score(a.m) || t(a, b),
     short: (a, b) => (a.m.rt || 999) - (b.m.rt || 999) || t(a, b),
     recent: (a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || (b.st.added || b.st.at) - (a.st.added || a.st.at),
+    watched: (a, b) => lastWatched(b.st).localeCompare(lastWatched(a.st)) || (b.st.added || b.st.at) - (a.st.added || a.st.at),
     rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || t(a, b),
     low: (a, b) => ((a.st.rating || 99) - (b.st.rating || 99)) || t(a, b),
     title: t,
@@ -2297,7 +2300,7 @@ function watchedCard(x) {
   return `<div class="card watched" data-id="${x.id}">
     <button class="card-open" ${x.m ? `data-act="open" data-id="${x.id}"` : ''} aria-label="${esc(name)}, seen">
     ${poster(m, { noBadges: true })}
-    <span class="meta"><span class="mt">${esc(x.t)}${x.y ? ` <span class="yr">(${x.y})</span>` : ''}</span><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'}${x.st.status === 'queue' ? '. Rewatch queued' : ''}${x.st.rv ? '. Reviewed' : ''}</span></span>
+    <span class="meta"><span class="mt">${esc(x.t)}${x.y ? ` <span class="yr">(${x.y})</span>` : ''}</span><span class="l1">${skullRow(x.st.rating)}</span><span class="l2">${(() => { const lw = lastWatched(x.st); return lw && lw !== x.on ? `Rewatched ${esc(shortDate(lw))}` : x.on ? `Watched ${esc(shortDate(x.on))}` : 'Before Scream Queue'; })()}${x.st.status === 'queue' ? '. Rewatch queued' : ''}${x.st.rv ? '. Reviewed' : ''}</span></span>
   </button>
     ${quickBar(m, name)}
   </div>`;
@@ -2306,10 +2309,11 @@ function renderBodyList() {
   const el = $('#bc-results'); if (!el) return;
   const q = (S.bcq || '').trim().toLowerCase();
   const sg = S.bcSg || '';
-  const sort = S.bcSort || 'recent';
+  const sort = S.bcSort || 'watched';
   let seen = seenList().filter((x) => (!q || has(x.t, q)) && (!sg || x.sg.includes(sg)));
   const by = {
     recent: (a, b) => (b.on || '').localeCompare(a.on || '') || (b.st.added || b.st.at || 0) - (a.st.added || a.st.at || 0),
+    watched: (a, b) => lastWatched(b.st).localeCompare(lastWatched(a.st)) || (b.st.added || b.st.at || 0) - (a.st.added || a.st.at || 0),
     rating: (a, b) => (b.st.rating || 0) - (a.st.rating || 0) || a.t.localeCompare(b.t),
     title: (a, b) => a.t.localeCompare(b.t),
     year: (a, b) => (b.y || 0) - (a.y || 0),
@@ -2325,9 +2329,9 @@ function renderBodyList() {
     if (notSeen.length) html += `<h3 class="muted">${seen.length ? 'Other matches you haven\'t seen' : 'Matches you haven\'t seen'}</h3><div class="list">${notSeen.map((m) => `<div class="list-item with-art">${thumb(m)}<div style="min-width:0"><button class="linkish" data-act="open" data-id="${m.id}">${esc(m.t)}</button> <span class="faint">${m.y ?? ''}</span><div class="muted" style="font-size:.85rem">${esc(S.tierLabel.get(m.tier))}</div></div><button class="btn small seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false">${icon('eye')}Mark as seen</button></div>`).join('')}</div>`;
   } else if (!seen.length) {
     html = `<div class="empty">${icon('skull')}<span>${sg ? 'Nothing seen in that subgenre yet.' : 'Nothing logged yet. Open any movie and press "Mark as seen", or check off the ones you\'ve already watched.'}</span><a class="btn small" href="#/checklist">Open the checklist</a></div>`;
-  } else if (sort === 'recent') {
+  } else if (sort === 'recent' || sort === 'watched') {
     const groups = new Map();
-    for (const x of seen) { const k = x.on ? x.on.slice(0, 7) : ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+    for (const x of seen) { const d = sort === 'watched' ? lastWatched(x.st) : x.on; const k = d ? d.slice(0, 7) : ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
     html = [...groups.entries()].map(([k, list]) => `<div class="stack" style="gap:14px"><h3>${esc(monthName(k))} <span class="faint">${list.length}</span></h3><div class="grid">${list.map(watchedCard).join('')}</div></div>`).join('');
   } else {
     html = `<div class="grid">${seen.map(watchedCard).join('')}</div>`;
@@ -2367,7 +2371,7 @@ views.bodycount = () => {
     <p class="muted" style="margin:0">Each season you finish adds 1 to your Body Count.</p>
     <div class="grid">${tvRows.map((x) => card(x.m, { sub: seriesProgress(x.m, x.st) })).join('')}</div>` : tab !== 'badges' ? `<div class="row bc-tools">
       ${tabs('watched')}
-      <select id="bc-sort" aria-label="Sort" style="width:auto">${[['recent', 'Most recent'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'recent') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="bc-sort" aria-label="Sort" style="width:auto">${[['watched', 'Recently watched'], ['recent', 'First seen, newest'], ['rating', 'Your highest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases']].map(([v, l]) => `<option value="${v}" ${(S.bcSort || 'watched') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
       <select id="bc-sg" aria-label="Subgenre" style="width:auto"><option value="">All subgenres</option>${sgs.map((x) => `<option value="${x.key}" ${S.bcSg === x.key ? 'selected' : ''}>${esc(x.label)} (${counts[x.key]})</option>`).join('')}</select>
     </div>
     <div id="bc-results" class="stack" style="gap:28px"></div>` : `<div class="row bc-tools">${tabs('badges')}</div>${badgesSection(seen, counts)}`}`;
@@ -3081,6 +3085,7 @@ function openDetail(id) {
     <div class="sheet-body">
       <div class="actions">${queueBtn(m, seen ? '' : 'primary')}${rewatch ? `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="false" title="Watched it again? Log the rewatch and take it off your queue">${icon('eye')}Log rewatch</button>` : `<button class="btn seen-btn" data-act="seen" data-id="${m.id}" aria-pressed="${seen}" title="${seen ? 'Click to unmark as seen' : 'Add to your Body Count'}">${icon(seen ? 'check' : 'eye')}${seen ? 'Seen' : 'Mark as seen'}</button>`}
         ${seasonBtn(m, st)}
+        ${!inSeason() && st?.status === 'seen' ? `<button class="btn ghost small" data-act="again" data-id="${m.id}" title="Log a rewatch">${icon('eye')}${st.lw && st.lw !== st.seenOn ? `Watched again · ${esc(mdDate(st.lw))}` : 'Watched it again'}</button>` : ''}
         ${seen ? `${skullPicker(m, st.rating || 0)}
         <label class="date">Watched <input type="date" id="seen-date" data-id="${m.id}" value="${esc(st.seenOn || '')}" max="${today()}"></label>` : ''}
         <button class="btn ghost small" data-act="shareitem" data-id="${m.id}">${icon('share')}Share</button>
@@ -3478,6 +3483,13 @@ const actions = {
   },
   rsclose() { closeRateSheet(); },
   qaclose(el) { const c = el.closest('.card'); c.classList.remove('rating', 'qa-on'); c.querySelector('.qa-rate').hidden = true; },
+  async again(el) { // a rewatch, straight from a seen movie (no need to queue it first)
+    if (!needUser()) return;
+    const id = el.dataset.id, st = status(id), prev = st ? { ...st } : null;
+    await setStatus(id, { status: 'seen', lw: today(), ...hsAdd(st) });
+    toast('Rewatch logged. It\'s at the top of Recently watched', 'eye', undoTo(id, prev));
+    await refreshAll();
+  },
   async hsshare() {
     const y = lastSeasonYear(), list = seasonList(S.mine, y);
     const url = `${location.origin}/#/season/${encodeURIComponent(S.social?.handle || S.user.uid)}`;
@@ -3496,7 +3508,7 @@ const actions = {
       const known = st?.status === 'seen' || !!st?.wasSeen;
       const r = rectOf(el);
       const base = st?.status === 'seen' ? {} : st?.status === 'queue' && st.wasSeen ? { status: 'seen' } : { status: 'seen', seenOn: today(), rating: st?.rating || 0 };
-      await setStatus(id, { ...base, hs: { ...(st?.hs || {}), [y]: today() } });
+      await setStatus(id, { ...base, lw: today(), hs: { ...(st?.hs || {}), [y]: today() } });
       burst(null, 'blood', r); if (!known) floatUp(r, `${icon('skull')}<b>+1</b>`);
       const n = seasonList(S.mine, y).length;
       toast(`${known ? 'Logged' : 'Body Count +1. Logged'} for Halloween ${y} (${n} so far)`, 'pumpkin', undoTo(id, prev));
@@ -3583,7 +3595,7 @@ const actions = {
       return;
     }
     if (st?.status === 'queue' && st.wasSeen) { // watched the queued rewatch: back to Body Count with a fresh watch date, rating kept
-      await setStatus(el.dataset.id, { status: 'seen', seenOn: today(), ...hsAdd(st) });
+      await setStatus(el.dataset.id, { status: 'seen', lw: today(), ...(st?.seenOn ? {} : { seenOn: today() }), ...hsAdd(st) });
       toast('Rewatch logged and taken off your queue', 'skull', undoTo(el.dataset.id, prev));
       await sendOff(el.dataset.id, 'seen');
       await refreshAll();
@@ -3591,7 +3603,7 @@ const actions = {
     }
     const r = rectOf(el);
     markJust(el.dataset.id);
-    await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today(), ...hsAdd(st) });
+    await setStatus(el.dataset.id, { status: 'seen', rating: st?.rating || 0, seenOn: today(), lw: today(), ...hsAdd(st) });
     const leaving = await willVanish(el.dataset.id);
     burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull');
     toast('Body Count +1. Rate it with the skulls', 'skull', undoTo(el.dataset.id, prev), seenBefore(el.dataset.id));
@@ -3614,7 +3626,7 @@ const actions = {
     // Rating a movie you haven't marked seen counts as seeing it: same stamp, splatter and +1 as the Seen button.
     const r = !already ? rectOf(el.closest('.card') || el.closest('.skulls') || el) : null;
     if (!already) markJust(el.dataset.id);
-    await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today(), ...hsAdd(st) });
+    await setStatus(el.dataset.id, already ? { rating: k } : { status: 'seen', rating: k, seenOn: today(), lw: today(), ...hsAdd(st) });
     const leaving = !already && await willVanish(el.dataset.id);
     if (!already) { burst(null, 'blood', r); floatUp(r, `${icon('skull')}<b>+1</b>`); if (!leaving) flyTo(r, COUNT_TARGETS, 'skull'); }
     if (el.closest('.rate-sheet')) closeRateSheet();
