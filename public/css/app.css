@@ -1842,3 +1842,8 @@ html.no-blur .acct-menu, html.no-blur .qs-list { background: var(--surface) !imp
 .ch-strip.hs-strip > .ic:first-child { color: var(--pumpkin); }
 a.stat.link { text-decoration: none; color: inherit; }
 a.stat.link b { color: var(--pumpkin); }
+/* Admin: featured end dates */
+.feat-until { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; font-size: .78rem; color: var(--faint); }
+.feat-until input[type="date"] { min-height: 30px; padding: 2px 8px; font-size: .8rem; width: auto; }
+.list-item.expired > span:first-of-type, .list-item.expired .thumb { opacity: .55; }
+.feat-until b { color: var(--accent); }

@@ -912,7 +912,7 @@ views.tonight = () => {
   const newOnStreaming = S.user ? queueNowStreaming() : [];
   const spooky = halloweenShelf();
   const pool = S.movies.filter((m) => !isSeen(m) && !isNope(m));
-  const featured = (S.config.featured || []).map((id) => S.byId.get(String(id))).filter(Boolean);
+  const featured = (S.config.featured || []).filter((id) => !featExpired(id)).map((id) => S.byId.get(String(id))).filter(Boolean);
   const mineFirst = (list) => (S.profile.services.length ? list.filter(onMine) : list);
   const hot = pool.filter((m) => m.flags.includes('hot') || m.buzz >= 70).sort((a, b) => b.buzz - a.buzz);
   const crowd = mineFirst(pool.filter((m) => m.tier === 'favorite' || m.tier === 'known')).sort((a, b) => b.buzz + b.reach - a.buzz - a.reach);
@@ -1671,7 +1671,10 @@ views.admin = async () => {
   const stats = { users: users ? users.length : '—' };
   const c = S.config;
   const d = S.data;
-  const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => `<div class="list-item"><span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span></span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`).join('') || '<p class="muted">None.</p>';
+  const listOf = (ids, act) => ids.map((id) => S.byId.get(String(id))).filter(Boolean).map((m) => {
+    const until = act === 'unfeature' ? (c.featUntil?.[m.id] || '') : null, gone = until && until < today();
+    return `<div class="list-item with-art${gone ? ' expired' : ''}">${thumb(m)}<span>${esc(m.t)} <span class="faint">${m.y ?? ''}</span>${until != null ? `<label class="feat-until">${gone ? '<b>Expired</b>' : 'Until'} <input type="date" data-feat-until="${m.id}" value="${esc(until)}" min="${today()}" aria-label="Featured until"></label>` : ''}</span><button class="btn small ghost" data-act="${act}" data-id="${m.id}">Remove</button></div>`;
+  }).join('') || '<p class="muted">None.</p>';
   const fix = S.adminFix && S.byId.get(String(S.adminFix));
   return `${head}<p class="muted" style="margin:0 0 16px">Site-wide settings. Changes apply for everyone after you press Save.</p>
   <div class="two-col">
@@ -1693,7 +1696,7 @@ views.admin = async () => {
     </div>
   </div>
   <div class="stack">
-    <div class="panel stack"><h2>Featured</h2><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
+    <div class="panel stack"><h2>Featured</h2><p class="muted" style="margin:0;font-size:.88rem">The first one is the big movie at the top of Tonight; the rest get their own shelf. Set an end date if you like; leave it blank to keep it featured. Changes save right away.</p><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
       <label class="search"><span class="sr">Search a title to feature</span>${icon('search')}<input type="search" id="adm-feat-search" placeholder="Search to feature"></label><div id="adm-feat-results" class="list"></div></div>
     <div class="panel stack"><h2>Add a movie</h2>
       <p class="muted" style="margin:0;font-size:.9rem">For movies TMDB doesn't call horror that you still want here. Halloween favorites like Hocus Pocus are added automatically. Find the movie on <a href="https://www.themoviedb.org" target="_blank" rel="noopener">themoviedb.org</a> and paste its link (or its number).</p>
@@ -1705,6 +1708,8 @@ views.admin = async () => {
     <button class="btn primary" data-act="savecfg">Save admin changes</button>
   </div></div>`;
 };
+// Featured movies can have an end date (config.featUntil: { id: 'YYYY-MM-DD' }); after it they stop showing on the site.
+const featExpired = (id) => { const u = S.config.featUntil?.[id]; return !!u && u < today(); };
 const DAY = 86400000;
 S.adm = { tab: 'users', q: '', sort: 'new', data: null };
 try { S.adm.sort = localStorage.getItem('sq-adm-sort') || 'new'; } catch { /* ignore */ }
@@ -3228,7 +3233,13 @@ async function setStatus(id, data) {
   await store.setMovie(id, next);
 }
 
-async function patchConfig(fn) { fn(S.config); applyConfig(); await route(true); }
+// Admin list changes (featured, hidden, subgenre fixes) save for everyone right away; there's no Save to forget.
+async function patchConfig(fn, msg = 'Saved for everyone') {
+  fn(S.config); applyConfig();
+  try { await store.saveConfig({ ...S.config }); try { localStorage.setItem('sq-config', JSON.stringify(S.config)); } catch { /* ignore */ } toast(msg, 'check'); }
+  catch (e) { console.warn(e); toast('That didn\'t save. Try again.', 'x'); }
+  await route(true, true);
+}
 
 const actions = {
   opensib(el) { openDetail(el.dataset.id); const sh = $('#detail .sheet'); if (sh) sh.scrollTo({ top: 0, behavior: canFx() ? 'smooth' : 'auto' }); },
@@ -3732,8 +3743,8 @@ const actions = {
     if (!email) return authError({ message: 'Type your email above, then press Forgot password.' });
     try { await store.resetPassword(email); const m = $('#auth-msg'); m.hidden = false; m.className = 'ok'; m.textContent = 'Check your email for a reset link.'; } catch (e) { authError(e); }
   },
-  feature(el) { patchConfig((c) => { c.featured = [...new Set([...(c.featured || []), Number(el.dataset.id)])]; }); },
-  unfeature(el) { patchConfig((c) => { c.featured = (c.featured || []).filter((x) => String(x) !== el.dataset.id); }); },
+  feature(el) { patchConfig((c) => { c.featured = [...new Set([...(c.featured || []), Number(el.dataset.id)])]; }, 'Featured. It\'s live for everyone'); },
+  unfeature(el) { patchConfig((c) => { c.featured = (c.featured || []).filter((x) => String(x) !== el.dataset.id); const u = { ...(c.featUntil || {}) }; delete u[el.dataset.id]; c.featUntil = u; }, 'Removed from featured'); },
   async addextra() {
     const v = $('#adm-extra')?.value.trim() || '';
     const id = Number((v.match(/themoviedb\.org\/movie\/(\d+)/) || v.match(/^(\d+)$/) || [])[1]);
@@ -3759,7 +3770,8 @@ const actions = {
     S.config.showPosters = $('#adm-posters').checked;
     S.config.emailOn = $('#adm-email').checked;
     S.config.announcement = $('#adm-announce').value.trim();
-    await store.saveConfig({ ...S.config }); toast('Saved for everyone'); renderChrome(); route(true);
+    await store.saveConfig({ ...S.config }); try { localStorage.setItem('sq-config', JSON.stringify(S.config)); } catch { /* ignore */ }
+    toast('Saved for everyone'); renderChrome(); route(true);
   },
 };
 function toggle(set, k) { set.has(k) ? set.delete(k) : set.add(k); }
@@ -4250,6 +4262,7 @@ document.addEventListener('focusout', (e) => { const g = e.target.closest?.('.sk
 
 document.addEventListener('toggle', (e) => { if (e.target.matches?.('details.more')) S.svcMore = e.target.open; }, true);
 document.addEventListener('change', async (e) => {
+  if (e.target.dataset?.featUntil) { const id = e.target.dataset.featUntil, v = e.target.value; patchConfig((c) => { const u = { ...(c.featUntil || {}) }; if (v) u[id] = v; else delete u[id]; c.featUntil = u; }, v ? `Featured until ${mdDate(v)}` : 'Featured with no end date'); return; }
   if (e.target.id === 'seen-date') { await setStatus(e.target.dataset.id, { seenOn: e.target.value }); toast('Watch date saved', 'clock'); }
 });
 
