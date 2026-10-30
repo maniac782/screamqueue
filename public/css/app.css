@@ -1851,9 +1851,18 @@ a.stat.link b { color: var(--pumpkin); }
 /* ---------- hero carousel (several featured movies) ---------- */
 .hero-slide { grid-area: 1 / 1; position: relative; display: grid; align-items: end; isolation: isolate; min-height: inherit; }
 .hero-rot { touch-action: pan-y; }
-.hero-rot .hero-slide { opacity: 0; visibility: hidden; transition: opacity .9s var(--ease), visibility 0s linear .9s; }
-.hero-rot .hero-slide.on { opacity: 1; visibility: visible; transition: opacity .9s var(--ease), visibility 0s; z-index: 1; }
-.hero-rot .hero-slide:not(.on) .art, .hero-rot .hero-slide:not(.on) .hero-body > * { animation: none !important; }
+/* the new card fades in slowly on top; the old one stays put underneath until it's covered, so there's no dark dip */
+.hero-rot .hero-slide { opacity: 0; visibility: hidden; z-index: 0; transition: opacity 0s linear 2.2s, visibility 0s linear 2.2s; }
+.hero-rot .hero-slide.on { opacity: 1; visibility: visible; z-index: 1; transition: opacity 2s cubic-bezier(.45, 0, .25, 1); }
+/* text: the old words fade out first, the new ones drift in after, so they never overlap */
+.hero-rot .hero-body { transition: opacity .5s ease, transform .5s ease; }
+.hero-rot .hero-slide:not(.on) .hero-body { opacity: 0; transform: translateY(6px); }
+.hero-rot .hero-slide.on .hero-body { transition: opacity 1.2s ease .9s, transform 1.4s cubic-bezier(.2, .7, .2, 1) .9s; }
+.hero-rot .hero-slide .art, .hero-rot .hero-slide .hero-body > * { animation: none !important; }
+@media (prefers-reduced-motion: no-preference) {
+  .hero-rot .hero-slide.on .art { animation: heroDrift 12s linear both !important; }
+}
+@keyframes heroDrift { from { transform: scale(1.07); } to { transform: scale(1); } }
 .hero-rot .hero-body { padding-bottom: clamp(40px, 5vw, 60px); }
 .hero-dots { position: absolute; z-index: 2; left: 0; right: 0; bottom: 14px; display: flex; justify-content: center; gap: 4px; }
 .hero-dot { width: 26px; height: 26px; border: 0; padding: 0; background: none; cursor: pointer; display: grid; place-items: center; }
