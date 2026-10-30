@@ -15,6 +15,41 @@
         }
       },
       {
+        "source": "/v/**",
+        "function": {
+          "functionId": "share",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/n/**",
+        "function": {
+          "functionId": "share",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/l/**",
+        "function": {
+          "functionId": "share",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/u/**",
+        "function": {
+          "functionId": "share",
+          "region": "us-central1"
+        }
+      },
+      {
+        "source": "/h/**",
+        "function": {
+          "functionId": "share",
+          "region": "us-central1"
+        }
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

@@ -1358,7 +1358,7 @@ function renderNight(n, id) {
   const cands = Object.entries(n.candidates || {}).map(([mid, c]) => ({ mid, c, m: S.byId.get(mid), v: tally[mid] || 0 })).filter((x) => x.m).sort((a, b) => b.v - a.v || a.m.t.localeCompare(b.m.t));
   const winner = n.winner && S.byId.get(String(n.winner));
   const queueIdeas = [...S.mine.entries()].filter(([mid, st]) => st.status === 'queue' && !n.candidates?.[mid]).map(([mid]) => S.byId.get(mid)).filter(Boolean).slice(0, 8);
-  const link = location.href.split('#')[0] + '#/night/' + id;
+  const link = shortLink('n', id);
   el.innerHTML = `
   <div class="page-head"><h1>${esc(n.title)}</h1><p class="muted">${n.date ? esc(n.date) + '. ' : ''}With ${n.members.map((u) => esc(n.memberNames?.[u] || 'Guest')).join(', ')}</p></div>
   ${winner ? `<div class="list-item with-art winner">${thumb(winner)}<div><div class="muted" style="font-size:.88rem">We're watching</div><div class="t" style="font-size:1.3rem;font-family:var(--font-display)">${esc(winner.t)} <span class="faint">${winner.y ?? ''}</span></div><div class="muted" style="font-size:.88rem">${esc(servicesText(winner))}</div></div>
@@ -2702,7 +2702,23 @@ function avatarPicker() {
   </section>`;
 }
 const handleOf = (p) => (p?.handle ? `@${p.handle}` : '');
-function inviteLink() { return `${location.origin}${location.pathname}#/u/${encodeURIComponent(S.social?.handle || S.user?.uid || '')}`; }
+// Short links on the real site (screamqueue.web.app/h/dan): a small server page gives chat apps a preview, then opens
+// the page. Local copies and test mode use the full #/ address.
+const LIVE_HOST = /\.web\.app$|\.firebaseapp\.com$/.test(location.hostname) && !DEMO;
+function shortLink(kind, key) {
+  const k = encodeURIComponent(key);
+  if (LIVE_HOST) return `${location.origin}/${kind}/${k}`;
+  return kind === 'm' ? `${location.origin}${location.pathname}?m=${k}` : `${location.origin}${location.pathname}${location.search}#/${{ h: 'season', u: 'u', l: 'list', n: 'night', v: 'vs' }[kind]}/${k}`;
+}
+// Share sheet on phones; copy on computers. Only the link goes out: some apps glue extra text onto the end of the
+// link, and the preview already shows the title.
+async function shareLink(url, title) {
+  try {
+    if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ title, url }); return; }
+    await navigator.clipboard.writeText(url); toast('Link copied. Paste it anywhere', 'link');
+  } catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+}
+function inviteLink() { return shortLink('u', S.social?.handle || S.user?.uid || ''); }
 // One load at a time: overlapping calls share the same request instead of racing each other.
 let socialLoading = null;
 function loadSocial() { if (!socialLoading) socialLoading = loadSocialNow().finally(() => { socialLoading = null; }); return socialLoading; }
@@ -3380,20 +3396,10 @@ const actions = {
   // The link (screamqueue.web.app/?m=<id>) opens the site with that card showing.
   async shareitem(el) {
     const m = S.byId.get(String(el.dataset.id)); if (!m) return;
-    // On the real site the link is /m/<id>: a small server page gives chat apps the title, description and picture
-    // for the preview, then opens the card. Anywhere else (local copies) it's ?m=<id>.
-    const url = /\.web\.app$|\.firebaseapp\.com$/.test(location.hostname) ? `${location.origin}/m/${encodeURIComponent(m.id)}` : `${location.origin}/?m=${encodeURIComponent(m.id)}`;
-    const where = servicesText(m).replace(/ \+\d+$/, ' and more');
-    const text = `${m.t}${m.y ? ` (${m.y})` : ''}${m.type === 'tv' ? ' · horror series' : ''}${where && !/^(Not streaming|Rent or buy)$/.test(where) ? ` · streaming on ${where}` : ''}`;
-    try {
-      if (navigator.share) { await navigator.share({ title: m.t, text, url }); return; }
-      await navigator.clipboard.writeText(`${text}\n${url}`); toast('Link copied. Paste it anywhere', 'link');
-    } catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+    await shareLink(shortLink('m', m.id), m.t);
   },
   async vsshare(el) {
-    const url = `${location.origin}${location.pathname}#/vs/${el.dataset.id}`;
-    try { if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ url, title: document.title }); return; } await navigator.clipboard.writeText(url); toast('Link copied', 'link'); }
-    catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+    await shareLink(shortLink('v', el.dataset.id), document.title);
   },
   vsbadd(el) {
     S.vsb.entries.push({ l: el.dataset.l, m: Number(el.dataset.id) || null });
@@ -3450,8 +3456,8 @@ const actions = {
     catch (e) { console.warn(e); toast('That didn\'t save. Try again.', 'x'); }
   },
   async lshare(el) {
-    const url = `${location.origin}${location.pathname}#/list/${el.dataset.id}`;
-    try { if (navigator.share && matchMedia('(hover: none)').matches) { await navigator.share({ url, title: document.title }); return; } await navigator.clipboard.writeText(url); toast('Link copied', 'link'); }
+    const url = shortLink('l', el.dataset.id);
+    try { await shareLink(url, document.title); }
     catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
   },
   async ladd(el) { const id = el.dataset.id, l = listCache.get(id); await saveListItems(id, [...(l.items || []), Number(el.dataset.k)]); toast('Added', 'check'); await route(true, true); const i = $('#l-add'); if (i) { i.focus(); } },
@@ -3545,11 +3551,8 @@ const actions = {
     await refreshAll();
   },
   async hsshare() {
-    const y = lastSeasonYear(), list = seasonList(S.mine, y);
-    const url = `${location.origin}/#/season/${encodeURIComponent(S.social?.handle || S.user.uid)}`;
-    const text = `My Halloween ${y}: ${list.length} horror movie${list.length === 1 ? '' : 's'} so far${list.length ? `, including ${list.slice(0, 3).map((x) => x.m.t).join(', ')}` : ''}.`;
-    try { if (navigator.share) { await navigator.share({ title: `My Halloween ${y}`, text, url }); return; } await navigator.clipboard.writeText(`${text}\n${url}`); toast('Copied. Paste it anywhere', 'link'); }
-    catch (e) { if (e?.name !== 'AbortError') prompt('Copy this link', url); }
+    const y = lastSeasonYear();
+    await shareLink(shortLink('h', S.social?.handle || S.user.uid), `My Halloween ${y}`);
   },
   async hswatch(el) { // "Watched it this Halloween": logs a season watch (counts as seen if it's new to you)
     if (!needUser()) return;

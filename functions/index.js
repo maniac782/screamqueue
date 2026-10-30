@@ -218,9 +218,90 @@ async function shareCatalog() {
   }
   return shareData;
 }
+// Short share links: /h/<username> (Halloween list), /u/<username> (profile), /l/<id> (list), /n/<id> (movie night),
+// /v/<id> (VS bracket). Chat apps get a title, description and picture for the preview; people get sent on to the page.
+// Only public profiles show their name and numbers in the preview.
+function previewPage(res, {title, desc, img, url, back}) {
+  res.set('Cache-Control', 'public, max-age=300, s-maxage=600');
+  res.set('Content-Type', 'text/html; charset=utf-8');
+  res.send('<!doctype html><html lang="en"><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>' + esc(title) + '</title><meta name="description" content="' + esc(desc) + '">' +
+    '<meta property="og:site_name" content="Scream Queue"><meta property="og:type" content="website">' +
+    '<meta property="og:title" content="' + esc(title) + '"><meta property="og:description" content="' + esc(desc) + '">' +
+    '<meta property="og:image" content="' + esc(img) + '"><meta property="og:url" content="' + esc(url) + '">' +
+    '<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="' + esc(title) + '">' +
+    '<meta name="twitter:description" content="' + esc(desc) + '"><meta name="twitter:image" content="' + esc(img) + '">' +
+    '<meta name="theme-color" content="#0f1013"><meta http-equiv="refresh" content="0; url=' + esc(back) + '">' +
+    '<script>location.replace(' + JSON.stringify(back) + ')</script></head>' +
+    '<body style="background:#0f1013;color:#eee;font-family:system-ui,sans-serif;padding:24px"><p>Opening <a style="color:#ff4057" href="' + esc(back) + '">' + esc(title) + '</a>…</p></body></html>');
+}
+const seasonYear = () => { const d = new Date(new Date().toLocaleString('en-US', {timeZone: 'America/New_York'})); return d.getMonth() < 8 ? d.getFullYear() - 1 : d.getFullYear(); };
+async function profileByHandle(key) {
+  let uid = key;
+  if (!/^[A-Za-z0-9]{20,}$/.test(key)) { const u = await db.doc('usernames/' + key.toLowerCase()).get(); if (!u.exists) return null; uid = u.data().uid; }
+  const p = await db.doc('profiles/' + uid).get();
+  return p.exists ? {uid, ...p.data()} : null;
+}
+async function shortLink(kind, key, site, res) {
+  const hashFor = {h: 'season', u: 'u', l: 'list', n: 'night', v: 'vs'}[kind];
+  const back = site + '/#/' + hashFor + '/' + encodeURIComponent(key);
+  const url = site + '/' + kind + '/' + encodeURIComponent(key);
+  let title = 'Scream Queue', desc = 'Find the horror movie to watch next.', img = site + '/icons/og.jpg';
+  try {
+    if (kind === 'h' || kind === 'u') {
+      const pc = await profileByHandle(key);
+      const pub = pc && pc.privacy?.profile === 'public';
+      const name = pub ? (pc.name || '@' + pc.handle) : null;
+      const y = seasonYear();
+      if (kind === 'h') {
+        title = name ? name + '\'s Halloween ' + y : 'A Halloween ' + y + ' list on Scream Queue';
+        desc = 'Every horror movie watched this Halloween season.';
+        if (pub) {
+          const {byId, posters} = await shareCatalog();
+          const snap = await db.collection('users/' + pc.uid + '/movies').get();
+          const list = snap.docs.map((d) => ({m: byId.get(d.id), on: d.data().hs?.[y]})).filter((x) => x.on && x.m).sort((a, b) => String(b.on).localeCompare(String(a.on)));
+          if (list.length) {
+            desc = list.length + ' horror movie' + (list.length === 1 ? '' : 's') + ' so far, including ' + list.slice(0, 3).map((x) => x.m.t).join(', ') + '.';
+            const pic = list.find((x) => x.m.bd);
+            if (posters && pic) img = 'https://image.tmdb.org/t/p/w1280' + pic.m.bd;
+          }
+        }
+      } else {
+        title = name ? name + ' on Scream Queue' : 'A Scream Queue profile';
+        desc = pub && pc.bc ? 'Body Count: ' + pc.bc + ' horror movies survived. See what they\'ve watched and rated.' : 'See their Body Count, ratings and queue on Scream Queue.';
+      }
+    } else if (kind === 'l') {
+      const l = await db.doc('lists/' + key).get();
+      if (l.exists && l.data().vis === 'public') {
+        const d = l.data();
+        title = (d.title || 'A horror list') + (d.name ? ' · by ' + d.name : '');
+        desc = (d.items || []).length + ' horror movies' + (d.desc ? '. ' + String(d.desc).slice(0, 180) : '');
+        const {byId, posters} = await shareCatalog();
+        const pic = (d.items || []).map((i) => byId.get(String(i))).find((m) => m && m.bd);
+        if (posters && pic) img = 'https://image.tmdb.org/t/p/w1280' + pic.bd;
+      } else title = 'A horror movie list on Scream Queue';
+    } else if (kind === 'n') {
+      title = 'Join my horror movie night';
+      desc = 'Suggest movies and vote on what we watch, on Scream Queue.';
+    } else if (kind === 'v') {
+      const v = await db.doc('vs/' + key).get();
+      title = v.exists && v.data().title ? v.data().title + ' · Scream Queue VS' : 'Horror VS on Scream Queue';
+      desc = 'Pick a winner in each matchup.';
+    }
+  } catch (e) { logger.warn('short link preview failed', {kind, key, e: String(e)}); }
+  previewPage(res, {title, desc, img, url, back});
+}
+
 exports.share = onRequest({maxInstances: 3, memory: '256MiB'}, async (req, res) => {
-  const id = decodeURIComponent(String(req.path || '').replace(/^\/+m\/+/, '').split('/')[0] || '').trim();
   const site = SITE_URL.value();
+  const [kind, raw] = String(req.path || '').replace(/^\/+/, '').split('/');
+  const key = decodeURIComponent(raw || '').trim();
+  if (kind !== 'm') {
+    if (!key || !/^[A-Za-z0-9_-]{1,64}$/.test(key) || !['h', 'u', 'l', 'n', 'v'].includes(kind)) { res.redirect(302, site + '/'); return; }
+    await shortLink(kind, key, site, res); return;
+  }
+  const id = key;
   const back = site + '/' + (id ? '?m=' + encodeURIComponent(id) : '');
   try {
     const {byId, prov, posters} = await shareCatalog();
