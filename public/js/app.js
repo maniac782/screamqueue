@@ -1232,6 +1232,8 @@ views.pick = () => {
 
 // Queue
 // Sorting for both My Queue tabs (remembered per tab while you're on the site).
+// When something went into the queue: queued time if known (rewatches included), else when it was first added.
+const qTime = (st) => st.qAt || st.added || st.at || 0;
 const Q_SORTS = {
   queue: [['added', 'Recently added'], ['oldest', 'Added longest ago'], ['foryou', 'Best match for you'], ['mine', 'On my services first'], ['rated', 'Highest rated'], ['short', 'Shortest first'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
   seen: [['watched', 'Recently watched'], ['recent', 'First seen, newest'], ['rating', 'Your highest rated'], ['low', 'Your lowest rated'], ['title', 'Title A to Z'], ['year', 'Newest releases'], ['old', 'Oldest releases']],
@@ -1241,9 +1243,9 @@ function sortQueue(rows, tab, k) {
   const t = (a, b) => a.m.t.localeCompare(b.m.t);
   const score = (m) => m.imdb?.r ?? m.va ?? 0;
   const by = {
-    added: (a, b) => (b.st.added || b.st.at) - (a.st.added || a.st.at), oldest: (a, b) => (a.st.added || a.st.at) - (b.st.added || b.st.at),
+    added: (a, b) => qTime(b.st) - qTime(a.st), oldest: (a, b) => qTime(a.st) - qTime(b.st),
     foryou: (a, b) => recScore(b.m) - recScore(a.m) || score(b.m) - score(a.m),
-    mine: (a, b) => onMine(b.m) - onMine(a.m) || (b.st.added || b.st.at) - (a.st.added || a.st.at),
+    mine: (a, b) => onMine(b.m) - onMine(a.m) || qTime(b.st) - qTime(a.st),
     rated: (a, b) => score(b.m) - score(a.m) || t(a, b),
     short: (a, b) => (a.m.rt || 999) - (b.m.rt || 999) || t(a, b),
     recent: (a, b) => (b.st.seenOn || '').localeCompare(a.st.seenOn || '') || (b.st.added || b.st.at) - (a.st.added || a.st.at),
@@ -3572,7 +3574,7 @@ const actions = {
       await sendOff(el.dataset.id, 'remove');
     } else {
       markJust(el.dataset.id, 'q'); // a rewatch keeps its stamp and rating; only the queue drip is added
-      await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true } : { status: 'queue' });
+      await setStatus(el.dataset.id, st?.status === 'seen' ? { status: 'queue', wasSeen: true, qAt: Date.now() } : { status: 'queue', qAt: Date.now() }); // qAt: when it was queued (rewatches go to the top)
       const leaving = await willVanish(el.dataset.id);
       burst(null, 'pop', r); if (!leaving) flyTo(r, QUEUE_TARGETS, 'bookmark');
       toast(st?.status === 'seen' ? 'Queued for a rewatch' : 'Added to your queue', 'bookmark', undoTo(el.dataset.id, prev));
