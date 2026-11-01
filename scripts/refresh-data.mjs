@@ -236,7 +236,7 @@ async function main() {
   // The free key allows ~1,000 calls a day, so each night we fill movies that have no scores yet
   // (most popular first), then refresh the stalest ones. A full first pass takes about 5 nights.
   const thisYear = new Date().getFullYear();
-  const keep = (imdbId, prev) => ({ id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, tom: prev?.tom ?? null, mc: prev?.mc ?? null, at: prev?.at ?? null });
+  const keep = (imdbId, prev) => ({ id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, tom: prev?.tom ?? null, mc: prev?.mc ?? null, at: prev?.at ?? null, ...(prev?.tomWd ? { tomWd: 1 } : {}) });
   const omdb = new Map();
   let omdbCalls = 0;
   if (OMDB_KEY) {
@@ -268,10 +268,54 @@ async function main() {
     });
     console.log(`OMDb: ${need.length} movies wanted scores, made ${omdbCalls} calls${limited ? ' (stopped at the daily limit)' : ''}.`);
   }
+  // OMDb has no Rotten Tomatoes score for a lot of movies (even well-known ones like Talk to Me). Wikidata (free, CC0)
+  // records Tomatometer scores for many films, so it fills the gaps. Only used when OMDb has none.
+  const wdTom = new Map();
+  {
+    const want = [];
+    for (const d of details) {
+      if (!d || !(isHorror(d) || keepAnyway(d))) continue;
+      const imdbId = d.external_ids?.imdb_id || d.imdb_id; if (!imdbId || !/^tt\d+$/.test(imdbId)) continue;
+      const cur = omdb.get(d.id) || prevById.get(d.id)?.imdb;
+      if (cur?.tom == null || cur?.tomWd) want.push(imdbId);
+    }
+    const chunks = []; for (let i = 0; i < want.length; i += 250) chunks.push(want.slice(i, i + 250));
+    let got = 0, failed = 0;
+    for (const ids of chunks) {
+      const q = `SELECT ?imdb ?score ?date ?method WHERE {
+        VALUES ?imdb { ${ids.map((x) => `"${x}"`).join(' ')} }
+        ?film wdt:P345 ?imdb . ?film p:P444 ?st . ?st ps:P444 ?score ; pq:P447 wd:Q105584 .
+        OPTIONAL { ?st pq:P585 ?date } OPTIONAL { ?st pq:P459 ?method } }`;
+      try {
+        const res = await fetch('https://query.wikidata.org/sparql', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/sparql-results+json', 'User-Agent': 'ScreamQueueBot/1.0 (https://screamqueue.web.app; nightly data refresh)' },
+          body: 'query=' + encodeURIComponent(q),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const best = new Map();
+        for (const b of (await res.json()).results.bindings) {
+          const method = b.method?.value || '';
+          if (method && !/Q108403393$/.test(method)) continue; // Tomatometer only, not the audience score
+          const m = String(b.score.value).match(/^(\d{1,3})\s*(%|\/\s*100)?$/); if (!m) continue;
+          const v = Number(m[1]); if (v > 100) continue;
+          const date = b.date?.value || '';
+          const prev = best.get(b.imdb.value);
+          if (!prev || date > prev.date) best.set(b.imdb.value, { v, date });
+        }
+        for (const [k, x] of best) { wdTom.set(k, x.v); got++; }
+      } catch (e) { failed++; console.warn('Wikidata Rotten Tomatoes lookup failed:', e.message); }
+      await sleep(1500);
+    }
+    console.log(`Wikidata: ${want.length} movies had no Rotten Tomatoes score from OMDb, found ${got}${failed ? ` (${failed} of ${chunks.length} batches failed)` : ''}.`);
+  }
   function imdbFor(d) {
     const imdbId = d.external_ids?.imdb_id || d.imdb_id;
     if (!imdbId) return null;
-    return omdb.get(d.id) || keep(imdbId, prevById.get(d.id)?.imdb);
+    const o = { ...(omdb.get(d.id) || keep(imdbId, prevById.get(d.id)?.imdb)) };
+    if (o.tomWd && !omdb.has(d.id)) { o.tom = null; delete o.tomWd; } // drop last night's fill-in; re-applied below if still known
+    if (o.tom == null && wdTom.has(imdbId)) { o.tom = wdTom.get(imdbId); o.tomWd = 1; }
+    return o;
   }
 
   // Best YouTube trailer: official English trailers first, then teasers; the earliest one is usually the main trailer.
@@ -467,7 +511,7 @@ async function main() {
     }
     if (o.imdb) {
       omdbState[o.id] = o.imdb;
-      const { at, ...rest } = o.imdb; const im = {}; for (const [k, v] of Object.entries(rest)) if (v != null) im[k] = v; o.imdb = im;
+      const { at, tomWd, ...rest } = o.imdb; const im = {}; for (const [k, v] of Object.entries(rest)) if (v != null) im[k] = v; o.imdb = im;
     }
     if (o.n) { const n = {}; if (o.n.votes != null) n.votes = o.n.votes; if (o.n.trakt != null) n.trakt = o.n.trakt; if (Object.keys(n).length) o.n = n; else delete o.n; }
     if (o.wl && WL.test(o.wl)) { delete o.wl; o.w = 1; }
