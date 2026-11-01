@@ -1866,3 +1866,4 @@ a.stat.link b { color: var(--pumpkin); }
 .hero-dot::before { content: ''; width: 8px; height: 8px; border-radius: 99px; background: rgba(255,255,255,.4); transition: width .3s var(--ease), background .3s; }
 .hero-dot.on::before { width: 22px; background: #fff; }
 .hero-dot:focus-visible { outline: 2px solid #fff; outline-offset: -4px; border-radius: 99px; }
+img.ic.tom { object-fit: contain; vertical-align: -0.2em; }

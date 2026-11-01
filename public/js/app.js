@@ -206,8 +206,9 @@ function releaseHTML(m) {
 function rating(m) { const r = m.imdb?.r ?? (m.va ? Number(m.va.toFixed(1)) : null); return r ? `${icon('star')}${r}` : ''; }
 // Critics score from Rotten Tomatoes (via OMDb). Fresh is 60% and up. Icons are drawn for this site, not RT's logos.
 const tom = (m) => m.imdb?.tom ?? null;
-const TOMATO = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.4c4.9 0 8.6 3 8.6 7.1S16.9 20.8 12 20.8 3.4 17.6 3.4 13.5 7.1 6.4 12 6.4z" fill="#f2332a"/><path d="M12 6.8 9.4 4.2l2.6 1.1 1.2-2.1.6 2.4 2.6-.4-2 2.1" fill="#3aa64c"/><ellipse cx="8.6" cy="11.4" rx="1.8" ry="1.1" fill="#fff" opacity=".45"/></svg>';
-const SPLAT = '<svg class="ic tom" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.2l1.6 3.4 3.4-2-.6 3.8 3.9.4-2.9 2.6 3 2.4-3.9.6.8 3.8-3.5-1.8-1.8 3.4-1.6-3.5-3.5 1.7.9-3.8-3.9-.7 3.1-2.3-2.8-2.7 3.9-.3-.5-3.8 3.3 2.1z" fill="#2f9e52"/></svg>';
+// Rotten Tomatoes' own fresh/rotten icons (Wikimedia Commons; public domain artwork, trademark of Fandango).
+const TOMATO = '<img class="ic tom" src="icons/rt/Rotten_Tomatoes.svg" alt="" aria-hidden="true" width="16" height="16">';
+const SPLAT = '<img class="ic tom" src="icons/rt/Rotten_Tomatoes_rotten.svg" alt="" aria-hidden="true" width="16" height="16">';
 // Trailer on YouTube (opens the YouTube app on phones). Falls back to a YouTube search when TMDB has none.
 function trailerUrl(m) { return m.yt ? `https://www.youtube.com/watch?v=${encodeURIComponent(m.yt)}` : `https://www.youtube.com/results?search_query=${encodeURIComponent(`${m.t} ${m.y || ''} trailer`)}`; }
 function trailerBtn(m, cls = '') {
