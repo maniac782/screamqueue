@@ -1,0 +1,21 @@
+name: Fetch RT icons (one-off)
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p public/icons/rt
+          UA="ScreamQueue/1.0 (https://screamqueue.web.app)"
+          for f in Rotten_Tomatoes.svg Rotten_Tomatoes_rotten.svg; do
+            echo "== $f"
+            curl -sSL -A "$UA" "https://commons.wikimedia.org/w/api.php?action=query&titles=File:$f&prop=imageinfo&iiprop=url|extmetadata&format=json" | python3 -c "import json,sys; d=json.load(sys.stdin); [print(p.get('title'), (p.get('imageinfo') or [{}])[0].get('url'), {k:v.get('value') for k,v in ((p.get('imageinfo') or [{}])[0].get('extmetadata') or {}).items() if k in ('LicenseShortName','Copyrighted','Restrictions','ObjectName')}) for p in d['query']['pages'].values()]"
+            curl -sSL -A "$UA" -o "public/icons/rt/$f" "https://commons.wikimedia.org/wiki/Special:FilePath/$f" || true
+            head -c 300 "public/icons/rt/$f"; echo
+          done
+          ls -la public/icons/rt
+          git config user.name "github-actions[bot]"; git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add public/icons/rt && git commit -m "Add Rotten Tomatoes icons from Wikimedia Commons" && git push || echo "nothing to commit"
