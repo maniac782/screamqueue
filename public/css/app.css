@@ -1849,7 +1849,7 @@ a.stat.link b { color: var(--pumpkin); }
 .feat-until b { color: var(--accent); }
 
 /* ---------- hero carousel (several featured movies) ---------- */
-.hero-slide { grid-area: 1 / 1; position: relative; display: grid; align-items: end; isolation: isolate; min-height: inherit; }
+.hero-slide { grid-area: 1 / 1; align-self: stretch; position: relative; display: grid; align-items: end; isolation: isolate; min-height: inherit; } /* stretch: every card fills the full height, even when another card has more text */
 .hero-rot { touch-action: pan-y; }
 /* the new card fades in slowly on top; the old one stays put underneath until it's covered, so there's no dark dip */
 .hero-rot .hero-slide { opacity: 0; visibility: hidden; z-index: 0; transition: opacity 0s linear 2.2s, visibility 0s linear 2.2s; }
