@@ -1859,7 +1859,8 @@ a.stat.link b { color: var(--pumpkin); }
 .hero-rot .hero-slide:not(.on) .hero-body { opacity: 0; transform: translateY(6px); }
 .hero-rot .hero-slide.on .hero-body { transition: opacity 1.2s ease .9s, transform 1.4s cubic-bezier(.2, .7, .2, 1) .9s; }
 .hero-rot .hero-slide .art, .hero-rot .hero-slide .hero-body > * { animation: none !important; }
-@media (prefers-reduced-motion: no-preference) {
+/* the slow zoom is for computers only: on phones the scaled picture showed a gray haze */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (min-width: 721px) {
   .hero-rot .hero-slide.on .art { animation: heroDrift 12s linear both !important; }
 }
 @keyframes heroDrift { from { transform: scale(1.07); } to { transform: scale(1); } }
