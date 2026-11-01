@@ -25,6 +25,7 @@ const TMDB_TOKEN = process.env.TMDB_READ_TOKEN;
 const TMDB_KEY = process.env.TMDB_API_KEY;
 const TRAKT_ID = process.env.TRAKT_CLIENT_ID;
 const OMDB_KEY = process.env.OMDB_API_KEY;
+const MDBLIST_KEY = process.env.MDBLIST_API_KEY; // optional; fresher Rotten Tomatoes scores for new releases (free key: 1,000 calls a day)
 const OMDB_MAX_CALLS = Number(process.env.OMDB_MAX_CALLS || 950); // free OMDb tier is 1,000/day
 const OMDB_STALE_DAYS_NEW = 7;       // movies from this year or last: scores still moving
 const OMDB_STALE_DAYS_OLD = 45;      // older movies barely change
@@ -236,7 +237,7 @@ async function main() {
   // The free key allows ~1,000 calls a day, so each night we fill movies that have no scores yet
   // (most popular first), then refresh the stalest ones. A full first pass takes about 5 nights.
   const thisYear = new Date().getFullYear();
-  const keep = (imdbId, prev) => ({ id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, tom: prev?.tom ?? null, mc: prev?.mc ?? null, at: prev?.at ?? null, ...(prev?.tomWd ? { tomWd: 1 } : {}) });
+  const keep = (imdbId, prev) => ({ id: imdbId, r: prev?.r ?? null, v: prev?.v ?? null, tom: prev?.tom ?? null, mc: prev?.mc ?? null, at: prev?.at ?? null, ...(prev?.tomWd ? { tomWd: 1 } : {}), ...(prev?.mdbAt ? { mdbAt: prev.mdbAt } : {}) });
   const omdb = new Map();
   let omdbCalls = 0;
   if (OMDB_KEY) {
@@ -247,7 +248,7 @@ async function main() {
       const prev = prevById.get(d.id)?.imdb;
       const y = d.release_date ? Number(d.release_date.slice(0, 4)) : thisYear;
       const age = prev?.at ? (Date.now() - Date.parse(prev.at)) / 86400000 : Infinity;
-      const stale = y >= thisYear - 1 ? OMDB_STALE_DAYS_NEW : OMDB_STALE_DAYS_OLD;
+      const stale = y >= thisYear - 1 ? (prev?.r == null || prev?.tom == null ? 1 : OMDB_STALE_DAYS_NEW) : OMDB_STALE_DAYS_OLD; // new movies still missing scores: check again daily
       if (age < stale && prev?.tom !== undefined) continue;
       need.push({ d, imdbId, prev, missing: !prev?.at || prev?.tom === undefined, age, pop: d.popularity || 0 });
     }
@@ -309,12 +310,56 @@ async function main() {
     }
     console.log(`Wikidata: ${want.length} movies had no Rotten Tomatoes score from OMDb, found ${got}${failed ? ` (${failed} of ${chunks.length} batches failed)` : ''}.`);
   }
+  // MDBList: the freshest free source for new releases (OMDb and Wikidata can take weeks to get a new movie's scores).
+  // Released movies still missing a Rotten Tomatoes score, most popular first; new ones are checked daily, older ones monthly.
+  const mdb = new Map();
+  if (MDBLIST_KEY) {
+    const today = new Date().toISOString().slice(0, 10);
+    const want = [];
+    for (const d of details) {
+      if (!d || !(isHorror(d) || keepAnyway(d))) continue;
+      const imdbId = d.external_ids?.imdb_id || d.imdb_id; if (!imdbId) continue;
+      if (!d.release_date || d.release_date > today) continue;
+      const cur = omdb.get(d.id) || prevById.get(d.id)?.imdb;
+      if (cur?.tom != null && !cur?.tomWd) continue;
+      if (wdTom.has(imdbId) && cur?.tom != null) continue;
+      const y = Number(d.release_date.slice(0, 4));
+      const age = cur?.mdbAt ? (Date.now() - Date.parse(cur.mdbAt)) / 86400000 : Infinity;
+      if (age < (y >= thisYear - 1 ? 1 : 30)) continue;
+      want.push({ d, imdbId, pop: d.popularity || 0 });
+    }
+    want.sort((a, b) => b.pop - a.pop);
+    let calls = 0, found = 0, stop = false;
+    for (const { d, imdbId } of want.slice(0, 900)) {
+      if (stop) break;
+      calls++;
+      try {
+        const res = await fetch(`https://api.mdblist.com/imdb/movie/${imdbId}?apikey=${MDBLIST_KEY}`);
+        if (res.status === 429 || res.status === 401 || res.status === 403) { stop = true; console.warn('MDBList stopped: HTTP ' + res.status); break; }
+        if (!res.ok) continue;
+        const j = await res.json();
+        const val = (src) => { const r = (j.ratings || []).find((x) => x.source === src); const v = Number(r?.value); return r && r.value != null && Number.isFinite(v) && v > 0 ? { v, votes: Number(r.votes) || null } : null; };
+        const t = val('tomatoes'), im = val('imdb'), mc = val('metacritic');
+        mdb.set(d.id, { tom: t ? Math.round(t.v) : null, r: im ? im.v : null, v: im?.votes || null, mc: mc ? Math.round(mc.v) : null, at: new Date().toISOString() });
+        if (t) found++;
+      } catch (e) { console.warn('MDBList lookup failed for', imdbId, e.message); }
+      await sleep(120);
+    }
+    console.log(`MDBList: ${want.length} movies wanted a Rotten Tomatoes score, made ${calls} calls, found ${found}.`);
+  }
   function imdbFor(d) {
     const imdbId = d.external_ids?.imdb_id || d.imdb_id;
     if (!imdbId) return null;
     const o = { ...(omdb.get(d.id) || keep(imdbId, prevById.get(d.id)?.imdb)) };
     if (o.tomWd && !omdb.has(d.id)) { o.tom = null; delete o.tomWd; } // drop last night's fill-in; re-applied below if still known
     if (o.tom == null && wdTom.has(imdbId)) { o.tom = wdTom.get(imdbId); o.tomWd = 1; }
+    const x = mdb.get(d.id);
+    if (x) {
+      o.mdbAt = x.at;
+      if (x.tom != null && (o.tom == null || o.tomWd)) { o.tom = x.tom; delete o.tomWd; }
+      if (o.r == null && x.r != null) { o.r = x.r; o.v = x.v; }
+      if (o.mc == null && x.mc != null) o.mc = x.mc;
+    }
     return o;
   }
 
@@ -511,7 +556,7 @@ async function main() {
     }
     if (o.imdb) {
       omdbState[o.id] = o.imdb;
-      const { at, tomWd, ...rest } = o.imdb; const im = {}; for (const [k, v] of Object.entries(rest)) if (v != null) im[k] = v; o.imdb = im;
+      const { at, tomWd, mdbAt, ...rest } = o.imdb; const im = {}; for (const [k, v] of Object.entries(rest)) if (v != null) im[k] = v; o.imdb = im;
     }
     if (o.n) { const n = {}; if (o.n.votes != null) n.votes = o.n.votes; if (o.n.trakt != null) n.trakt = o.n.trakt; if (Object.keys(n).length) o.n = n; else delete o.n; }
     if (o.wl && WL.test(o.wl)) { delete o.wl; o.w = 1; }
