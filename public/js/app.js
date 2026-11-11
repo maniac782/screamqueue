@@ -906,11 +906,11 @@ function friendPicks() {
 // The big movie at the top. With several featured movies it becomes a carousel that rotates every 10 seconds
 // (dots to jump, swipe on phones, pauses while hovered or while a card is open).
 let heroIdx = 0, heroLast = Date.now();
-function heroSlide(m, isFeat, on) {
+function heroSlide({ m, ic, label }, on) {
   return `<div class="hero-slide${on ? ' on' : ''}" ${on ? '' : 'aria-hidden="true"'}>
     ${wideArt(m)}<div class="shade"></div>
     <div class="hero-body">
-      <span class="eyebrow">${icon(isFeat ? 'star' : 'flame')}${isFeat ? 'Featured tonight' : esc(trendLine(m).b)}</span>
+      <span class="eyebrow">${icon(ic)}${esc(label)}</span>
       <h1>${esc(m.t)}</h1>
       <div class="facts">${[m.y, m.rt && `${m.rt} min`, m.cert].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('')}${rating(m) ? `<span class="star">${rating(m)}</span>` : ''}${tomBadge(m)}<span>${esc(servicesText(m))}</span></div>
       ${m.ov ? `<p class="ov">${esc(m.ov)}</p>` : ''}
@@ -918,13 +918,13 @@ function heroSlide(m, isFeat, on) {
     </div>
   </div>`;
 }
-function heroHTML(list, isFeat) {
-  if (list.length < 2) return `<section class="hero" data-key="hero">${heroSlide(list[0], isFeat, true)}</section>`;
+function heroHTML(list) { // list: [{ m, ic, label }]
+  if (list.length < 2) return `<section class="hero" data-key="hero">${heroSlide(list[0], true)}</section>`;
   if (heroIdx >= list.length) heroIdx = 0;
   if (!document.querySelector('.hero-rot')) heroLast = Date.now(); // a fresh visit gets the full 10 seconds
   return `<section class="hero hero-rot" data-key="hero-rot" aria-roledescription="carousel" aria-label="Featured movies">
-    ${list.map((m, i) => heroSlide(m, isFeat, i === heroIdx)).join('')}
-    <div class="hero-dots">${list.map((m, i) => `<button class="hero-dot${i === heroIdx ? ' on' : ''}" data-act="herogo" data-i="${i}" aria-label="Show ${esc(m.t)}"></button>`).join('')}</div>
+    ${list.map((x, i) => heroSlide(x, i === heroIdx)).join('')}
+    <div class="hero-dots">${list.map((m, i) => `<button class="hero-dot${i === heroIdx ? ' on' : ''}" data-act="herogo" data-i="${i}" aria-label="Show ${esc(m.m.t)}"></button>`).join('')}</div>
   </section>`;
 }
 function heroGo(i) {
@@ -973,7 +973,33 @@ views.tonight = () => {
   const comingSoon = S.movies.filter((m) => theaterStatus(m) === 'soon' && !isNope(m)).sort((a, b) => a.th.localeCompare(b.th));
   const critics = pool.filter((m) => (tom(m) ?? 0) >= 90 && m.reach >= 35).sort((a, b) => tom(b) - tom(a) || b.reach - a.reach);
   const divisive = pool.filter((m) => tom(m) != null && tom(m) <= 40 && (m.imdb?.r ?? 0) >= 6.3 && (m.imdb?.v ?? 0) >= 20000).sort((a, b) => (b.imdb.r * 10 - tom(b)) - (a.imdb.r * 10 - tom(a)));
-  const top = featured[0] || mineFirst(hot.filter((m) => m.ov))[0] || hot[0] || pool[0];
+  // Big rotating cards at the top: the movies you featured in Admin first, then automatic picks so there are always
+  // at least 6 and they vary: one each from trending, critics' favorites, fan favorites, cult classics, new releases and
+  // Shudder. The automatic picks change every day (and skip anything you've seen or passed on).
+  const slides = featured.map((m) => ({ m, ic: 'star', label: 'Featured tonight' }));
+  {
+    const used = new Set(slides.map((x) => String(x.m.id)));
+    const art = (m) => !used.has(String(m.id)) && m.ov && m.bd;
+    const day = Math.floor(Date.now() / 86400000);
+    const pick = (list, ic, label, n = 1) => {
+      const ok = mineFirst(list.filter(art)).slice(0, 12); const fall = list.filter(art).slice(0, 12);
+      const from = ok.length ? ok : fall;
+      for (let i = 0; i < n && from.length; i++) { const m = from.splice((day + i * 5) % from.length, 1)[0]; used.add(String(m.id)); slides.push({ m, ic, label: typeof label === 'function' ? label(m) : label }); }
+    };
+    const want = Math.max(0, 6 - slides.length);
+    if (want) {
+      const auto = [
+        () => pick(hot, 'flame', (m) => trendLine(m).b),
+        () => pick(critics, 'check', 'Critics loved it'),
+        () => pick(crowd, 'trophy', 'Fan favorite'),
+        () => pick(newBuzz, 'clock', 'New and talked about'),
+        () => pick(cult, 'skull', 'Cult classic'),
+        () => pick(shudder, 'tv', 'On Shudder'),
+      ];
+      for (const f of auto) { if (slides.length >= featured.length + want) break; f(); }
+      if (slides.length < 2) pick(pool, 'flame', 'Worth a watch', 6 - slides.length);
+    }
+  }
   // TV series shelves
   const tvPool = (S.series || []).filter((m) => !isSeen(m) && !isNope(m));
   const tvTop = mineFirst(tvPool).sort((a, b) => b.buzz - a.buzz);
@@ -985,7 +1011,7 @@ views.tonight = () => {
     <label class="search qs-box"><span class="sr">Search horror movies</span>${icon('search')}<input type="search" id="qs" placeholder="Search horror movies, series, directors or a subgenre" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="qs-list"></label>
     <div class="qs-list" id="qs-list" role="listbox" hidden></div>
   </div>
-  ${top ? heroHTML(featured.length > 1 ? featured : [top], !!featured[0]) : ''}
+  ${slides.length ? heroHTML(slides) : ''}
   ${S.profile.services.length ? '' : `<div class="intro"><p class="muted">Tell us which streaming services you have and the shelves will show what you can watch tonight.</p><a class="btn small" href="${S.user ? '#/settings' : '#/signin'}">${icon('gear')}Add your services</a></div>`}
   ${(() => {
     const t = today(); const mo = t.slice(5, 7), d = Number(t.slice(8, 10));
@@ -1736,7 +1762,7 @@ views.admin = async () => {
     </div>
   </div>
   <div class="stack">
-    <div class="panel stack"><h2>Featured</h2><p class="muted" style="margin:0;font-size:.88rem">They take turns as the big movie at the top of Tonight, rotating every 10 seconds, in this order. Set an end date if you like; leave it blank to keep it featured. Changes save right away.</p><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
+    <div class="panel stack"><h2>Featured</h2><p class="muted" style="margin:0;font-size:.88rem">They take turns as the big movie at the top of Tonight, rotating every 10 seconds, in this order. With fewer than 6, the site adds its own picks to make 6 (one each from trending, critics' favorites, fan favorites, new releases, cult classics and Shudder), changing daily. Set an end date if you like; leave it blank to keep it featured. Changes save right away.</p><div class="list">${listOf(c.featured || [], 'unfeature')}</div>
       <label class="search"><span class="sr">Search a title to feature</span>${icon('search')}<input type="search" id="adm-feat-search" placeholder="Search to feature"></label><div id="adm-feat-results" class="list"></div></div>
     <div class="panel stack"><h2>Add a movie</h2>
       <p class="muted" style="margin:0;font-size:.9rem">For movies TMDB doesn't call horror that you still want here. Halloween favorites like Hocus Pocus are added automatically. Find the movie on <a href="https://www.themoviedb.org" target="_blank" rel="noopener">themoviedb.org</a> and paste its link (or its number).</p>
